@@ -19,7 +19,7 @@ They miss meaning: "send to DUTY" and "never send messages" is a conflict that n
 - Done: judgments are cached by a hash of the rule text and the rubric version. The next export holds only changed rules.
 - Done: the judge runs on demand only. It never runs in the hook. `--dry-run` shows the item count, the tokens and each item with file:line first.
 - Later, optional: a headless runner (`claude -p` per batch) for CI, still without an API key.
-- Next: run it once on a real scan and compare the verdicts with the manual audit.
+- Done: one run on a real scan (296 candidates, 8 subagents). The three conflicts that the manual audit found were judged real; 14 real conflicts and 3 real cost items in all.
 - Done: more conflict candidates. Three conflicts from the manual audit were not drift pairs: two rules in one file, a parent and a child CLAUDE.md that load together, and one protocol written in two repositories.
   `scan` now pairs the rules of one load stack that share a key term and differ in sign or in a message form (`topic`).
   It also pairs rules of two repositories that write one message in different forms (`protocol`). The judge reads both as conflicts.
