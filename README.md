@@ -135,7 +135,7 @@ Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle 
 
 **Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, counting revision, stack totals, verdicts, and open and kept counts.
 Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` and `counting_revision` values are the same.
-`counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. A run without the field counts as 1: whole files.
+`counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. A run without the field counts as 1. That label can be wrong for runs made between commits b0f005e and 7a956ce, which already left the comments out; walle was not released then.
 
 ## Limits
 

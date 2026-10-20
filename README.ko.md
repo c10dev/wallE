@@ -37,7 +37,7 @@ claude.ai에서 동기화한 스킬과 플러그인 스킬은 예산 스택에 �
 한 스택의 `topic`·`protocol` 쌍은 용어나 메시지만 같고 글은 다르다. 실제 파일에서는 대개 같은 말이다. 그래서 `term_clash` 확인 후보로 나머지 묶음에 두고, 여기부터와 판정에는 넣지 않는다. `walle judge`가 읽는다.
 여기부터는 내 파일(폴더의 git 체크아웃과 그 폴더의 MEMORY.md)에서 최대 3개다. 큰 층(MOVE)은 3,600 토큰(`--estimator v1`은 2,000 토큰)을 넘고 스택의 40%를 넘는 내 파일이다. 세션 시작에 읽히는 항목만 판정과 여기부터에 든다.
 DELETE는 넓은 쪽 사본을 남긴다. 지울 줄을 읽는 모든 스택이 남길 줄도 읽을 때만 DELETE이고, `~/.claude/CLAUDE.md` 같은 공용 파일의 줄은 지우라고 하지 않는다.
-두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`와 `counting_revision`이 같을 때만 비교한다. `counting_revision` 2는 Claude Code가 읽는 파일을 HTML 주석 블록 없이 센 실행이다. 이 값이 없는 실행은 1(파일 전체)로 본다.
+두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`와 `counting_revision`이 같을 때만 비교한다. `counting_revision` 2는 Claude Code가 읽는 파일을 HTML 주석 블록 없이 센 실행이다. 이 값이 없는 실행은 1로 본다. b0f005e와 7a956ce 사이의 실행은 이미 주석을 빼고 셌지만 1로 표시된다. 그때 walle는 공개 전이었다.
 
 ## 보는 것
 
