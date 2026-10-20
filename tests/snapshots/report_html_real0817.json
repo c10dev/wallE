@@ -56,12 +56,13 @@
   },
   "atc/controller@claude": {
    "verdict": "OVER BUDGET",
-   "tokens": 12732,
-   "sentence": "~12,700 est. tokens load before your first prompt (budget 8,000). Largest: ./CLAUDE.md ~8,100.",
+   "tokens": 16134,
+   "sentence": "~16,100 est. tokens load before your first prompt (budget 8,000). Largest: ./CLAUDE.md ~8,100.",
    "sums": {
     "shared": 1298,
     "owned": 10462,
-    "skills": 972
+    "memory": 3432,
+    "skills": 942
    },
    "counts": {
     "large layer": 1,
@@ -88,40 +89,47 @@
      "~/.claude/CLAUDE.md",
      1298,
      "shared",
-     10
+     8
     ],
     [
      "ancestor",
      "../CLAUDE.md",
      2314,
      "owned",
-     18
+     14
     ],
     [
      "ancestor",
      "./CLAUDE.md",
      8148,
      "owned",
-     64
+     51
+    ],
+    [
+     "memory",
+     "~/.claude/projects/-tmpX-home-projects-atc/memory/MEMORY.md",
+     3432,
+     "memory",
+     21
     ],
     [
      "skill_catalog",
      "skills",
-     972,
+     942,
      "skills",
-     8
+     6
     ]
    ]
   },
   "atc@claude": {
    "verdict": "LEAN",
-   "tokens": 7952,
-   "sentence": "~7,950 est. tokens load before your first prompt (budget 8,000). 1 item to read in your files.",
+   "tokens": 7923,
+   "sentence": "~7,920 est. tokens load before your first prompt (budget 8,000). 1 item to read in your files.",
    "sums": {
     "shared": 1298,
     "owned": 2314,
     "memory": 3432,
-    "skills": 908
+    "skills": 879
    },
    "counts": {
     "every-task step": 1
@@ -163,7 +171,7 @@
     [
      "skill_catalog",
      "skills",
-     908,
+     879,
      "skills",
      11
     ]
@@ -570,7 +578,7 @@
   "~/projects/atc/controller/CLAUDE.md:45 large layer": {
    "verb": "MOVE",
    "cert": "candidate",
-   "impact": "~3,500 est. tokens · 27% of stack",
+   "impact": "~3,500 est. tokens · 21% of stack",
    "reason": "\"Landing queue\" (lines 45-118) is ~3,500 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
    "blocks": [
     null

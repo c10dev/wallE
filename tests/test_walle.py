@@ -113,7 +113,8 @@ class TreeTest(unittest.TestCase):
         t.write("projects/app/docs/extra.md", "- imported rule\n")
         t.write("projects/app/sub/CLAUDE.md", "- sub rule\n")
         t.write("projects/app/below/CLAUDE.md", "- not loaded from sub\n")
-        slug = memory_slug(t.repo / "sub")
+        # A subfolder loads the memory of its repository root.
+        slug = memory_slug(t.repo)
         t.write(f".claude/projects/{slug}/memory/MEMORY.md", "\n".join(f"- m{i}" for i in range(250)))
         t.write(".claude/skills/s1/SKILL.md", "---\nname: s1\ndescription: does s1\n---\nbody\n")
         t.write(".claude/skills/s2/SKILL.md", "---\nname: s2\ndescription: hidden\ndisable-model-invocation: true\n---\n")
@@ -122,7 +123,7 @@ class TreeTest(unittest.TestCase):
         self.assertEqual(labels, [("global", "CLAUDE.md"), ("ancestor", "CLAUDE.md"), ("import", "extra.md"),
                                   ("ancestor", "CLAUDE.md"), ("memory", "MEMORY.md"), ("skill_catalog", None)])
         self.assertIn("truncated to 200", st.layers[4].note)
-        self.assertIn("1 local skills", st.layers[5].note)
+        self.assertIn("1 skills on disk (user 1)", st.layers[5].note)
 
     def test_codex_stack_cap(self):
         t = self.t

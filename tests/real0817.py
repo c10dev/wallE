@@ -24,9 +24,10 @@ TOKENS = {
     "atc": 2314, "atc memory": 3431, "atc skills": 418, "atc/controller": 8148, "atc/controller skills": 64,
     "vocado_RN claude": 1650, "vocado_RN agents": 1900,
 }
-# Stack totals of the 08:17 run.
+# Stack totals of the 08:17 run. atc/controller was 12732 then: walle looked for MEMORY.md under the
+# subfolder's slug. A session there loads the atc repository's MEMORY.md, so the total now adds "atc memory".
 STACKS = {"runup@claude": 2477, "tennis-web@claude": 3224, "DesignLAB@claude": 6975, "atc@claude": 7951,
-          "atc/controller@claude": 12732, "vocado_RN@codex": 2675}
+          "atc/controller@claude": 16134, "vocado_RN@codex": 2675}
 
 
 def words(seed: str, chars: int) -> str:

@@ -160,14 +160,42 @@ def is_disabled_skill(text: str) -> bool:
 
 
 def frontmatter(text: str) -> dict[str, str]:
+    """Top-level `key: value` pairs of a YAML front matter block.
+
+    Reads block scalars (`>`, `>-`, `|`, `|-`), plain values that go on over indented lines,
+    and quoted values over several lines. Nested keys stay in their parent's text.
+    """
     if not text.startswith("---"):
         return {}
     end = text.find("\n---", 3)
     if end < 0:
         return {}
     out: dict[str, str] = {}
+    key, style, parts = None, "", []
+
+    def close():
+        if key is None:
+            return
+        if style.startswith("|"):
+            value = "\n".join(parts)
+        elif style.startswith(">"):
+            value = " ".join(p for p in parts if p)
+        else:
+            value = " ".join(p for p in parts if p).strip()
+            if len(value) >= 2 and value[0] == value[-1] == '"':
+                value = re.sub(r'\\(.)', lambda m: {"n": "\n", "t": "\t"}.get(m.group(1), m.group(1)), value[1:-1])
+            elif len(value) >= 2 and value[0] == value[-1] == "'":
+                value = value[1:-1].replace("''", "'")
+        out[key] = value.strip()
+
     for line in text[3:end].splitlines():
-        m = re.match(r"([A-Za-z0-9_-]+):\s*(.*)", line)
-        if m:
-            out[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+        m = re.match(r"([A-Za-z0-9_-]+):(?:\s+(.*)|$)", line)
+        if m and not line[0].isspace():
+            close()
+            key, value = m.group(1), (m.group(2) or "").strip()
+            style = value if re.fullmatch(r"[>|][+-]?", value) else ""
+            parts = [] if style or not value else [value]
+        elif key is not None and (line[:1].isspace() or not line.strip()):
+            parts.append(line.strip())
+    close()
     return out

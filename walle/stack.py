@@ -2,11 +2,12 @@
 
 Only loading rules observed on this machine are encoded:
 - Claude Code: ~/.claude/CLAUDE.md, CLAUDE.md / CLAUDE.local.md in the folder and
-  every parent, @imports in those files, MEMORY.md of the folder's project slug
-  (first 200 lines), and the name+description of each skill it can see.
+  every parent, @imports in those files, MEMORY.md of the main repository's slug
+  (first 200 lines or 25 KB), and the name+description of each skill it lists that is
+  on disk (skills.py).
 - Codex: ~/.codex/AGENTS.md, then AGENTS.override.md or AGENTS.md from the
   repository root down to the folder, capped at 32 KiB by default.
-Connector tools and plugin skills from claude.ai are not on disk and are not counted.
+Connector tools and built-in skills are not on disk and are not counted.
 """
 
 from __future__ import annotations
@@ -15,9 +16,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import skills
 from .collect import HOME, Artifact, find_checkout, frontmatter, is_disabled_skill
 
 MEMORY_LINE_LIMIT = 200
+MEMORY_BYTE_LIMIT = 25 * 1024
 CODEX_PROJECT_DOC_MAX = 32 * 1024
 # Name of the token estimator. Change it when estimate_tokens changes: totals of two runs
 # compare only when both used the same estimator.
@@ -37,6 +40,30 @@ def estimate_tokens(text: str) -> int:
 
 def memory_slug(folder: Path) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", str(folder))
+
+
+def memory_folder(folder: Path) -> Path:
+    """The folder whose slug names the auto memory: the main repository root, for its subfolders and
+    worktrees too (seen in instructions attachments: atc/controller and atc worktrees load the atc
+    memory). Outside a repository, the folder itself."""
+    _checkout, repo, _wt = find_checkout(folder)
+    return repo or folder
+
+
+def memory_text(text: str) -> tuple[str, str]:
+    """The part of MEMORY.md a session loads, and a note on the cut: the first 200 lines or 25 KB."""
+    lines = text.splitlines()
+    note = f"{len(lines)} lines"
+    if len(lines) > MEMORY_LINE_LIMIT:
+        lines = lines[:MEMORY_LINE_LIMIT]
+        note += f", truncated to {MEMORY_LINE_LIMIT}"
+    kept = "\n".join(lines)
+    data = kept.encode()
+    if len(data) > MEMORY_BYTE_LIMIT:
+        kept = data[:MEMORY_BYTE_LIMIT].decode(errors="ignore")
+        kept = kept[: kept.rfind("\n")] if "\n" in kept else kept
+        note += f", truncated to {MEMORY_BYTE_LIMIT} bytes"
+    return kept, note
 
 
 @dataclass
@@ -132,15 +159,18 @@ def claude_stack(folder: Path, home: Path = HOME) -> Stack:
                 t = p.read_text(errors="replace")
                 st.layers.append(_layer("ancestor", p, t))
                 st.layers.extend(_imports(p, t))
-    mem = home / ".claude" / "projects" / memory_slug(folder) / "memory" / "MEMORY.md"
+    mem = home / ".claude" / "projects" / memory_slug(memory_folder(folder)) / "memory" / "MEMORY.md"
     if mem.is_file():
-        lines = mem.read_text(errors="replace").splitlines()
-        note = f"{len(lines)} lines" + (f", truncated to {MEMORY_LINE_LIMIT}" if len(lines) > MEMORY_LINE_LIMIT else "")
-        st.layers.append(_layer("memory", mem, "\n".join(lines[:MEMORY_LINE_LIMIT]), note))
-    skill_dirs = list(dict.fromkeys([home / ".claude" / "skills"] + [d / ".claude" / "skills" for d in chain]))
-    text, n = _skill_catalog(skill_dirs)
-    if n:
-        st.layers.append(Layer("skill_catalog", None, len(text.encode()), estimate_tokens(text), f"{n} local skills"))
+        text, note = memory_text(mem.read_text(errors="replace"))
+        st.layers.append(_layer("memory", mem, text, note))
+    listed = [s for s in skills.discover(folder, home) if not s.disabled]
+    if listed:
+        text = "\n".join(s.line for s in listed)
+        by_source: dict[str, int] = {}
+        for s in listed:
+            by_source[s.source] = by_source.get(s.source, 0) + 1
+        note = f"{len(listed)} skills on disk (" + ", ".join(f"{k} {v}" for k, v in by_source.items()) + ")"
+        st.layers.append(Layer("skill_catalog", None, len(text.encode()), estimate_tokens(text), note))
     return st
 
 

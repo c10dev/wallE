@@ -128,7 +128,7 @@ class RealShapeTest(unittest.TestCase):
         self.assertEqual(e["verdict"], "OVER BUDGET")
         first, second, third = self.start("atc/controller@claude")
         self.assertEqual((first["verb"], self.where(first)), ("MOVE", ("projects/atc/controller/CLAUDE.md", 45)))
-        self.assertEqual(first["shares"][f"{self.p}/atc/controller@claude"], 64)
+        self.assertEqual(first["shares"][f"{self.p}/atc/controller@claude"], 51)
         # atc/CLAUDE.md is in the git checkout of atc/controller: it is the user's file there.
         self.assertEqual((second["label"], self.where(second)), ("every_task_step", ("projects/atc/CLAUDE.md", 18)))
         self.assertEqual(third["label"], "model_name")
