@@ -1084,6 +1084,8 @@ function render() {
   const pct = (n) => (100 * n / axis).toFixed(3) + "%";
   const row = D.all.find(s => s.key === V.key);
   const base = row ? row.base : null;
+  // A baseline counted with another estimator is not a change: no bar, no "no change", both estimators named.
+  const sameBase = !D.run.baseline_note;
 
   // stale line
   const ageMs = Date.now() - D.run.generated_ms;
@@ -1104,7 +1106,8 @@ function render() {
     + (V.sums.shared ? `<span><i class="sw f-shared"></i>shared <span class="num">${fmt(V.sums.shared)}</span></span>` : "")
     + (V.sums.skills ? `<span><i class="sw f-skills"></i>skills <span class="num">${fmt(V.sums.skills)}</span></span>` : "")
     + (V.tokens > B ? `<span><i class="sw f-over"></i>over by <span class="num">${fmt(V.tokens - B)}</span></span>` : `<span>room left <span class="num">${fmt(B - V.tokens)}</span></span>`)
-    + (base != null ? `<span><i class="sw base"></i>baseline ${esc(baseTime)} <span class="num">${fmt(base)}</span>${base === V.tokens ? " (no change)" : ""}</span>` : "")
+    + (base != null && sameBase ? `<span><i class="sw base"></i>baseline ${esc(baseTime)} <span class="num">${fmt(base)}</span>${base === V.tokens ? " (no change)" : ""}</span>` : "")
+    + (base != null && !sameBase ? `<span class="muted">baseline ${esc(baseTime)} <span class="num">${fmt(base)}</span> ${esc(D.run.baseline_estimator)} · this run ${esc(D.run.estimator)} · ${esc(D.run.baseline_note)}</span>` : "")
     + `<span class="muted">1 cell = ${int(CELL)} est. tokens</span>`
     + `</p>`;
   const totalTip = `${int(V.bytes)} bytes · bytes-based estimate (estimator ${D.run.estimator})`;
@@ -1122,7 +1125,7 @@ function render() {
       <h1 id="vh"><span class="plate ${chipClass(V.verdict)}">${esc(V.verdict)}</span><span class="bignum"><span class="est" tabindex="0" data-tip="${esc(totalTip)}">${esc(fmt(V.tokens))}</span><small>est. tokens</small></span><span class="vs">${esc(V.sentence.replace(fmt(V.tokens) + " est. tokens ", ""))}</span></h1>
       <div class="meter" aria-hidden="true" style="--cw:${(100 * CELL / axis).toFixed(4)}%">
         ${blabel}
-        <div class="m-track">${base != null ? `<div class="m-base" style="width:${pct(base)}"></div>` : ""}${meterSegs(layers, axis, tipL)}${overHTML(V.tokens, axis)}<div class="m-cells"></div><div class="m-tick" style="left:calc(${budgetLeft.toFixed(3)}% - 1.5px)"></div></div>
+        <div class="m-track">${base != null && sameBase ? `<div class="m-base" style="width:${pct(base)}"></div>` : ""}${meterSegs(layers, axis, tipL)}${overHTML(V.tokens, axis)}<div class="m-cells"></div><div class="m-tick" style="left:calc(${budgetLeft.toFixed(3)}% - 1.5px)"></div></div>
       </div>
       ${labelsRow}${countsRow}
     </div>
@@ -1158,7 +1161,7 @@ function render() {
     + layers.map(L => `<tr><td>${esc(L.label === "skill_catalog" ? "skills" : L.label)}<br><span class="muted">${esc(ownLabel(L.own))}</span></td><td class="p">${L.path ? pathHTML(L.path) : esc(L.note)}</td><td class="r">${fmt(L.tokens)}</td><td class="r">${L.share}%</td></tr>`).join("")
     + `<tr class="cur"><td>total</td><td></td><td class="r">${fmt(V.tokens)}</td><td class="r">100%</td></tr></tbody></table></div>
     <h3 style="margin-top:24px">All folders in this scan · ${D.all.length} stacks</h3>
-    <div class="shead" aria-hidden="true"><span>Folder</span><span class="bh">est. tokens · budget line ${int(B)}</span><span class="r">est. tokens</span><span class="r">vs ${esc(baseTime)}</span></div>
+    <div class="shead" aria-hidden="true"><span>Folder</span><span class="bh">est. tokens · budget line ${int(B)}</span><span class="r">est. tokens</span><span class="r">${D.run.baseline_note ? esc(baseTime + " " + D.run.baseline_estimator) : "vs " + esc(baseTime)}</span></div>
     <div class="srows" id="srows"></div></div></section>`;
 
   // measure
@@ -1361,7 +1364,8 @@ function drawStacks() {
       n++;
       const s = row.s;
       const L = s.layers.map(([label, tokens, own]) => ({label, tokens, own}));
-      const delta = s.base == null ? "-" : (s.tokens - s.base === 0 ? "0" : (s.tokens - s.base > 0 ? "+" : "-") + int(Math.abs(s.tokens - s.base)));
+      const delta = s.base == null ? "-" : D.run.baseline_note ? fmt(s.base)
+        : (s.tokens - s.base === 0 ? "0" : (s.tokens - s.base > 0 ? "+" : "-") + int(Math.abs(s.tokens - s.base)));
       const name = row.ind ? s.short.split("/").slice(1).join("/") || s.short : s.short;
       const tipParts = L.map(x => `${x.label === "skill_catalog" ? "skills" : x.label} ${fmt(x.tokens)}`);
       html += `<button type="button" class="srow${row.ind ? " ind" : ""}" data-k="${esc(s.key)}" aria-current="${s.key === V.key}" data-tip="${esc(tipParts.join(" · ") + " · bytes-based estimate")}" aria-label="${esc(s.short + " " + s.agent + ", " + fmt(s.tokens) + " est. tokens, " + s.verdict)}">`
@@ -1444,15 +1448,16 @@ function drawHistory() {
   const box = $("#hbody");
   const rows = D.history.slice().reverse().slice(0, 10);
   if (!rows.length) { box.innerHTML = `<p class="gnote">No earlier runs of this root.</p>`; return; }
-  let h = `<div class="tblwrap"><table class="tbl"><thead><tr><th>Run</th><th class="hide-s">Label</th><th class="hide-s">Rules</th><th class="r hide-s">Stack sum</th><th class="r">This folder</th><th class="r">Open</th><th class="r hide-s">Kept</th></tr></thead><tbody>`;
+  let h = `<div class="tblwrap"><table class="tbl"><thead><tr><th>Run</th><th class="hide-s">Label</th><th class="hide-s">Rules</th><th class="hide-s">Estimator</th><th class="r hide-s">Stack sum</th><th class="r">This folder</th><th class="r">Open</th><th class="r hide-s">Kept</th></tr></thead><tbody>`;
   rows.forEach((r) => {
     const cur = r.id === D.run.id;
     const t = r.id.slice(4, 6) + "-" + r.id.slice(6, 8) + " " + r.id.slice(9, 11) + ":" + r.id.slice(11, 13);
     const tags = (cur ? " (this)" : "") + (r.id === D.run.baseline ? " (baseline)" : "");
-    const changed = r.rules && r.rules !== D.run.rules_full ? `<span class="muted">rules changed </span>` : "";
-    h += `<tr class="${cur ? "cur" : ""}"><td class="mono">${changed}${esc(t)}${tags}</td><td class="hide-s">${r.label ? esc(r.label) : '<span class="muted">-</span>'}</td><td class="hide-s${r.rules ? " mono" : " muted"}">${r.rules ? esc(r.rules.slice(0, 4)) : "not recorded"}</td><td class="r hide-s">${fmt(r.sum)}</td><td class="r">${r.per[V.key] != null ? fmt(r.per[V.key]) : "-"}</td><td class="r">${r.open == null ? "-" : int(r.open)}</td><td class="r hide-s">${r.kept == null ? "-" : int(r.kept)}</td></tr>`;
+    const changed = (r.rules && r.rules !== D.run.rules_full ? `<span class="muted">rules changed </span>` : "")
+      + (r.estimator !== D.run.estimator ? `<span class="muted">estimator changed </span>` : "");
+    h += `<tr class="${cur ? "cur" : ""}"><td class="mono">${changed}${esc(t)}${tags}</td><td class="hide-s">${r.label ? esc(r.label) : '<span class="muted">-</span>'}</td><td class="hide-s${r.rules ? " mono" : " muted"}">${r.rules ? esc(r.rules.slice(0, 4)) : "not recorded"}</td><td class="hide-s mono">${esc(r.estimator)}</td><td class="r hide-s">${fmt(r.sum)}</td><td class="r">${r.per[V.key] != null ? fmt(r.per[V.key]) : "-"}</td><td class="r">${r.open == null ? "-" : int(r.open)}</td><td class="r hide-s">${r.kept == null ? "-" : int(r.kept)}</td></tr>`;
   });
-  h += `</tbody></table></div><p class="gnote" style="margin-top:8px">Open counts compare only between runs with the same rules. All runs: <code>${esc(D.run.runs_dir)}/index.jsonl</code></p>`;
+  h += `</tbody></table></div>${D.run.history_note ? `<p class="gnote" style="margin-top:8px">${esc(D.run.history_note)}</p>` : ""}<p class="gnote" style="margin-top:8px">Open counts compare only between runs with the same rules. Token counts compare only between runs with the same estimator. All runs: <code>${esc(D.run.runs_dir)}/index.jsonl</code></p>`;
   box.innerHTML = h;
 }
 

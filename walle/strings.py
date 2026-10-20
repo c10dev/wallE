@@ -242,6 +242,7 @@ STRINGS: dict[str, tuple[str, str]] = {
     "table.run": ("run", "실행"),
     "table.label": ("label", "라벨"),
     "table.rules": ("rules", "규칙"),
+    "table.estimator": ("estimator", "추정기"),
     "table.stack_sum": ("stack sum", "스택 합"),
     "table.open": ("open", "열림"),
     "table.kept": ("kept", "남김"),

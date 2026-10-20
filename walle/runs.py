@@ -18,6 +18,15 @@ from .collect import find_checkout
 from .triage import rules_hash
 
 INDEX = "index.jsonl"
+# Scans without an estimator record (schema 1 scan.json, which has no run block) counted with bytes-v1.
+UNRECORDED_ESTIMATOR = "bytes-v1"
+
+
+def estimator_of(record: dict | None) -> str:
+    """The estimator of a run: an index line, a scan.json or its run block. Unrecorded means bytes-v1."""
+    record = record or {}
+    name = record.get("estimator") or (record.get("run") or {}).get("estimator")
+    return name or UNRECORDED_ESTIMATOR
 
 
 def git_head(folder: Path) -> str | None:

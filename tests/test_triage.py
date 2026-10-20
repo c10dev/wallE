@@ -575,6 +575,45 @@ class RunRecordTest(unittest.TestCase):
         budgets = [json.loads(Path(r["path"]).read_text())["triage"]["budget"] for r in rows]
         self.assertEqual(budgets, [8000, 9])
 
+    def test_runs_of_two_estimators_show_both_numbers_and_no_change(self):
+        app = str(self.h.projects / "app")
+        with redirect_stdout(io.StringIO()), mock.patch("walle.cli.scan",
+                                                        lambda roots, **kw: scan(roots, self.h.home, **kw)):
+            self.assertEqual(cli.main(["--out", str(self.out), "scan", app, "--estimator", "v1", "--lang", "en"]), 0)
+            self.assertEqual(cli.main(["--out", str(self.out), "scan", app, "--lang", "en"]), 0)
+        rows = runs.read_index(self.out)
+        self.assertEqual([r["estimator"] for r in rows], ["bytes-v1", "bytes-v2"])
+        v1, v2 = (json.loads(Path(r["path"]).read_text()) for r in rows)
+        self.assertNotEqual(rows[0]["stack_sum"], rows[1]["stack_sum"])
+        note = "estimator changed (bytes-v1 -> bytes-v2): token totals are not comparable."
+        history = (Path(rows[1]["path"]).parent / "scan.md").read_text().split("## History", 1)[1].split("\n## ", 1)[0]
+        self.assertIn(note, history)
+        self.assertIn("| estimator | stack sum |", history)
+        self.assertRegex(history, rf"\| {rows[0]['id']} \|.*\| bytes-v1 \| ~")
+        self.assertRegex(history, rf"\| {rows[1]['id']} \|.*\| bytes-v2 \| ~")
+        # scan.html: the estimator of each run, and the baseline as a number of another estimator.
+        from walle import report_html
+        D = report_html.page_data(v2, self.out, self.h.home)
+        self.assertEqual([h["estimator"] for h in D["history"]], ["bytes-v1", "bytes-v2"])
+        self.assertEqual((D["run"]["baseline"], D["run"]["baseline_estimator"], D["run"]["baseline_note"]),
+                         (rows[0]["id"], "bytes-v1", note))
+        self.assertEqual(D["run"]["history_note"], note)
+        page = report_html.render(v2, self.out, self.h.home)
+        self.assertIn("estimator changed ", page)
+        # walle diff: both numbers with their estimators, no token difference.
+        from walle import report
+        ko = "추정기가 바뀌었다(bytes-v1 -> bytes-v2): 토큰 합은 비교하지 않는다."
+        diff = report.render_diff(v1, v2)
+        self.assertIn(ko, diff)
+        self.assertIn("| 이전 토큰(bytes-v1) | 이후 토큰(bytes-v2) | 지시 단위 차 |", diff)
+        self.assertNotIn("토큰 차", diff)
+        # A schema 1 scan.json has no run block. Those scans counted with bytes-v1.
+        old = {k: v for k, v in v1.items() if k != "run"}
+        self.assertIn(ko, report.render_diff(old, v2))
+        same = report.render_diff(v2, v2)
+        self.assertNotIn("추정기", same)
+        self.assertIn("변화 없음", same)
+
     def test_rules_hash_follows_the_thresholds(self):
         h = triage.rules_hash()
         self.assertRegex(h, r"^[0-9a-f]{40}$")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 
-from . import brief
+from . import brief, runs
 from .collect import HOME
 from .strings import label as item_label
 from .strings import round_tokens, t
@@ -106,14 +106,19 @@ def _md_tail(data: dict, entries: list[dict], lang: str, home: Path, history: li
         md += _md_stack_table(data, brief._stack_rows(data), lang, home) + [""]
     md += [f"## {t('level.measure', lang)}", "", t("md.measure_none", lang), ""]
     md += [f"## {t('level.history', lang)}", ""]
-    rows = history or []
+    rows = (history or [])[-10:]
     if len(rows) <= 1:
         md.append(t("empty.first_run", lang))
     else:
-        md += table([t(f"table.{c}", lang) for c in ("run", "label", "rules", "stack_sum", "open", "kept")],
-                    [[r.get("id") or "-", r.get("label") or "-", (r.get("rules") or "----")[:4],
+        # A stack sum is in the tokens of its run's estimator. Sums of two estimators are not a change.
+        mine = runs.estimator_of(data)
+        other = sorted({runs.estimator_of(r) for r in rows} - {mine})
+        if other:
+            md += [t("run.estimator_changed", lang, a=", ".join(other), b=mine), ""]
+        md += table([t(f"table.{c}", lang) for c in ("run", "label", "rules", "estimator", "stack_sum", "open", "kept")],
+                    [[r.get("id") or "-", r.get("label") or "-", (r.get("rules") or "----")[:4], runs.estimator_of(r),
                       "~" + round_tokens(r.get("stack_sum") or 0), r.get("open", 0), r.get("kept", 0)]
-                     for r in rows[-10:]]).splitlines()
+                     for r in rows]).splitlines()
     md += ["", f"## {t('level.method', lang)}", ""]
     run = data.get("run") or {}
     md.append("- " + t("md.method_estimate", lang, estimator=run.get("estimator") or "-"))
@@ -248,18 +253,31 @@ def render_judge(r: dict) -> str:
 
 def render_diff(a: dict, b: dict) -> str:
     md = ["# walle 비교\n", f"이전: {a['generated']} → 이후: {b['generated']}\n"]
+    ea, eb = runs.estimator_of(a), runs.estimator_of(b)
     sa = {(s["folder"], s["agent"]): s for s in a["stacks"]}
     rows = []
-    for s in b["stacks"]:
-        o = sa.get((s["folder"], s["agent"]))
-        if not o:
-            continue
-        d = s["tokens_est"] - o["tokens_est"]
-        du = s["units"] - o["units"]
-        if d or du:
-            rows.append([short(s["folder"]), s["agent"], o["tokens_est"], s["tokens_est"], f"{d:+}", f"{du:+}"])
-    md.append("## 스택 변화\n")
-    md.append(table(["폴더", "에이전트", "이전 토큰", "이후 토큰", "토큰 차", "지시 단위 차"], rows) if rows else "변화 없음")
+    if ea != eb:
+        # Token counts of two estimators are not a change: show both numbers, each with its estimator.
+        md.append(t("run.estimator_changed", "ko", a=ea, b=eb) + "\n")
+        for s in b["stacks"]:
+            o = sa.get((s["folder"], s["agent"]))
+            if o:
+                rows.append([short(s["folder"]), s["agent"], o["tokens_est"], s["tokens_est"],
+                             f"{s['units'] - o['units']:+}"])
+        md.append("## 스택 변화\n")
+        md.append(table(["폴더", "에이전트", f"이전 토큰({ea})", f"이후 토큰({eb})", "지시 단위 차"], rows)
+                  if rows else "같은 스택 없음")
+    else:
+        for s in b["stacks"]:
+            o = sa.get((s["folder"], s["agent"]))
+            if not o:
+                continue
+            d = s["tokens_est"] - o["tokens_est"]
+            du = s["units"] - o["units"]
+            if d or du:
+                rows.append([short(s["folder"]), s["agent"], o["tokens_est"], s["tokens_est"], f"{d:+}", f"{du:+}"])
+        md.append("## 스택 변화\n")
+        md.append(table(["폴더", "에이전트", "이전 토큰", "이후 토큰", "토큰 차", "지시 단위 차"], rows) if rows else "변화 없음")
     fa = Counter((f["cause"]) for f in a["flags"])
     fb = Counter((f["cause"]) for f in b["flags"])
     md.append("\n## 원인별 건수\n")

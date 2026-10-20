@@ -268,8 +268,11 @@ class Builder:
         run = scan["run"]
 
         # baseline: the parent run (previous scan of the same roots), if the index has it
+        from . import runs as runs_mod
+        mine = runs_mod.estimator_of(run)
         by_id = {r.get("id"): r for r in self.runs}
         parent = by_id.get(run.get("parent_id"))
+        base_est = runs_mod.estimator_of(parent) if parent else None
         base_tokens = {self.key_of(k): v for k, v in (parent or {}).get("per_folder", {}).items()}
 
         stacks_by_key = {f"{s['folder']}@{s['agent']}": s for s in scan["stacks"]}
@@ -356,15 +359,18 @@ class Builder:
             if r.get("kind") != "scan" or sorted(r.get("roots") or []) != want:
                 continue
             history.append({"id": r["id"], "label": r.get("label"), "rules": r.get("rules"), "sum": r.get("stack_sum"),
-                            "open": r.get("open"), "kept": r.get("kept"),
+                            "estimator": runs_mod.estimator_of(r), "open": r.get("open"), "kept": r.get("kept"),
                             "per": {self.key_of(kk): vv for kk, vv in (r.get("per_folder") or {}).items()}})
         if run.get("id") and not any(h["id"] == run["id"] for h in history):
             history.append({"id": run["id"], "label": run.get("label"), "rules": run.get("rules_hash"),
-                            "sum": sum(s["tokens_est"] for s in scan["stacks"]),
+                            "estimator": mine, "sum": sum(s["tokens_est"] for s in scan["stacks"]),
                             "open": sum(1 for it in scan["items"] if it["state"] == "open" and it["certainty"] != "info"),
                             "kept": sum(1 for it in scan["items"] if it["state"] == "kept"),
                             "per": {self.key_of(f"{s['folder']}@{s['agent']}"): s["tokens_est"] for s in scan["stacks"]}})
         history.sort(key=lambda r: r["id"])
+        # Token counts of two estimators are not a change: the page shows both numbers and this note.
+        other = sorted({h["estimator"] for h in history[-10:]} - {mine})
+        history_note = strings.t("run.estimator_changed", self.lang, a=", ".join(other), b=mine) if other else None
 
         # measure: the newest measure run, one row per folder group (no per-family panels yet)
         measure, eve_ref = {}, None
@@ -404,7 +410,10 @@ class Builder:
                 "stacks": len(scan["stacks"]), "flags": len(scan["flags"]), "pairs": len(scan["pairs"]),
                 "items": len(scan["items"]), "version": run["walle_version"], "rules": run["rules_hash"][:4],
                 "rules_full": run["rules_hash"], "estimator": run["estimator"],
-                "baseline": parent["id"] if parent else None, "changed_files": [t(p) for p in self.changed],
+                "baseline": parent["id"] if parent else None, "baseline_estimator": base_est,
+                "baseline_note": (strings.t("run.estimator_changed", self.lang, a=base_est, b=mine)
+                                  if base_est and base_est != mine else None),
+                "history_note": history_note, "changed_files": [t(p) for p in self.changed],
                 "runs_dir": None,
             },
             "budget": B,
