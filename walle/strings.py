@@ -208,6 +208,9 @@ STRINGS: dict[str, tuple[str, str]] = {
                           "기준 실행 뒤 walle 규칙이 바뀌었다({a} -> {b}). 발견 수는 비교하지 않고, 스택 토큰만 비교한다."),
     "run.estimator_changed": ("estimator changed ({a} -> {b}): token totals are not comparable.",
                               "추정기가 바뀌었다({a} -> {b}): 토큰 합은 비교하지 않는다."),
+    "run.counting_changed": ("token counting changed (revision {a} -> {b}): token totals are not comparable.",
+                             "토큰 세는 방식이 바뀌었다(개정 {a} -> {b}): 토큰 합은 비교하지 않는다."),
+    "run.counting_of": ("counting revision {n}", "세는 방식 개정 {n}"),
     "measure.too_few": ("Too few sessions to compare: {n} since {date}. Need 10.",
                         "비교할 세션이 적다: {date} 이후 {n}개. 10개가 필요하다."),
     "measure.within_noise": ("No clear change for {folder} ({model}; before n={before}, after n={after}). "

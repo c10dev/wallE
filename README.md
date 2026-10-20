@@ -99,7 +99,7 @@ Caches go to the `cache/` folder next to the runs folder (`--out`), by default `
 | Field | Content |
 |---|---|
 | `schema` | `2` |
-| `run` | `id` (the run folder name), `kind`, `parent_id` (the previous scan of the same roots), `label`, `walle_version`, `rules_hash`, `estimator`, `roots`, `git_heads` |
+| `run` | `id` (the run folder name), `kind`, `parent_id` (the previous scan of the same roots), `label`, `walle_version`, `rules_hash`, `estimator`, `counting_revision`, `roots`, `git_heads` |
 | `items` | One entry for each thing to read or change, with a stable 6-hex `id` |
 | `triage` | For each stack: `verdict`, token split, `start_here` (item ids) and folded `groups` |
 | `files[]` | Also `sha`, `ownership` and the `##` sections with their line ranges |
@@ -132,8 +132,9 @@ Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle 
 
 **DELETE keeps the broader copy.** walle marks a copied line DELETE only when every stack that loads it also loads the copy that stays. It never marks a line in a shared file, such as `~/.claude/CLAUDE.md`, for deletion, because that file also loads in folders outside the scan.
 
-**Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, stack totals, verdicts, and open and kept counts.
-Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` values are the same.
+**Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, counting revision, stack totals, verdicts, and open and kept counts.
+Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` and `counting_revision` values are the same.
+`counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. A run without the field counts as 1: whole files.
 
 ## Limits
 

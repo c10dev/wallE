@@ -110,13 +110,18 @@ def _md_tail(data: dict, entries: list[dict], lang: str, home: Path, history: li
     if len(rows) <= 1:
         md.append(t("empty.first_run", lang))
     else:
-        # A stack sum is in the tokens of its run's estimator. Sums of two estimators are not a change.
-        mine = runs.estimator_of(data)
-        other = sorted({runs.estimator_of(r) for r in rows} - {mine})
-        if other:
-            md += [t("run.estimator_changed", lang, a=", ".join(other), b=mine), ""]
+        # A stack sum is in the tokens of its run's estimator and counting revision. Sums of two estimators or
+        # two revisions are not a change: say so, and name the revision of the runs that differ.
+        for note in runs.token_notes(rows, data, lang):
+            md += [note, ""]
+        rev = runs.counting_of(data)
+
+        def counted(r):
+            e = runs.estimator_of(r)
+            return e if runs.counting_of(r) == rev else f"{e} ({t('run.counting_of', lang, n=runs.counting_of(r))})"
+
         md += table([t(f"table.{c}", lang) for c in ("run", "label", "rules", "estimator", "stack_sum", "open", "kept")],
-                    [[r.get("id") or "-", r.get("label") or "-", (r.get("rules") or "----")[:4], runs.estimator_of(r),
+                    [[r.get("id") or "-", r.get("label") or "-", (r.get("rules") or "----")[:4], counted(r),
                       "~" + round_tokens(r.get("stack_sum") or 0), r.get("open", 0), r.get("kept", 0)]
                      for r in rows]).splitlines()
     md += ["", f"## {t('level.method', lang)}", ""]
@@ -254,18 +259,23 @@ def render_judge(r: dict) -> str:
 def render_diff(a: dict, b: dict) -> str:
     md = ["# walle 비교\n", f"이전: {a['generated']} → 이후: {b['generated']}\n"]
     ea, eb = runs.estimator_of(a), runs.estimator_of(b)
+    ca, cb = runs.counting_of(a), runs.counting_of(b)
     sa = {(s["folder"], s["agent"]): s for s in a["stacks"]}
     rows = []
-    if ea != eb:
-        # Token counts of two estimators are not a change: show both numbers, each with its estimator.
-        md.append(t("run.estimator_changed", "ko", a=ea, b=eb) + "\n")
+    notes = runs.token_notes([a], b, "ko")
+    if notes:
+        # Token counts of two estimators or two counting revisions are not a change: show both numbers,
+        # each with how it was counted.
+        md += [n + "\n" for n in notes]
         for s in b["stacks"]:
             o = sa.get((s["folder"], s["agent"]))
             if o:
                 rows.append([short(s["folder"]), s["agent"], o["tokens_est"], s["tokens_est"],
                              f"{s['units'] - o['units']:+}"])
+        ha, hb = ((ea, eb) if ca == cb else (f"{ea}, {t('run.counting_of', 'ko', n=ca)}",
+                                             f"{eb}, {t('run.counting_of', 'ko', n=cb)}"))
         md.append("## 스택 변화\n")
-        md.append(table(["폴더", "에이전트", f"이전 토큰({ea})", f"이후 토큰({eb})", "지시 단위 차"], rows)
+        md.append(table(["폴더", "에이전트", f"이전 토큰({ha})", f"이후 토큰({hb})", "지시 단위 차"], rows)
                   if rows else "같은 스택 없음")
     else:
         for s in b["stacks"]:

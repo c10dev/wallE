@@ -35,7 +35,7 @@ Every surface gives the same answer in the same order: one verdict word, at most
   Items have stable ids, a scope (session start, on demand, not loaded together, other agent, elsewhere), an ownership (your files, memory, shared, skills) and whole text with line ranges.
   Each stack gets a verdict (OVER BUDGET, TRIM, LEAN) and a Start here list. DELETE keeps the broader copy and never touches a shared file.
   Consecutive copied lines, dated lines of one file, a MEMORY.md and a whole copied file are one item each.
-  Each scan adds a line to `runs/index.jsonl` with its parent run, rules hash and estimator.
+  Each scan adds a line to `runs/index.jsonl` with its parent run, rules hash, estimator and counting revision.
 - Done: one table of display strings in English and Korean (`walle/strings.py`): verdicts, verbs, item labels, fixed terms, reasons and empty states.
   An unknown key fails a test. The command name stays `walle eve`; `walle measure` stays its alias.
 - Next: the terminal brief as the default TTY output of `walle scan`, `--lang en|ko` (default from `LANG`), `walle show`, and Markdown for agents (`--format brief-md`).

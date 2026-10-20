@@ -1084,7 +1084,7 @@ function render() {
   const pct = (n) => (100 * n / axis).toFixed(3) + "%";
   const row = D.all.find(s => s.key === V.key);
   const base = row ? row.base : null;
-  // A baseline counted with another estimator is not a change: no bar, no "no change", both estimators named.
+  // A baseline counted with another estimator or counting revision is not a change: no bar, no "no change".
   const sameBase = !D.run.baseline_note;
 
   // stale line
@@ -1454,10 +1454,11 @@ function drawHistory() {
     const t = r.id.slice(4, 6) + "-" + r.id.slice(6, 8) + " " + r.id.slice(9, 11) + ":" + r.id.slice(11, 13);
     const tags = (cur ? " (this)" : "") + (r.id === D.run.baseline ? " (baseline)" : "");
     const changed = (r.rules && r.rules !== D.run.rules_full ? `<span class="muted">rules changed </span>` : "")
-      + (r.estimator !== D.run.estimator ? `<span class="muted">estimator changed </span>` : "");
+      + (r.estimator !== D.run.estimator ? `<span class="muted">estimator changed </span>` : "")
+      + (r.counting_revision !== D.run.counting_revision ? `<span class="muted">counting changed </span>` : "");
     h += `<tr class="${cur ? "cur" : ""}"><td class="mono">${changed}${esc(t)}${tags}</td><td class="hide-s">${r.label ? esc(r.label) : '<span class="muted">-</span>'}</td><td class="hide-s${r.rules ? " mono" : " muted"}">${r.rules ? esc(r.rules.slice(0, 4)) : "not recorded"}</td><td class="hide-s mono">${esc(r.estimator)}</td><td class="r hide-s">${fmt(r.sum)}</td><td class="r">${r.per[V.key] != null ? fmt(r.per[V.key]) : "-"}</td><td class="r">${r.open == null ? "-" : int(r.open)}</td><td class="r hide-s">${r.kept == null ? "-" : int(r.kept)}</td></tr>`;
   });
-  h += `</tbody></table></div>${D.run.history_note ? `<p class="gnote" style="margin-top:8px">${esc(D.run.history_note)}</p>` : ""}<p class="gnote" style="margin-top:8px">Open counts compare only between runs with the same rules. Token counts compare only between runs with the same estimator. All runs: <code>${esc(D.run.runs_dir)}/index.jsonl</code></p>`;
+  h += `</tbody></table></div>${D.run.history_note ? `<p class="gnote" style="margin-top:8px">${esc(D.run.history_note)}</p>` : ""}<p class="gnote" style="margin-top:8px">Open counts compare only between runs with the same rules. Token counts compare only between runs with the same estimator and counting revision. All runs: <code>${esc(D.run.runs_dir)}/index.jsonl</code></p>`;
   box.innerHTML = h;
 }
 

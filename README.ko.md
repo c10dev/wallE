@@ -26,7 +26,7 @@ python3 bin/walle judge --import           # 답을 읽어 judge.md 작성
 
 모든 표면은 `scan.json`을 읽는다. schema 2는 필드를 더하기만 하고 이름을 바꾸지 않는다. schema 1을 읽던 코드는 그대로 돈다.
 
-- `run`: 실행 id(실행 폴더 이름), `parent_id`(같은 루트의 직전 스캔), `label`(`--label`), `walle_version`, `rules_hash`, `estimator`, `roots`, `git_heads`
+- `run`: 실행 id(실행 폴더 이름), `parent_id`(같은 루트의 직전 스캔), `label`(`--label`), `walle_version`, `rules_hash`, `estimator`, `counting_revision`, `roots`, `git_heads`
 - `items`: 읽거나 고칠 것 하나에 항목 하나. 한 파일의 날짜·모델명 줄(3줄부터), 한 MEMORY.md의 줄, 두 파일 사이에 이어진 복사 줄, 같은 스택의 다른 파일을 통째로 복사한 파일(`file_copy` 노트)은 각각 한 항목이다. 항목 id는 규칙, 원문, 파일 경로의 해시 앞 6자리다. 줄이 옮겨져도, 폴더를 따로 스캔해도 같고, 두 폴더의 같은 줄은 서로 다르다. 경로는 이 기계의 경로라서 다른 곳의 클론은 id가 다르다. 위치에는 잘리지 않은 원문, `end_line`, 해시가 있다. 이어진 복사 줄은 줄마다 위치 하나라서, DELETE가 그 사이의 다른 줄을 가리키지 않는다.
 - `triage`: 스택마다 판정, 토큰 구성, 여기부터(`start_here`) 항목 id, 접힌 묶음
 - `files[]`: `sha`, `ownership`, `##` 절의 줄 범위도 담는다
@@ -37,7 +37,7 @@ claude.ai에서 동기화한 스킬과 플러그인 스킬은 예산 스택에 �
 한 스택의 `topic`·`protocol` 쌍은 용어나 메시지만 같고 글은 다르다. 실제 파일에서는 대개 같은 말이다. 그래서 `term_clash` 확인 후보로 나머지 묶음에 두고, 여기부터와 판정에는 넣지 않는다. `walle judge`가 읽는다.
 여기부터는 내 파일(폴더의 git 체크아웃과 그 폴더의 MEMORY.md)에서 최대 3개다. 큰 층(MOVE)은 3,600 토큰(`--estimator v1`은 2,000 토큰)을 넘고 스택의 40%를 넘는 내 파일이다. 세션 시작에 읽히는 항목만 판정과 여기부터에 든다.
 DELETE는 넓은 쪽 사본을 남긴다. 지울 줄을 읽는 모든 스택이 남길 줄도 읽을 때만 DELETE이고, `~/.claude/CLAUDE.md` 같은 공용 파일의 줄은 지우라고 하지 않는다.
-두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`가 같을 때만 비교한다.
+두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`와 `counting_revision`이 같을 때만 비교한다. `counting_revision` 2는 Claude Code가 읽는 파일을 HTML 주석 블록 없이 센 실행이다. 이 값이 없는 실행은 1(파일 전체)로 본다.
 
 ## 보는 것
 

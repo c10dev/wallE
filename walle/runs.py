@@ -1,9 +1,10 @@
 """Run records: the `run` block of scan.json and the run index, runs/index.jsonl.
 
 Every scan run gets an id (its folder name under the runs folder), a parent (the
-previous scan of the same roots), the walle version, the rules hash and the token
-estimator. Two runs compare finding counts only when their rules hashes match, and
-token totals only when their estimators match.
+previous scan of the same roots), the walle version, the rules hash, the token
+estimator and the counting revision. Two runs compare finding counts only when their
+rules hashes match, and token totals only when their estimators and their counting
+revisions match.
 """
 
 from __future__ import annotations
@@ -13,13 +14,18 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, estimate
+from . import __version__, estimate, strings
 from .collect import find_checkout
 from .triage import rules_hash
 
 INDEX = "index.jsonl"
 # Scans without an estimator record (schema 1 scan.json, which has no run block) counted with bytes-v1.
 UNRECORDED_ESTIMATOR = "bytes-v1"
+# Which text of a file scan counts. Bump it when that text changes: token totals of two revisions do not compare.
+#   1: the whole file. Runs without a counting_revision record counted this way.
+#   2: a file that Claude Code loads counts as loaded, without its HTML comment blocks (stack.claude_loaded).
+COUNTING_REVISION = 2
+UNRECORDED_COUNTING = 1
 
 
 def estimator_of(record: dict | None) -> str:
@@ -27,6 +33,27 @@ def estimator_of(record: dict | None) -> str:
     record = record or {}
     name = record.get("estimator") or (record.get("run") or {}).get("estimator")
     return name or UNRECORDED_ESTIMATOR
+
+
+def counting_of(record: dict | None) -> int:
+    """The counting revision of a run: an index line, a scan.json or its run block. Unrecorded means 1."""
+    record = record or {}
+    rev = record.get("counting_revision") or (record.get("run") or {}).get("counting_revision")
+    return rev or UNRECORDED_COUNTING
+
+
+def token_notes(others: list[dict | None], mine: dict, lang: str) -> list[str]:
+    """Notices for runs whose token totals do not compare with this run: another estimator or another
+    counting revision. Empty when every run counted like this one."""
+    est, rev = estimator_of(mine), counting_of(mine)
+    other_est = sorted({estimator_of(r) for r in others} - {est})
+    other_rev = sorted({counting_of(r) for r in others} - {rev})
+    notes = []
+    if other_est:
+        notes.append(strings.t("run.estimator_changed", lang, a=", ".join(other_est), b=est))
+    if other_rev:
+        notes.append(strings.t("run.counting_changed", lang, a=", ".join(map(str, other_rev)), b=rev))
+    return notes
 
 
 def git_head(folder: Path) -> str | None:
@@ -69,6 +96,7 @@ def run_block(roots: list[Path], folders: list[Path], estimator: str = estimate.
     """The `run` block, without id, parent and label: the CLI sets them when it writes the run.
 
     `estimator` is the full name of the estimator of every token count in the scan (bytes-v1 or bytes-v2).
+    `counting_revision` tells which text of each file the scan counted (COUNTING_REVISION).
     """
     heads = {}
     for f in [*roots, *folders]:
@@ -83,6 +111,7 @@ def run_block(roots: list[Path], folders: list[Path], estimator: str = estimate.
         "walle_version": __version__,
         "rules_hash": rules_hash(),
         "estimator": estimate.name(estimator),
+        "counting_revision": COUNTING_REVISION,
         "roots": [str(r) for r in roots],
         "git_heads": heads,
     }
@@ -135,6 +164,7 @@ def summary(data: dict, path: Path) -> dict:
         "roots": run["roots"],
         "rules": run["rules_hash"],
         "estimator": run["estimator"],
+        "counting_revision": counting_of(run),
         "walle_version": run["walle_version"],
         "stack_sum": sum(s["tokens_est"] for s in data["stacks"]),
         "per_folder": {f"{s['folder']}@{s['agent']}": s["tokens_est"] for s in data["stacks"]},
