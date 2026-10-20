@@ -581,6 +581,10 @@ def render(data: dict) -> str:
         if notes:
             md.append("\n## Not on disk\n\nOnly sources on disk can change with a file edit. Connectors, host servers and "
                       "built-ins change in the app or not at all.\n\n" + "\n".join(notes))
+            if any("(connector id)" in x for x in notes):
+                md.append("\nThe desktop app names claude.ai connectors by id. walle names them from the tool names "
+                          "they share with CLI sessions, after `walle context --usage` has run once. An id that stays "
+                          "has no such CLI session.")
         dt = next((r for r in fc["sources"] if r["source"] == "deferred_tools"), None)
         if dt and dt["detail"].get("servers"):
             top = list(dt["detail"]["servers"].items())[:12]
