@@ -115,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("scan", help="static pass over instruction files")
     s.add_argument("roots", nargs="*", type=Path, default=[Path.cwd()])
     s.add_argument("--top", type=int, default=15)
-    s.add_argument("--html", action="store_true", help="also write a filterable HTML page")
+    s.add_argument("--html", action="store_true", help=argparse.SUPPRESS)  # scan.html is always written
     s.add_argument("--max-tokens", type=int, default=BUDGET, help="token budget of one stack (default 8000)")
     s.add_argument("--label", help="a name for this run, kept in the run index (for example 'before trim')")
 
@@ -159,10 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                            parent_id=runs.parent_of(args.out, data["run"]["roots"]))
         path = _write(run_dir, "scan", data, report.render_scan(data, args.top))
         runs.append_index(args.out, data, run_dir / "scan.json")
-        if args.html:
-            html = run_dir / "scan.html"
-            html.write_text(report_html.render(data))
-            print(html)
+        (run_dir / "scan.html").write_text(report_html.render(data, args.out), encoding="utf-8")
     elif args.cmd == "check":
         roots = [r.expanduser().resolve() for r in args.roots]
         return check(_scan(roots, args.max_tokens), args.max_tokens, args.agent)

@@ -118,7 +118,8 @@ class ScanConflictTest(unittest.TestCase):
         self.assertIn("### topic", md)
         self.assertIn("부정이 갈린 말: 보내", md)
         self.assertIn("형식: READBACK D-xxxx ↔ READBACK D-xxxx @xxxxxx", md)
-        self.assertIn('<option value="protocol">', report_html.render(self.data))
+        labels = {it["label"] for it in report_html.page_data(self.data)["items"].values()}
+        self.assertIn("format differs across repos?", labels)
 
     def test_judge_reads_them_as_conflicts(self):
         items = {tuple(it["refs"]): it for it in judge.select_items(self.data)}
