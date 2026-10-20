@@ -355,11 +355,46 @@ class ItemTest(unittest.TestCase):
         self.h.write("projects/app/CLAUDE.md", "# App\n\n" + "\n\n".join(steps) + "\n")
         e = self.h.scan(r)["triage"]["stacks"][key]
         self.assertEqual((e["verdict"], e["reasons"]), ("TRIM", ["candidates"]))
-        # Certain DELETE lines of 100 or more estimated tokens.
+        # Certain DELETE lines of TRIM_DELETE_TOKENS or more: 100 bytes-v1 tokens, 180 bytes-v2 tokens.
         same = f"- {words('big', 60)}."
+        self.h.write("projects/app/CLAUDE.md", f"# App\n\n{same}\n\n{words('gap')}.\n\n{same}\n")
+        v1 = scan([r], self.h.home, estimator="bytes-v1")["triage"]["stacks"][key]
+        self.assertEqual((v1["verdict"], v1["reasons"]), ("TRIM", ["delete_tokens"]))
+        self.assertTrue(100 <= v1["checks"]["delete_tokens"] < 110, v1["checks"])
+        e = self.h.scan(r)["triage"]["stacks"][key]
+        self.assertEqual(e["verdict"], "LEAN")
+        self.assertTrue(100 <= e["checks"]["delete_tokens"] < 180, e["checks"])
+        same = f"- {words('big', 70)}."
         self.h.write("projects/app/CLAUDE.md", f"# App\n\n{same}\n\n{words('gap')}.\n\n{same}\n")
         e = self.h.scan(r)["triage"]["stacks"][key]
         self.assertEqual((e["verdict"], e["reasons"]), ("TRIM", ["delete_tokens"]))
+        self.assertGreaterEqual(e["checks"]["delete_tokens"], 180)
+
+    def test_large_layer_threshold_is_in_the_tokens_of_the_estimator(self):
+        r = self.h.repo("app")
+
+        def moves(paragraphs, estimator):
+            self.h.write("projects/app/CLAUDE.md", "# App\n\n## Big\n\n"
+                         + "\n\n".join(f"{words(f'big{n}', 40)}." for n in range(paragraphs)) + "\n")
+            data = scan([r], self.h.home, estimator=estimator)
+            layer = next(l for l in data["stacks"][0]["layers"] if l["label"] == "ancestor")
+            return layer["tokens_est"], [it["label"] for it in data["items"] if it["verb"] == "MOVE"]
+
+        self.assertEqual(triage.LARGE_LAYER_TOKENS, {"bytes-v1": 2000, "bytes-v2": 3600})
+        self.assertEqual(triage.TRIM_DELETE_TOKENS, {"bytes-v1": 100, "bytes-v2": 180})
+        ratio = estimate.budget("bytes-v2") / estimate.budget("bytes-v1")
+        for name in (triage.LARGE_LAYER_TOKENS, triage.TRIM_DELETE_TOKENS):
+            self.assertAlmostEqual(name["bytes-v2"] / (name["bytes-v1"] * ratio), 1, delta=0.01)
+        # 8,474 ASCII bytes: over 2,000 bytes-v1 tokens, under 3,600 bytes-v2 tokens.
+        tokens, items = moves(30, "bytes-v1")
+        self.assertGreater(tokens, 2000)
+        self.assertEqual(items, ["large_layer"])
+        tokens, items = moves(30, "bytes-v2")
+        self.assertTrue(2000 < tokens < 3600, tokens)
+        self.assertEqual(items, [])
+        tokens, items = moves(33, "bytes-v2")
+        self.assertGreater(tokens, 3600)
+        self.assertEqual(items, ["large_layer"])
 
 
 class ReviewFixTest(unittest.TestCase):

@@ -180,7 +180,7 @@
   "claude-config/global@claude": {
    "verdict": "TRIM",
    "tokens": 5061,
-   "sentence": "~5,100 est. tokens load before your first prompt (budget 14,500). 4 items to read in your files.",
+   "sentence": "~5,100 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
    "sums": {
     "shared": 2129,
     "owned": 2127,
@@ -188,15 +188,14 @@
    },
    "counts": {
     "every-task step": 2,
-    "large layer": 1,
     "dated": 1
    },
    "start": [
     "~/projects/claude-config/global/CLAUDE.md:12 every-task step?",
     "~/projects/claude-config/global/CLAUDE.md:4 every-task step?",
-    "~/projects/claude-config/global/CLAUDE.md:37 large layer"
+    "~/projects/claude-config/global/CLAUDE.md:37 dated: still true?"
    ],
-   "rest": 1,
+   "rest": 0,
    "file_copy": 1,
    "shared": [
     [
@@ -339,17 +338,14 @@
   "vocado_RN@claude": {
    "verdict": "LEAN",
    "tokens": 5675,
-   "sentence": "~5,700 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
+   "sentence": "~5,700 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
    "sums": {
     "shared": 2129,
     "owned": 2741,
     "skills": 805
    },
-   "counts": {
-    "large layer": 1
-   },
+   "counts": {},
    "start": [
-    "~/projects/vocado_RN/CLAUDE.md:1 large layer",
     "~/projects/vocado_RN/CLAUDE.md:129 repeated?"
    ],
    "rest": 0,
@@ -388,18 +384,16 @@
   "vocado_RN@codex": {
    "verdict": "LEAN",
    "tokens": 4419,
-   "sentence": "~4,400 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
+   "sentence": "~4,400 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
    "sums": {
     "shared": 873,
     "owned": 3146,
     "skills": 400
    },
    "counts": {
-    "large layer": 1,
     "loaded twice": 1
    },
    "start": [
-    "~/projects/vocado_RN/AGENTS.md:1 large layer",
     "~/projects/vocado_RN/AGENTS.md:74 repeated in file"
    ],
    "rest": 0,
@@ -626,15 +620,6 @@
     null
    ]
   },
-  "~/projects/claude-config/global/CLAUDE.md:37 large layer": {
-   "verb": "MOVE",
-   "cert": "candidate",
-   "impact": "~1,200 est. tokens · 23% of stack",
-   "reason": "\"Output format ladder (2026-10-02)\" (lines 37-75) is ~1,200 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
-   "blocks": [
-    null
-   ]
-  },
   "~/projects/claude-config/global/CLAUDE.md:4 every-task step?": {
    "verb": "CHECK",
    "cert": "candidate",
@@ -680,15 +665,6 @@
     null
    ]
   },
-  "~/projects/vocado_RN/AGENTS.md:1 large layer": {
-   "verb": "MOVE",
-   "cert": "candidate",
-   "impact": "~3,100 est. tokens · 71% of stack",
-   "reason": "~/projects/vocado_RN/AGENTS.md is ~3,100 est. tokens, 71% of the stack, and loads in every session. Move parts of it to skills so they load only when that work runs.",
-   "blocks": [
-    null
-   ]
-  },
   "~/projects/vocado_RN/AGENTS.md:74 repeated in file": {
    "verb": "DELETE",
    "cert": "certain",
@@ -697,15 +673,6 @@
    "blocks": [
     "delete · AGENTS.md:74",
     "keep · AGENTS.md:53"
-   ]
-  },
-  "~/projects/vocado_RN/CLAUDE.md:1 large layer": {
-   "verb": "MOVE",
-   "cert": "candidate",
-   "impact": "~2,700 est. tokens · 48% of stack",
-   "reason": "~/projects/vocado_RN/CLAUDE.md is ~2,700 est. tokens, 48% of the stack, and loads in every session. Move parts of it to skills so they load only when that work runs.",
-   "blocks": [
-    null
    ]
   },
   "~/projects/vocado_RN/CLAUDE.md:129 repeated?": {

@@ -118,15 +118,16 @@ The id is a hash of the rule, the text and the file path. It stays the same when
 Token counts use the bytes-v2 estimator, which has the same prose rates as `walle context`, so the two commands give one number for one file.
 `--estimator v1` counts with bytes-v1 (ASCII at 4 characters per token), and its default budget is 8,000.
 On the author's machine, 14,500 bytes-v2 tokens puts the same stacks over the budget as 8,000 bytes-v1 tokens.
+The other token thresholds scale by the same factor (14,500 / 8,000).
 Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle context` shows what they cost.
 
 - `OVER BUDGET`: the stack is over the budget.
-- `TRIM`: the stack has certain DELETE lines of 100 estimated tokens or more, or a conflict (two drifted lines that load together), shared files included. Or your own files have 3 or more open candidates.
+- `TRIM`: the stack has certain DELETE lines of 180 estimated tokens or more (100 with `--estimator v1`), or a conflict (two drifted lines that load together), shared files included. Or your own files have 3 or more open candidates.
 - `LEAN`: all other stacks.
 
 **Term clashes.** A `topic` or `protocol` pair in one stack shares a term or a message, not the wording. On real files most such pairs agree. walle shows them as `term_clash` CHECK candidates in Everything else. They are not in Start here, and they do not change the verdict. `walle judge` reads them.
 
-**Start here.** At most 3 items from your own files: the git checkout of the folder and its MEMORY.md. The order is conflicts, every-task steps, large layers, duplicates, old-model habits, dates and model names, then vague words. A stack over the budget puts its large layer (MOVE) first. A scan of several folders also writes `start_here_by_reach`, which includes shared files and ranks by estimated tokens times the number of stacks that load the line.
+**Start here.** At most 3 items from your own files: the git checkout of the folder and its MEMORY.md. The order is conflicts, every-task steps, large layers, duplicates, old-model habits, dates and model names, then vague words. A large layer (MOVE) is one of your files with more than 3,600 estimated tokens (2,000 with `--estimator v1`) and more than 40% of its stack. A stack over the budget puts its large layer first. A scan of several folders also writes `start_here_by_reach`, which includes shared files and ranks by estimated tokens times the number of stacks that load the line.
 
 **DELETE keeps the broader copy.** walle marks a copied line DELETE only when every stack that loads it also loads the copy that stays. It never marks a line in a shared file, such as `~/.claude/CLAUDE.md`, for deletion, because that file also loads in folders outside the scan.
 

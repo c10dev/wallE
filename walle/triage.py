@@ -45,13 +45,14 @@ from .segment import Unit
 from .stack import Stack
 
 BUDGET = estimate.budget(estimate.DEFAULT)  # bytes-v2 tokens; a bytes-v1 run uses estimate.budget("bytes-v1")
-# LARGE_LAYER_TOKENS and TRIM_DELETE_TOKENS were chosen with bytes-v1 tokens. They apply to the tokens of
-# the run's estimator, so a bytes-v2 run finds more large layers than a bytes-v1 run.
+# Token thresholds, in the tokens of each estimator. The bytes-v1 values came first. The bytes-v2 values
+# scale them by the budget calibration, 14,500 / 8,000 = 1.8125, rounded to two figures:
+# 2,000 -> 3,625 -> 3,600 and 100 -> 181 -> 180. A share does not depend on the estimator.
 SAFE_DELETE = 0.95  # duplicate or repeat at or above: DELETE (certain); below: CHECK (candidate)
-LARGE_LAYER_TOKENS = 2000  # an owned layer above this many tokens...
+LARGE_LAYER_TOKENS = {"bytes-v1": 2000, "bytes-v2": 3600}  # an owned layer above this many tokens...
 LARGE_LAYER_SHARE = 0.4  # ...and above this share of its stack: MOVE
 FILE_COPY_SHARE = 0.8  # this share of a file's rules copied from another file of the stack: file_copy
-TRIM_DELETE_TOKENS = 100
+TRIM_DELETE_TOKENS = {"bytes-v1": 100, "bytes-v2": 180}
 TRIM_CANDIDATES = 3
 GROUP_GAP = 2  # consecutive pairs: at most this many units apart on each side
 PER_FILE_GROUP = 3  # dated and model-name lines of one file become one item from this count
@@ -624,7 +625,7 @@ class _Triage:
             total = st.tokens
             for l in st.layers:
                 p = self.layer_path(l)
-                if (p and self.own[k].get(p) == "owned" and l.tokens > LARGE_LAYER_TOKENS
+                if (p and self.own[k].get(p) == "owned" and l.tokens > LARGE_LAYER_TOKENS[self.estimator]
                         and l.tokens > LARGE_LAYER_SHARE * total):
                     rows[p].append((k, l.tokens, total))
         for p, rs in rows.items():
@@ -723,7 +724,7 @@ class _Triage:
         pool = [it for it in here if self.actionable(it) and self.yours(it, k)]
         checks = self.counts(here, k)
         reasons = []
-        if checks["delete_tokens"] >= TRIM_DELETE_TOKENS:
+        if checks["delete_tokens"] >= TRIM_DELETE_TOKENS[self.estimator]:
             reasons.append("delete_tokens")
         if checks["conflicts"]:
             reasons.append("conflict")
