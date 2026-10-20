@@ -20,10 +20,10 @@ walle finds the second kind, so you can cut it and measure the effect.
 
 | Command | Output |
 |---|---|
-| `walle scan [folder ...] [--max-tokens N] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
+| `walle scan [folder ...] [--max-tokens N] [--estimator v1\|v2] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
 | `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
 | `walle diff old/scan.json new/scan.json` | What changed after you trimmed: stack tokens, rule counts, flags. |
-| `walle check [folder] --max-tokens N` | Exit 1 when a stack is over budget. Use it in CI. |
+| `walle check [folder] [--max-tokens N] [--estimator v1\|v2]` | Exit 1 when a stack is over budget. Use it in CI. |
 | `walle judge [scan.json] [--dry-run \| --import]` | Hands the conflict pairs (drift, topic, protocol) and cause-1 candidates of a scan to your coding agent as batch files with a short rubric. The agent writes a verdict per item: real or not, which line to keep, and a one-line fix. `--import` reads the answers and writes `judge.md` and `judge.json` next to `scan.json`. `--dry-run` lists the items with file:line and the estimated tokens, and writes nothing. |
 
 The four causes:
@@ -67,7 +67,8 @@ claude plugin install walle@walle
 The plugin adds:
 
 - a `walle` skill. Ask "audit my CLAUDE.md" and the agent runs the scan and reads the report.
-- an optional session-start alarm, off by default. Turn on `session_alarm` and set `budget_tokens` to get one line of context when a folder's stack is over budget.
+- an optional session-start alarm, off by default. Turn on `session_alarm` and set `budget_tokens` (default 14,500) to get one line of context when a folder's stack is over budget.
+  The alarm counts bytes-v2 tokens. If you saved `budget_tokens` as 8000 for the earlier bytes-v1 counts, change it to 14500.
 
 ### Codex and other agents
 
@@ -77,7 +78,7 @@ Install the CLI with pipx, then copy `skills/walle` into your agent's skills fol
 
 ```yaml
 - run: pipx install walle-cli
-- run: walle check . --max-tokens 8000
+- run: walle check . --max-tokens 14500
 ```
 
 ### Judge
@@ -113,7 +114,11 @@ The id is a hash of the rule, the text and the file path. It stays the same when
 
 **Ownership.** `owned` is a file in the git checkout of the folder. `memory` is the MEMORY.md of the folder. `shared` is a global file or a parent file outside the checkout. `files[].ownership` follows the stacks: a file that any stack sees as shared is shared.
 
-**Verdicts.** The budget is 8,000 estimated tokens per stack (`--max-tokens`).
+**Verdicts.** The budget is 14,500 estimated tokens per stack (`--max-tokens`).
+Token counts use the bytes-v2 estimator, which has the same prose rates as `walle context`, so the two commands give one number for one file.
+`--estimator v1` counts with bytes-v1 (ASCII at 4 characters per token), and its default budget is 8,000.
+On the author's machine, 14,500 bytes-v2 tokens puts the same stacks over the budget as 8,000 bytes-v1 tokens.
+Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle context` shows what they cost.
 
 - `OVER BUDGET`: the stack is over the budget.
 - `TRIM`: the stack has certain DELETE lines of 100 estimated tokens or more, or a conflict (two drifted lines that load together), shared files included. Or your own files have 3 or more open candidates.
@@ -131,7 +136,7 @@ Compare finding counts of two runs only when their `rules_hash` values are the s
 ## Limits
 
 - Load rules are the ones observed for Claude Code and Codex. Connector tools and hosted plugin skills are not on disk. `walle eve` measures them as part of the baseline.
-- Token counts in `scan` are estimates from bytes. `eve` numbers come from the API usage in transcripts.
+- Token counts in `scan` are estimates from bytes (bytes-v2 by default). `eve` and `walle context` measured numbers come from the API usage in transcripts.
 - Session baselines vary with model, account and connectors. Compare a folder with itself before and after a change (`--before` / `--since`) more than across folders.
 - walle sends nothing off the machine. `walle judge` only writes files for your agent, which already reads these instruction files. The hook never runs it.
 - `walle judge` reads only the candidates that `scan` found. A topic pair needs a shared key term and a verb with the opposite sign, or two forms of one message. Two rules that disagree in other words are not candidates.
