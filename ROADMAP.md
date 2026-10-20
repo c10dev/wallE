@@ -46,7 +46,8 @@ Every surface gives the same answer in the same order: one verdict word, at most
 
 ## 0.3 — trim and measure
 
-- `walle trim --plan`: a patch that removes duplicates and moves cost candidates into on-demand files. Write it to the run folder, never apply it.
+- `walle trim --plan`: a plan of trim actions with the expected saving, the risk, the undo and the check for each. Instruction-file changes are patches in the run folder.
+- `walle apply <run> --only <id>` and `walle undo <apply-id>`: walle changes only the settings keys the user picks, after a backup. It never edits instruction files and never writes into the folders it reads.
 - `walle ablate`: run the same prompt with and without a block of rules (`claude -p`, fixed effort), then compare steps and pass/fail. This is the before/after check the vendor guides recommend.
 
 ## 0.4 — surfaces
