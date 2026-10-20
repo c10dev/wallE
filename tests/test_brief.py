@@ -352,7 +352,7 @@ class AlarmTest(unittest.TestCase):
     def test_over_budget_is_one_short_line(self):
         text, secs = self.alarm(Fixture.tree.projects / "atc" / "controller")
         msg = json.loads(text)["hookSpecificOutput"]["additionalContext"]
-        self.assertEqual(msg, "walle: this folder loads ~12,700 est. tokens of instructions before the first prompt "
+        self.assertEqual(msg, "walle: this folder loads ~16,100 est. tokens of instructions before the first prompt "
                               "(budget 8,000); largest ./CLAUDE.md ~8,100. Mention only if asked about instructions "
                               "or cost.")
         self.assertLessEqual(len(msg), 200)
