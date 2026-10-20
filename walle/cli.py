@@ -38,7 +38,7 @@ ESTIMATOR_HELP = ("token estimator: v2 (bytes-v2, default; the same prose rates 
 
 
 def _budget(args) -> int:
-    """--max-tokens, or the default budget of the estimator: 14,500 for bytes-v2, 8,000 for bytes-v1."""
+    """--max-tokens, or the default budget of the estimator: 15,000 for bytes-v2, 8,000 for bytes-v1."""
     return args.max_tokens if args.max_tokens is not None else estimate.budget(args.estimator)
 
 

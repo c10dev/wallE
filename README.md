@@ -67,8 +67,8 @@ claude plugin install walle@walle
 The plugin adds:
 
 - a `walle` skill. Ask "audit my CLAUDE.md" and the agent runs the scan and reads the report.
-- an optional session-start alarm, off by default. Turn on `session_alarm` and set `budget_tokens` (default 14,500) to get one line of context when a folder's stack is over budget.
-  The alarm counts bytes-v2 tokens. If you saved `budget_tokens` as 8000 for the earlier bytes-v1 counts, change it to 14500.
+- an optional session-start alarm, off by default. Turn on `session_alarm` and set `budget_tokens` (default 15,000) to get one line of context when a folder's stack is over budget.
+  The alarm counts bytes-v2 tokens. If you saved `budget_tokens` as 8000 for the earlier bytes-v1 counts, change it to 15000.
 
 ### Codex and other agents
 
@@ -78,7 +78,7 @@ Install the CLI with pipx, then copy `skills/walle` into your agent's skills fol
 
 ```yaml
 - run: pipx install walle-cli
-- run: walle check . --max-tokens 14500
+- run: walle check . --max-tokens 15000
 ```
 
 ### Judge
@@ -114,13 +114,12 @@ The id is a hash of the rule, the text and the file path. It stays the same when
 
 **Ownership.** `owned` is a file in the git checkout of the folder. `memory` is the MEMORY.md of the folder. `shared` is a global file or a parent file outside the checkout. `files[].ownership` follows the stacks: a file that any stack sees as shared is shared.
 
-**Verdicts.** The budget is 14,500 estimated tokens per stack (`--max-tokens`).
+**Verdicts.** The budget is 15,000 estimated tokens per stack (`--max-tokens`).
 Token counts use the bytes-v2 estimator, which has the same prose rates as `walle context`, so the two commands give one number for one file.
 A file that Claude Code loads counts without its HTML comment blocks, as Claude Code drops them. Codex files count whole.
 `--estimator v1` counts with bytes-v1 (ASCII at 4 characters per token), and its default budget is 8,000.
-On the author's machine, 14,500 bytes-v2 tokens put the same stacks over the budget as 8,000 bytes-v1 tokens when scan still counted HTML comment lines (2026-10-20).
-Without the comment lines, one stack there is over the budget only in bytes-v2 tokens.
-The other token thresholds scale by the same factor (14,500 / 8,000).
+On the author's machine, 15,000 bytes-v2 tokens put the same stacks over the budget as 8,000 bytes-v1 tokens, with HTML comment blocks removed (2026-10-20).
+The other token thresholds scale the bytes-v1 values by the first bytes-v2 calibration (14,500 / 8,000). They did not move with the budget.
 Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle context` shows what they cost.
 
 - `OVER BUDGET`: the stack is over the budget.

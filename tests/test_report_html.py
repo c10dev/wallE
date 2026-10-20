@@ -69,7 +69,7 @@ class PageTest(unittest.TestCase):
         self.assertEqual(self.D["default"], "~/projects@claude")
         self.assertEqual(V["runup@claude"]["verdict"], "LEAN")
         self.assertEqual(V["atc/controller@claude"]["verdict"], "OVER BUDGET")
-        self.assertTrue(V["atc/controller@claude"]["sentence"].startswith("~26,500 est. tokens load before your first prompt (budget 14,500). Largest: "))
+        self.assertTrue(V["atc/controller@claude"]["sentence"].startswith("~26,500 est. tokens load before your first prompt (budget 15,000). Largest: "))
         first = self.D["items"][V["atc/controller@claude"]["start"][0]]
         self.assertEqual((first["verb"], first["label"]), ("MOVE", "large layer"))
         for it in self.D["items"].values():

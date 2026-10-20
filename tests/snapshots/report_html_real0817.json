@@ -1,11 +1,11 @@
 {
- "budget": 14500,
+ "budget": 15000,
  "default": "~/projects@claude",
  "views": {
   "DesignLAB@claude": {
    "verdict": "TRIM",
    "tokens": 11440,
-   "sentence": "~11,400 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
+   "sentence": "~11,400 est. tokens load before your first prompt (budget 15,000). 3 items to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 8507,
@@ -57,7 +57,7 @@
   "atc/controller@claude": {
    "verdict": "OVER BUDGET",
    "tokens": 26459,
-   "sentence": "~26,500 est. tokens load before your first prompt (budget 14,500). Largest: ./CLAUDE.md ~13,400.",
+   "sentence": "~26,500 est. tokens load before your first prompt (budget 15,000). Largest: ./CLAUDE.md ~13,400.",
    "sums": {
     "shared": 2128,
     "owned": 17157,
@@ -124,7 +124,7 @@
   "atc@claude": {
    "verdict": "LEAN",
    "tokens": 12992,
-   "sentence": "~13,000 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
+   "sentence": "~13,000 est. tokens load before your first prompt (budget 15,000). 1 item to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 3794,
@@ -180,7 +180,7 @@
   "claude-config/global@claude": {
    "verdict": "TRIM",
    "tokens": 5060,
-   "sentence": "~5,100 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
+   "sentence": "~5,100 est. tokens load before your first prompt (budget 15,000). 3 items to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 2127,
@@ -231,7 +231,7 @@
   "runup@claude": {
    "verdict": "LEAN",
    "tokens": 4061,
-   "sentence": "~4,100 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
+   "sentence": "~4,100 est. tokens load before your first prompt (budget 15,000). 2 items to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 1128,
@@ -280,7 +280,7 @@
   "tennis-web@claude": {
    "verdict": "LEAN",
    "tokens": 5289,
-   "sentence": "~5,300 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
+   "sentence": "~5,300 est. tokens load before your first prompt (budget 15,000). 2 items to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 1709,
@@ -338,7 +338,7 @@
   "vocado_RN@claude": {
    "verdict": "LEAN",
    "tokens": 5673,
-   "sentence": "~5,700 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
+   "sentence": "~5,700 est. tokens load before your first prompt (budget 15,000). 1 item to read in your files.",
    "sums": {
     "shared": 2128,
     "owned": 2740,
@@ -384,7 +384,7 @@
   "vocado_RN@codex": {
    "verdict": "LEAN",
    "tokens": 4419,
-   "sentence": "~4,400 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
+   "sentence": "~4,400 est. tokens load before your first prompt (budget 15,000). 1 item to read in your files.",
    "sums": {
     "shared": 873,
     "owned": 3146,
@@ -432,7 +432,7 @@
   "~/projects@claude": {
    "verdict": "LEAN",
    "tokens": 2933,
-   "sentence": "~2,900 est. tokens load before your first prompt (budget 14,500). Nothing to read in your files.",
+   "sentence": "~2,900 est. tokens load before your first prompt (budget 15,000). Nothing to read in your files.",
    "sums": {
     "shared": 2128,
     "skills": 805
@@ -468,7 +468,7 @@
   "~/projects@codex": {
    "verdict": "LEAN",
    "tokens": 1273,
-   "sentence": "~1,300 est. tokens load before your first prompt (budget 14,500). Nothing to read in your files.",
+   "sentence": "~1,300 est. tokens load before your first prompt (budget 15,000). Nothing to read in your files.",
    "sums": {
     "shared": 873,
     "skills": 400

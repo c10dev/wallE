@@ -203,7 +203,7 @@ class DefaultEstimatorTest(unittest.TestCase):
     def test_run_and_budget(self):
         self.assertEqual(self.data["run"]["estimator"], "bytes-v2")
         self.assertEqual(self.data["triage"]["budget"], triage.BUDGET)
-        self.assertEqual(triage.BUDGET, 14500)
+        self.assertEqual(triage.BUDGET, 15000)
 
     def test_a_file_has_the_number_walle_context_gives_it(self):
         # walle context counts the text a session recorded: for Claude files, the loaded text.
@@ -218,6 +218,21 @@ class DefaultEstimatorTest(unittest.TestCase):
         self.assertTrue(layers)
         for path, tokens in layers.items():
             self.assertEqual(tokens, files[path], path)
+
+    def test_every_place_that_states_the_default_budget_has_it(self):
+        root = Path(__file__).resolve().parent.parent
+        plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+        self.assertEqual(plugin["userConfig"]["budget_tokens"]["default"], estimate.budget("bytes-v2"))
+        for cmd in ("scan", "check"):
+            out = io.StringIO()
+            with redirect_stdout(out), self.assertRaises(SystemExit):
+                cli.main([cmd, "--help"])
+            self.assertIn("default 15000 with v2, 8000 with v1", re.sub(r"\s+", " ", out.getvalue()), cmd)
+        for name in ("README.md", "README.ko.md"):
+            text = (root / name).read_text()
+            self.assertIn("--max-tokens 15000", text, name)
+            self.assertIn("15,000", text, name)
+            self.assertNotRegex(text, r"14,?500(?! ?/ ?8,000)", name)
 
     def test_the_same_stacks_are_over_budget(self):
         over = lambda d: {k for k, e in d["triage"]["stacks"].items() if e["verdict"] == "OVER BUDGET"}
@@ -386,9 +401,14 @@ class ItemTest(unittest.TestCase):
 
         self.assertEqual(triage.LARGE_LAYER_TOKENS, {"bytes-v1": 2000, "bytes-v2": 3600})
         self.assertEqual(triage.TRIM_DELETE_TOKENS, {"bytes-v1": 100, "bytes-v2": 180})
-        ratio = estimate.budget("bytes-v2") / estimate.budget("bytes-v1")
+        # The bytes-v2 thresholds came from the first bytes-v2 budget, 14,500 / 8,000. They did not move
+        # with the budget: at 15,000 / 8,000 they would be 3,750 and 187.5 before rounding.
+        ratio = 14500 / estimate.budget("bytes-v1")
         for name in (triage.LARGE_LAYER_TOKENS, triage.TRIM_DELETE_TOKENS):
             self.assertAlmostEqual(name["bytes-v2"] / (name["bytes-v1"] * ratio), 1, delta=0.01)
+        now = estimate.budget("bytes-v2") / estimate.budget("bytes-v1")
+        self.assertEqual(estimate.budget("bytes-v2"), 15000)
+        self.assertNotAlmostEqual(triage.LARGE_LAYER_TOKENS["bytes-v2"] / (2000 * now), 1, delta=0.01)
         # 8,474 ASCII bytes: over 2,000 bytes-v1 tokens, under 3,600 bytes-v2 tokens.
         tokens, items = moves(30, "bytes-v1")
         self.assertGreater(tokens, 2000)

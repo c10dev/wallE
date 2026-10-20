@@ -46,8 +46,9 @@ from .stack import Stack
 
 BUDGET = estimate.budget(estimate.DEFAULT)  # bytes-v2 tokens; a bytes-v1 run uses estimate.budget("bytes-v1")
 # Token thresholds, in the tokens of each estimator. The bytes-v1 values came first. The bytes-v2 values
-# scale them by the budget calibration, 14,500 / 8,000 = 1.8125, rounded to two figures:
-# 2,000 -> 3,625 -> 3,600 and 100 -> 181 -> 180. A share does not depend on the estimator.
+# scale them by the first bytes-v2 budget calibration, 14,500 / 8,000 = 1.8125, rounded to two figures:
+# 2,000 -> 3,625 -> 3,600 and 100 -> 181 -> 180. They stayed when the budget moved to 15,000.
+# A share does not depend on the estimator.
 SAFE_DELETE = 0.95  # duplicate or repeat at or above: DELETE (certain); below: CHECK (candidate)
 LARGE_LAYER_TOKENS = {"bytes-v1": 2000, "bytes-v2": 3600}  # an owned layer above this many tokens...
 LARGE_LAYER_SHARE = 0.4  # ...and above this share of its stack: MOVE

@@ -1,6 +1,6 @@
 walle 0.2  scan ~/projects/runup  claude  2026-10-20 08:17
 
-LEAN  ~4,100 est. tokens load before your first prompt (budget 14,500).
+LEAN  ~4,100 est. tokens load before your first prompt (budget 15,000).
       2 items to read in your files.
       your files ~1,100 | shared ~2,100 | skills ~810
 
