@@ -10,10 +10,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import eve, judge, report, report_html
+from . import eve, judge, report, report_html, runs
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
+from .triage import BUDGET
 
 DEFAULT_OUT = HOME / ".walle" / "runs"
 
@@ -27,6 +28,11 @@ def _write(out_dir: Path, name: str, data: dict, md: str) -> Path:
         latest.unlink(missing_ok=True)
         latest.symlink_to(out_dir.name)  # relative, so the runs folder can move
     return out_dir / f"{name}.md"
+
+
+def _scan(roots: list[Path], budget: int) -> dict:
+    # scan(roots) stays the call for the default budget: callers and tests replace scan() with a one-argument function.
+    return scan(roots) if budget == BUDGET else scan(roots, budget=budget)
 
 
 def check(data: dict, max_tokens: int, agent: str) -> int:
@@ -110,6 +116,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("roots", nargs="*", type=Path, default=[Path.cwd()])
     s.add_argument("--top", type=int, default=15)
     s.add_argument("--html", action="store_true", help="also write a filterable HTML page")
+    s.add_argument("--max-tokens", type=int, default=BUDGET, help="token budget of one stack (default 8000)")
+    s.add_argument("--label", help="a name for this run, kept in the run index (for example 'before trim')")
 
     c = sub.add_parser("check", help="exit 1 when a stack is over budget (for CI)")
     c.add_argument("roots", nargs="*", type=Path, default=[Path.cwd()])
@@ -144,15 +152,20 @@ def main(argv: list[str] | None = None) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
         roots = [r.expanduser().resolve() for r in args.roots]
-        data = scan(roots)
-        path = _write(args.out / stamp, "scan", data, report.render_scan(data, args.top))
+        data = _scan(roots, args.max_tokens)
+        run_dir = runs.new_run_dir(args.out)
+        data.setdefault("run", runs.run_block(roots, []))
+        data["run"].update(id=run_dir.name, label=args.label,
+                           parent_id=runs.parent_of(args.out, data["run"]["roots"]))
+        path = _write(run_dir, "scan", data, report.render_scan(data, args.top))
+        runs.append_index(args.out, data, run_dir / "scan.json")
         if args.html:
-            html = args.out / stamp / "scan.html"
+            html = run_dir / "scan.html"
             html.write_text(report_html.render(data))
             print(html)
     elif args.cmd == "check":
         roots = [r.expanduser().resolve() for r in args.roots]
-        return check(scan(roots), args.max_tokens, args.agent)
+        return check(_scan(roots, args.max_tokens), args.max_tokens, args.agent)
     elif args.cmd == "alarm":
         return alarm()
     elif args.cmd in ("eve", "measure"):

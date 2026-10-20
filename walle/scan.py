@@ -1,4 +1,9 @@
-"""Run the full static pass: collect, stack, segment, classify, compact."""
+"""Run the full static pass: collect, stack, segment, classify, compact, triage.
+
+scan.json schema 2 adds `schema`, `run`, `items`, `triage` and three fields of
+`files[]` (sha, ownership, sections). The fields of schema 1 keep their names and
+values, so readers of schema 1 (judge, diff, the reports) keep working.
+"""
 
 from __future__ import annotations
 
@@ -10,8 +15,12 @@ from .classify import classify_unit, emphasis_count
 from .collect import HOME, Artifact, collect
 from .compact import copy_groups, rule_pairs
 from .conflict import protocol_pairs, topic_pairs
+from .runs import run_block
 from .segment import segment
 from .stack import claude_stack, codex_stack, estimate_tokens, session_folders
+from .triage import BUDGET, file_ownership, sections, triage
+
+SCHEMA = 2
 
 PROSE_KINDS = {"claude_md", "agents_md", "skill", "agent", "command", "memory_index",
                "global_claude", "global_codex", "other_agent"}
@@ -22,7 +31,7 @@ def is_copy(a: Artifact) -> bool:
     return a.is_worktree or "/worktrees/" in str(a.path)
 
 
-def scan(roots: list[Path], home: Path = HOME) -> dict:
+def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
     artifacts = collect(roots, home)
     by_path = {str(a.path): a for a in artifacts}
 
@@ -44,12 +53,14 @@ def scan(roots: list[Path], home: Path = HOME) -> dict:
 
     files = []
     unit_cache: dict[str, list] = {}
+    file_sections: dict[str, list[dict]] = {}
     flags_all = []
     for a in artifacts:
         if a.kind not in PROSE_KINDS or is_copy(a):
             continue
         units = segment(a.text, str(a.path))
         unit_cache[str(a.path)] = units
+        file_sections[str(a.path)] = sections(a.text)
         flags = [fl for u in units for fl in classify_unit(u)]
         flags_all.extend(flags)
         by_cause = Counter(fl.cause for fl in flags)
@@ -63,6 +74,9 @@ def scan(roots: list[Path], home: Path = HOME) -> dict:
             "emphasis": emphasis_count(a.text),
             "loaded_in_stacks": loaded_count.get(str(a.path), 0),
             "flags": {str(k): by_cause.get(k, 0) for k in (1, 3, 4)},
+            "sha": a.sha1,
+            "ownership": file_ownership(a, roots, home),
+            "sections": file_sections[str(a.path)],
         })
 
     # Rule pairs are compared inside one scope: every prose file of one repository's
@@ -115,7 +129,11 @@ def scan(roots: list[Path], home: Path = HOME) -> dict:
             ],
         })
 
+    copies = [g.to_dict() for g in copy_groups(artifacts)]
+    tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget)
     return {
+        "schema": SCHEMA,
+        "run": run_block(roots, [st.folder for st in stacks]),
         "generated": datetime.now().isoformat(timespec="seconds"),
         "roots": [str(r) for r in roots],
         "artifact_count": len(artifacts),
@@ -124,5 +142,7 @@ def scan(roots: list[Path], home: Path = HOME) -> dict:
         "files": sorted(files, key=lambda f: (-f["loaded_in_stacks"], -f["bytes"])),
         "flags": [fl.to_dict() for fl in flags_all],
         "pairs": [p.to_dict() for p in sorted(pairs, key=lambda p: (p.kind, -p.score))],
-        "copies": [g.to_dict() for g in copy_groups(artifacts)],
+        "copies": copies,
+        "items": tri["items"],
+        "triage": tri["triage"],
     }

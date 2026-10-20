@@ -20,7 +20,21 @@ python3 bin/walle judge                    # 후보를 배치 파일로 내보�
 python3 bin/walle judge --import           # 답을 읽어 judge.md 작성
 ```
 
-리포트는 `~/.walle/runs/<시각>/`에 쓴다. 점검하는 폴더에는 쓰지 않는다.
+리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다.
+
+## scan.json (schema 2)
+
+모든 표면은 `scan.json`을 읽는다. schema 2는 필드를 더하기만 하고 이름을 바꾸지 않는다. schema 1을 읽던 코드는 그대로 돈다.
+
+- `run`: 실행 id(실행 폴더 이름), `parent_id`(같은 루트의 직전 스캔), `label`(`--label`), `walle_version`, `rules_hash`, `estimator`, `roots`, `git_heads`
+- `items`: 읽거나 고칠 것 하나에 항목 하나. 한 파일의 날짜·모델명 줄(3줄부터), 한 MEMORY.md의 줄, 두 파일 사이에 이어진 복사 줄, 같은 스택의 다른 파일을 통째로 복사한 파일(`file_copy` 노트)은 각각 한 항목이다. 항목 id는 규칙, 원문, 체크아웃 안 경로의 해시 앞 6자리다. 줄이 옮겨져도 같고, 형제 폴더의 같은 줄은 서로 다르다. 위치에는 잘리지 않은 원문, `end_line`, 해시가 있다.
+- `triage`: 스택마다 판정, 토큰 구성, 여기부터(`start_here`) 항목 id, 접힌 묶음
+- `files[]`: `sha`, `ownership`, `##` 절의 줄 범위도 담는다
+
+판정(예산 기본 8,000 추정 토큰, `--max-tokens`): 예산을 넘으면 `OVER BUDGET`. 예산 이하이고 내 파일에 확실한 DELETE 줄이 100 토큰 이상이거나, 충돌 후보가 있거나, 열린 후보가 3개 이상이면 `TRIM`. 나머지는 `LEAN`.
+여기부터는 내 파일(폴더의 git 체크아웃과 그 폴더의 MEMORY.md)에서 최대 3개다. 세션 시작에 읽히는 항목만 판정과 여기부터에 든다.
+DELETE는 넓은 쪽 사본을 남긴다. 지울 줄을 읽는 모든 스택이 남길 줄도 읽을 때만 DELETE이고, `~/.claude/CLAUDE.md` 같은 공용 파일의 줄은 지우라고 하지 않는다.
+두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`가 같을 때만 비교한다.
 
 ## 보는 것
 

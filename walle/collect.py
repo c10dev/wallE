@@ -42,6 +42,7 @@ class Artifact:
     is_worktree: bool = False
     size: int = 0
     sha: str = ""
+    sha1: str = ""  # sha1 of the bytes, for scan.json files[].sha
     text: str = field(default="", repr=False)
 
     @property
@@ -66,6 +67,7 @@ def read_artifact(path: Path, kind: str) -> Artifact:
         is_worktree=is_wt,
         size=len(data),
         sha=hashlib.sha256(data).hexdigest()[:12],
+        sha1=hashlib.sha1(data).hexdigest(),
         text=data.decode("utf-8", errors="replace"),
     )
 

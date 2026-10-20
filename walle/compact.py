@@ -18,6 +18,7 @@ K = 5
 DUP = 0.85  # at or above: the same rule written twice
 DRIFT = 0.5  # between DRIFT and DUP: the same rule that changed (conflict candidate)
 MIN_LEN = 20  # ignore very short units (headings in tables, labels)
+REPEAT = 0.6  # at or above, inside one file: the same rule written again
 
 
 def shingles(norm: str) -> frozenset[str]:
@@ -70,7 +71,7 @@ def rule_pairs(units: list[Unit]) -> list[Pair]:
             if score < DRIFT:
                 continue
             if u.file == v.file:
-                if score >= 0.6:
+                if score >= REPEAT:
                     pairs.append(Pair("repeat", u, v, score))
             elif score >= DUP:
                 pairs.append(Pair("duplicate", u, v, score))

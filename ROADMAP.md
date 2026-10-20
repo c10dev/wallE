@@ -26,6 +26,21 @@ They miss meaning: "send to DUTY" and "never send messages" is a conflict that n
   On the author's machine all three audited pairs are now candidates.
 - Next: conflict candidates without a shared key term, Korean verbs with a one-syllable stem, and negation in more languages.
 
+### 0.2 — one answer per folder (scan.json schema 2)
+
+Every surface gives the same answer in the same order: one verdict word, at most 3 lines in your own files to read first, then folded groups.
+
+- Done: engine v2 and run records (`walle/triage.py`, `walle/runs.py`).
+  `scan.json` schema 2 adds `run`, `items` and `triage`, and renames nothing.
+  Items have stable ids, a scope (session start, on demand, not loaded together, other agent, elsewhere), an ownership (your files, memory, shared, skills) and whole text with line ranges.
+  Each stack gets a verdict (OVER BUDGET, TRIM, LEAN) and a Start here list. DELETE keeps the broader copy and never touches a shared file.
+  Consecutive copied lines, dated lines of one file, a MEMORY.md and a whole copied file are one item each.
+  Each scan adds a line to `runs/index.jsonl` with its parent run, rules hash and estimator.
+- Next: display strings in English and Korean (`walle/strings.py`, `--lang`), and `walle measure` as the main name of `eve`.
+- Next: the terminal brief as the default TTY output of `walle scan`, `walle show`, and Markdown for agents (`--format brief-md`).
+- Next: `walle keep` (personal `~/.walle/keep.json`, team `.wallekeep`), then `walle runs`, `walle pin` and `walle diff` without arguments.
+- Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
+
 ## 0.3 — trim and measure
 
 - `walle trim --plan`: a patch that removes duplicates and moves cost candidates into on-demand files. Write it to the run folder, never apply it.

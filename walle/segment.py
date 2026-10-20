@@ -22,6 +22,11 @@ class Unit:
     heading: str
     text: str
     kind: str = "text"  # text | heading | code
+    end_line: int = 0  # 1-based last line; 0 means the unit is one line
+
+    def __post_init__(self):
+        if self.end_line < self.line:
+            self.end_line = self.line
 
     @property
     def norm(self) -> str:
@@ -50,13 +55,14 @@ def segment(text: str, file: str = "") -> list[Unit]:
     fence_line = 0
     cur: list[str] = []
     cur_line = 0
+    cur_end = 0
     cur_indent = 0
 
     def flush():
         nonlocal cur
         body = " ".join(s.strip() for s in cur).strip()
         if body and len(normalize(body)) >= 4:
-            units.append(Unit(file, cur_line, heading, body))
+            units.append(Unit(file, cur_line, heading, body, end_line=cur_end))
         cur = []
 
     for idx in range(i, len(lines)):
@@ -66,7 +72,7 @@ def segment(text: str, file: str = "") -> list[Unit]:
             flush()
             if in_fence and len(normalize(" ".join(fence))) >= 4:
                 # A fenced block is one unit: templates copied between files are duplicates too.
-                units.append(Unit(file, fence_line, heading, "\n".join(fence), "code"))
+                units.append(Unit(file, fence_line, heading, "\n".join(fence), "code", n - 1))
             in_fence = not in_fence
             fence, fence_line = [], n + 1
             continue
@@ -94,15 +100,16 @@ def segment(text: str, file: str = "") -> list[Unit]:
         if b:
             flush()
             cur = [b.group(2)]
-            cur_line = n
+            cur_line = cur_end = n
             cur_indent = len(b.group(1))
             continue
         if cur and (len(line) - len(line.lstrip()) > cur_indent or not BULLET_RE.match(line)):
             cur.append(line)
+            cur_end = n
             continue
         flush()
         cur = [line]
-        cur_line = n
+        cur_line = cur_end = n
         cur_indent = 0
     flush()
     return units

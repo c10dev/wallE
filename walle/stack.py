@@ -19,6 +19,9 @@ from .collect import HOME, Artifact, find_checkout, frontmatter, is_disabled_ski
 
 MEMORY_LINE_LIMIT = 200
 CODEX_PROJECT_DOC_MAX = 32 * 1024
+# Name of the token estimator. Change it when estimate_tokens changes: totals of two runs
+# compare only when both used the same estimator.
+ESTIMATOR = "bytes-v1"
 IMPORT_RE = re.compile(r"(?:^|\s)@((?:~|\.{1,2})?/?[\w./-]+\.md)\b", re.M)
 
 

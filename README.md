@@ -20,7 +20,7 @@ walle finds the second kind, so you can cut it and measure the effect.
 
 | Command | Output |
 |---|---|
-| `walle scan [folder ...]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. |
+| `walle scan [folder ...] [--max-tokens N] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
 | `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
 | `walle diff old/scan.json new/scan.json` | What changed after you trimmed: stack tokens, rule counts, flags. |
 | `walle check [folder] --max-tokens N` | Exit 1 when a stack is over budget. Use it in CI. |
@@ -55,7 +55,7 @@ Or run it from a checkout:
 python3 bin/walle scan ~/projects --html
 ```
 
-Reports go to `~/.walle/runs/<time>/` (`scan.md`, `scan.json`, `scan.html`). walle never writes into the folders it reads.
+Reports go to `~/.walle/runs/<time>/` (`scan.md`, `scan.json`, `scan.html`). Each scan also adds one line to `~/.walle/runs/index.jsonl`. walle never writes into the folders it reads.
 
 ### Claude Code plugin
 
@@ -90,6 +90,38 @@ walle does not call a model and needs no API key. Your agent does the judging, w
 
 The cache key is a hash of the rule text and the rubric version. The next export holds only rules whose text changed.
 Caches go to the `cache/` folder next to the runs folder (`--out`), by default `~/.walle/cache/`. A rule that only moved to another line keeps its judgment.
+
+## scan.json
+
+`scan.json` is the data that every surface reads. Schema 2 adds fields and renames none, so readers of schema 1 keep working.
+
+| Field | Content |
+|---|---|
+| `schema` | `2` |
+| `run` | `id` (the run folder name), `kind`, `parent_id` (the previous scan of the same roots), `label`, `walle_version`, `rules_hash`, `estimator`, `roots`, `git_heads` |
+| `items` | One entry for each thing to read or change, with a stable 6-hex `id` |
+| `triage` | For each stack: `verdict`, token split, `start_here` (item ids) and folded `groups` |
+| `files[]` | Also `sha`, `ownership` and the `##` sections with their line ranges |
+| `stacks`, `files`, `flags`, `pairs`, `copies` | As in schema 1 |
+
+**Items.** One flagged line is one item. Lines that belong together are one item: the dated and model-name lines of one file (from 3 lines), the flagged lines of one MEMORY.md, a run of consecutive copied lines between two files, and a file that copies another file of its stack (a `file_copy` note).
+Each item has a `rule`, a `verb` (`DELETE`, `CHECK`, `PICK ONE`, `MOVE`, `REWRITE`, `SYNC?`), a `certainty` (`certain`, `candidate`, `info`), a `scope`, an `ownership`, and `locations` with the whole text, `end_line` and a hash.
+The id is a hash of the rule, the text and the path inside the checkout. It stays the same when a line moves. The same line in two sibling folders gets two ids.
+
+**Scope.** Only `session_start` items change the verdict and Start here. Items in skill, agent and command bodies (`on_demand`), lines that no stack loads together (`not_together`, for example copies between sibling folders), and Cursor, Copilot, Gemini, Windsurf and Cline files (`other_agent`) stay in folded groups with their counts. Findings outside every stack of the scan (`elsewhere`) are counted in `triage.hidden`.
+
+**Verdicts.** The budget is 8,000 estimated tokens per stack (`--max-tokens`).
+
+- `OVER BUDGET`: the stack is over the budget.
+- `TRIM`: in your own files, certain DELETE lines total 100 estimated tokens or more, or there is a conflict, or there are 3 or more open candidates.
+- `LEAN`: all other stacks.
+
+**Start here.** At most 3 items from your own files: the git checkout of the folder and its MEMORY.md. The order is conflicts, every-task steps, large layers, duplicates, old-model habits, dates and model names, then vague words. A stack over the budget puts its large layer (MOVE) first. A scan of several folders also writes `start_here_by_reach`, which includes shared files and ranks by estimated tokens times the number of stacks that load the line.
+
+**DELETE keeps the broader copy.** walle marks a copied line DELETE only when every stack that loads it also loads the copy that stays. It never marks a line in a shared file, such as `~/.claude/CLAUDE.md`, for deletion, because that file also loads in folders outside the scan.
+
+**Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, stack totals, verdicts, and open and kept counts.
+Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` values are the same.
 
 ## Limits
 
