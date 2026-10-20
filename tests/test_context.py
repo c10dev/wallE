@@ -186,8 +186,12 @@ class ContextCommandTest(unittest.TestCase):
         (self.root / "-home-user-projects").mkdir(parents=True)
         shutil.copy(FIXTURE, self.root / "-home-user-projects" / f"{SID}.jsonl")
         self.out = Path(self.tmp.name) / "runs"
+        # The on-disk marks read settings and skills of a home: use an empty one, not the real one.
+        self.home = unittest.mock.patch("walle.context.HOME", Path(self.tmp.name) / "home")
+        self.home.start()
 
     def tearDown(self):
+        self.home.stop()
         self.tmp.cleanup()
 
     def run_cli(self, *args) -> Path:
@@ -230,15 +234,15 @@ class MeasuredValuesStayOutTest(unittest.TestCase):
         t = Tree()
         try:
             t.write("projects/app/CLAUDE.md", "# App\n\n- Always run the linter before every task.\n")
-            with unittest.mock.patch("walle.collect.HOME", t.home), unittest.mock.patch("walle.stack.HOME", t.home):
-                before = scan([t.repo])
+            with unittest.mock.patch("walle.context.HOME", t.home):
+                before = scan([t.repo], t.home)
                 out = t.home / ".walle" / "runs"
                 root = t.home / ".claude" / "projects" / "-x"
                 root.mkdir(parents=True)
                 shutil.copy(FIXTURE, root / f"{SID}.jsonl")
                 with redirect_stdout(io.StringIO()):
                     cli.main(["--out", str(out), "context", "--transcripts", str(root.parent)])
-                after = scan([t.repo])
+                after = scan([t.repo], t.home)
             strip = lambda d: {k: v for k, v in d["triage"]["stacks"].items()}
             self.assertEqual(strip(before), strip(after))
             self.assertNotIn("context", after)

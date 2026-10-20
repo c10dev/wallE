@@ -71,11 +71,12 @@ def find_session(root: Path, session: str | None) -> Path:
 
 # ---------- what is on disk ----------
 
-def local_mcp_servers(folder: Path | None, home: Path = HOME) -> dict[str, str]:
+def local_mcp_servers(folder: Path | None, home: Path | None = None) -> dict[str, str]:
     """server key -> where it is configured, for MCP servers configured in files.
 
     Reads only the keys of mcpServers: their values hold commands, env and headers (secrets).
     """
+    home = home or HOME
     out: dict[str, str] = {}
 
     def keys(path: Path, *dig: str) -> list[str]:
@@ -122,8 +123,9 @@ def server_kind(key: str, local: dict[str, str]) -> str:
 
 # ---------- C1: one session ----------
 
-def session_context(fc: FirstCall, estimator: str = estimate.DEFAULT, home: Path = HOME,
+def session_context(fc: FirstCall, estimator: str = estimate.DEFAULT, home: Path | None = None,
                     names: dict[str, str] | None = None) -> dict:
+    home = home or HOME
     names = names or {}
     cwd = Path(fc.cwd) if fc.cwd else None
     local = local_mcp_servers(cwd, home)
