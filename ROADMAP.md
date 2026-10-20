@@ -36,8 +36,9 @@ Every surface gives the same answer in the same order: one verdict word, at most
   Each stack gets a verdict (OVER BUDGET, TRIM, LEAN) and a Start here list. DELETE keeps the broader copy and never touches a shared file.
   Consecutive copied lines, dated lines of one file, a MEMORY.md and a whole copied file are one item each.
   Each scan adds a line to `runs/index.jsonl` with its parent run, rules hash and estimator.
-- Next: display strings in English and Korean (`walle/strings.py`, `--lang`), and `walle measure` as the main name of `eve`.
-- Next: the terminal brief as the default TTY output of `walle scan`, `walle show`, and Markdown for agents (`--format brief-md`).
+- Done: one table of display strings in English and Korean (`walle/strings.py`): verdicts, verbs, item labels, fixed terms, reasons and empty states.
+  An unknown key fails a test. The command name stays `walle eve`; `walle measure` stays its alias.
+- Next: the terminal brief as the default TTY output of `walle scan`, `--lang en|ko` (default from `LANG`), `walle show`, and Markdown for agents (`--format brief-md`).
 - Next: `walle keep` (personal `~/.walle/keep.json`, team `.wallekeep`), then `walle runs`, `walle pin` and `walle diff` without arguments.
 - Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
 
@@ -56,6 +57,6 @@ Every surface gives the same answer in the same order: one verdict word, at most
 ## Adoption
 
 - One-line install for each surface (pipx, plugin marketplace, Action).
-- A public "instruction health" badge from `walle check`.
+- A public "instruction stack" badge from `walle check`: the verdict word and `~tokens/budget`.
 - A shared rule pack: lexicons for causes 3 and 4 in more languages, contributed as data files.
 - Telemetry stays off. Reports stay on the user's machine. walle sends nothing; judging happens in the user's own agent.

@@ -103,7 +103,7 @@ def render_scan(r: dict, top: int = 15) -> str:
 
 
 def render_eve(r: dict, top: int = 30) -> str:
-    md = [f"# EVE 세션 실측\n\n생성: {r['generated']} · 세션 {r['sessions']}개"
+    md = [f"# walle 세션 실측\n\n생성: {r['generated']} · 세션 {r['sessions']}개"
           + (f" · since {r['since']}" if r["since"] else "") + (f" · before {r['before']}" if r["before"] else "") + "\n"]
     md.append("baseline: 첫 API 호출의 입력 토큰 전체(시스템 프롬프트, 도구 목록, 지시 스택, 첫 프롬프트). "
               "delta: 같은 모델의 대조군(프로젝트 CLAUDE.md 없음) 중앙값을 뺀 값.\n")

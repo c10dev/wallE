@@ -22,7 +22,7 @@ findings of the engine ("flags", "pairs"), which keep their old form.
   conflict, or TRIM_CANDIDATES open candidates, else LEAN.
 - Start here: at most START_HERE items in the user's own files, by SEVERITY.
 
-Labels and verbs are keys, not display text. LABEL_EN gives the English text.
+Labels and verbs are keys, not display text. walle/strings.py gives the text in English and Korean.
 """
 
 from __future__ import annotations
@@ -59,28 +59,12 @@ ON_DEMAND = ("skill", "agent", "command")
 OWN_RANK = {"owned": 0, "memory": 1, "shared": 2, "skills": 3}
 CAUSE = {"duplicate": 4, "repeat": 4, "drift": 2, "topic": 2, "protocol": 2}
 
-LABEL_EN = {
-    "conflict": "conflict?",
-    "every_task_step": "every-task step?",
-    "large_layer": "large layer",
-    "loaded_twice": "loaded twice",
-    "similar_twice": "similar rule loaded twice?",
-    "repeated": "repeated in file",
-    "repeated_maybe": "repeated?",
-    "model_habit": "old-model habit: still needed?",
-    "dated": "dated: still true?",
-    "model_name": "model name: still true?",
-    "dated_lines": "dated lines: still true?",
-    "memory_lines": "memory lines: still true?",
-    "vague": "vague: name the pattern",
-    "stacked_emphasis": "stacked emphasis",
-    "different_agents": "loads in different agents' stacks",
-    "copied_between": "copied between folders",
-    "drifted_copy": "drifted copy",
-    "format_differs": "format differs across repos?",
-    "source_of": "source of <file>",
-    "copy_of": "copy of <file>",
-}
+VERBS = ("DELETE", "PICK ONE", "CHECK", "REWRITE", "MOVE", "SYNC?")
+LABELS = (
+    "conflict", "every_task_step", "large_layer", "loaded_twice", "similar_twice", "repeated", "repeated_maybe",
+    "model_habit", "dated", "model_name", "dated_lines", "memory_lines", "vague", "stacked_emphasis",
+    "different_agents", "copied_between", "drifted_copy", "format_differs", "source_of", "copy_of",
+)
 SEVERITY = {
     "conflict": 1, "every_task_step": 2, "large_layer": 3,
     "loaded_twice": 4, "similar_twice": 4, "repeated": 4, "repeated_maybe": 4,

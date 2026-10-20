@@ -1,4 +1,4 @@
-"""EVE: measure real sessions from Claude Code transcripts.
+"""walle eve (alias walle measure): measure real sessions from Claude Code transcripts.
 
 For each top-level session file under ~/.claude/projects/<slug>/<session>.jsonl:
 - baseline: input + cache_creation + cache_read tokens of the first API call.
