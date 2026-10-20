@@ -10,6 +10,11 @@ Only loading rules observed on this machine are encoded:
   repository root down to the folder, capped at 32 KiB by default.
 Connector tools and built-in skills are not on disk and are not counted.
 
+Claude Code drops block-level HTML comments from every file it loads (CLAUDE.md, its @imports and
+MEMORY.md) and trims the text: claude_loaded() counts that text. Codex layers count the whole file:
+the one Codex transcript on the author's machine recorded AGENTS.md as it is on disk, and no AGENTS.md
+there has an HTML comment, so it is not known whether Codex drops them.
+
 Layer tokens come from estimate.py: bytes-v2 prose rates by default, bytes-v1 on request.
 """
 
@@ -26,6 +31,99 @@ MEMORY_LINE_LIMIT = 200
 MEMORY_BYTE_LIMIT = 25 * 1024
 CODEX_PROJECT_DOC_MAX = 32 * 1024
 IMPORT_RE = re.compile(r"(?:^|\s)@((?:~|\.{1,2})?/?[\w./-]+\.md)\b", re.M)
+# Claude Code 2.1 lexes an instruction file with marked (gfm off) and drops its top-level HTML comment
+# blocks. These patterns follow marked's block rules for the cases that instruction files use.
+# A comment block: up to 3 spaces, the comment, the rest of its last line, the line break(s) after it.
+# An unclosed comment runs to the end of the text.
+COMMENT_BLOCK_RE = re.compile(r" {0,3}<!--(?:-?>|[\s\S]*?(?:-->|\Z))[^\n]*(\n*)")
+COMMENT_RE = re.compile(r"<!--[\s\S]*?-->")
+FENCE_RE = re.compile(r" {0,3}(`{3,}|~{3,})")
+BULLET_RE = re.compile(r" {0,3}(?:[-*+]|\d{1,9}[.)])(?: +|$)")
+HEADING_RE = re.compile(r" {0,3}#{1,6}(?: |$)")
+HR_RE = re.compile(r" {0,3}([-*_])(?: *\1){2,} *$")
+# An HTML block other than a comment runs to the next blank line. Block tags start one anywhere; another
+# tag alone on its line starts one only outside a paragraph.
+HTML_BLOCK_TAGS = ("address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|"
+                   "dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|"
+                   "header|hr|html|iframe|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|"
+                   "option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul")
+HTML_BLOCK_RE = re.compile(rf" {{0,3}}</?(?:{HTML_BLOCK_TAGS})(?: |/?>|$)", re.I)
+HTML_TAG_LINE_RE = re.compile(r" {0,3}</?[A-Za-z][\w-]*(?:\s[^>]*)?/?>\s*$")
+
+
+def claude_loaded(text: str) -> str:
+    """The text of an instruction file as Claude Code puts it into the context.
+
+    Claude Code 2.1 lexes the file as Markdown. It removes each top-level HTML block that starts with
+    "<!--" and holds "-->": the comments go, and the block goes when nothing else is left in it. Then the
+    text is trimmed. Comments in code fences, in list items, in other HTML blocks, on a line that
+    continues a paragraph, and after text on a line stay. Transcripts record the result: a
+    ~/.claude/CLAUDE.md of 5,323 bytes with two comment lines is 5,156 bytes there.
+    Known gaps: a comment line that a "---" line turns into a heading, and a comment that continues a
+    quote inside a list item, go here but stay in Claude Code.
+    """
+    if "<!--" in text:
+        text = _drop_comment_blocks(text)
+    return text.strip()
+
+
+def _drop_comment_blocks(text: str) -> str:
+    out: list[str] = []
+    pos, n = 0, len(text)
+    fence = None  # the open code fence, for example "```"
+    item = None  # the content column of the open top-level list item
+    para = False  # the line before is paragraph text: an indented line continues it
+    html = False  # an HTML block is open until the next blank line
+    while pos < n:
+        end = text.find("\n", pos)
+        end = n if end < 0 else end + 1
+        line = text[pos:end]
+        body = line.rstrip("\n")
+        bare = body.strip()
+        indent = len(body) - len(body.lstrip(" "))
+        if fence:
+            if bare and set(bare) == {fence[0]} and len(bare) >= len(fence):
+                fence = None
+        elif not bare:
+            para = html = False
+        elif html:
+            pass
+        elif FENCE_RE.match(body) and (item is None or indent < item):
+            fence, para = FENCE_RE.match(body).group(1), False
+        elif (indent <= 3 and bare.startswith("<!--")
+              and (indent < item if item is not None else not (para and indent))):
+            m = COMMENT_BLOCK_RE.match(text, pos)
+            raw = m.group(0)
+            if "-->" not in raw:  # unclosed: Claude Code keeps it, and it runs to the end
+                out.append(text[pos:])
+                break
+            breaks = m.group(1)
+            block = raw[:len(raw) - len(breaks)]
+            # marked keeps the line breaks before a blank line as a token of their own.
+            block, breaks = (block, breaks) if len(breaks) > 1 else (raw, "")
+            rest = COMMENT_RE.sub("", block)
+            out.append((rest if rest.strip() else "") + breaks)
+            item, para, pos = None, False, m.end()  # an HTML block also ends a list
+            continue
+        elif HTML_BLOCK_RE.match(body) or (not para and HTML_TAG_LINE_RE.match(body)):
+            html, para = True, False
+            if item is not None and indent < item:
+                item = None
+        else:
+            b = BULLET_RE.match(body)
+            if b and (item is None or indent < item):
+                item = len(b.group(0)) if body[len(b.group(0)):].strip() else indent + 2
+                para = True
+            elif HEADING_RE.match(body) or HR_RE.match(body) or (indent >= 4 and item is None and not para):
+                item = None if item is not None and indent < item else item
+                para = False  # a heading, a rule or indented code is not a paragraph
+            else:
+                if item is not None and indent < item and not para:
+                    item = None  # a paragraph after a blank line ends the list
+                para = True
+        out.append(line)
+        pos = end
+    return "".join(out)
 
 
 # bytes-v1, kept for sizes that are not instruction stacks (the brief-md cap, judge batch files).
@@ -123,7 +221,7 @@ def _imports(path: Path, text: str, depth: int = 0, seen: set[Path] | None = Non
         if target in seen or not target.is_file():
             continue
         seen.add(target)
-        t = target.read_text(errors="replace")
+        t = claude_loaded(target.read_text(errors="replace"))
         out.append(_layer("import", target, t, note=f"@import from {path.name}", estimator=estimator))
         out.extend(_imports(target, t, depth + 1, seen, estimator))
     return out
@@ -150,7 +248,7 @@ def claude_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFA
     st = Stack(folder, "claude", estimator=est)
     g = home / ".claude" / "CLAUDE.md"
     if g.is_file():
-        t = g.read_text(errors="replace")
+        t = claude_loaded(g.read_text(errors="replace"))
         st.layers.append(_layer("global", g, t, estimator=est))
         st.layers.extend(_imports(g, t, estimator=est))
     chain = list(reversed([folder, *folder.parents]))
@@ -158,12 +256,12 @@ def claude_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFA
         for name in ("CLAUDE.md", "CLAUDE.local.md"):
             p = d / name
             if p.is_file() and p.resolve() != g.resolve():
-                t = p.read_text(errors="replace")
+                t = claude_loaded(p.read_text(errors="replace"))
                 st.layers.append(_layer("ancestor", p, t, estimator=est))
                 st.layers.extend(_imports(p, t, estimator=est))
     mem = home / ".claude" / "projects" / memory_slug(memory_folder(folder)) / "memory" / "MEMORY.md"
     if mem.is_file():
-        text, note = memory_text(mem.read_text(errors="replace"))
+        text, note = memory_text(claude_loaded(mem.read_text(errors="replace")))
         st.layers.append(_layer("memory", mem, text, note, est))
     every = [s for s in skills.discover(folder, home) if not s.disabled]
     listed = [s for s in every if s.source in skills.OWN]

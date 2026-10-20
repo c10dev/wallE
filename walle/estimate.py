@@ -27,8 +27,10 @@ DEFAULT = "bytes-v2"
 # Short names for the command line: --estimator v1 is bytes-v1.
 ALIASES = {"v1": "bytes-v1", "v2": "bytes-v2"}
 # Default instruction-stack budget of each estimator, in its own tokens. 8,000 bytes-v1 tokens was the
-# first budget. 14,500 bytes-v2 tokens keeps the same stacks OVER BUDGET on the author's machine
-# (2026-10-20: the largest stack under the budget has 14,425, the smallest stack over it has 14,800).
+# first budget. 14,500 bytes-v2 tokens kept the same stacks OVER BUDGET on the author's machine when scan
+# still counted HTML comment lines (2026-10-20: the largest stack under the budget had 14,425, the smallest
+# stack over it had 14,800). Without the comment lines that Claude Code drops, one stack differs there:
+# atc has 7,969 bytes-v1 tokens (under 8,000) and 14,731 bytes-v2 tokens (over 14,500).
 BUDGETS = {"bytes-v1": 8000, "bytes-v2": 14500}
 PROSE = ("skill_listing", "instructions", "first_prompt", "hook_context", "other_attachments")
 

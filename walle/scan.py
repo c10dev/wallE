@@ -18,13 +18,15 @@ from .compact import copy_groups, rule_pairs
 from .conflict import protocol_pairs, topic_pairs
 from .runs import run_block
 from .segment import segment
-from .stack import claude_stack, codex_stack, session_folders
+from .stack import claude_loaded, claude_stack, codex_stack, session_folders
 from .triage import sections, triage
 
 SCHEMA = 2
 
 PROSE_KINDS = {"claude_md", "agents_md", "skill", "agent", "command", "memory_index",
                "global_claude", "global_codex", "other_agent"}
+# Files that only Claude Code loads: their tokens are those of the text it loads (stack.claude_loaded).
+CLAUDE_KINDS = {"claude_md", "memory_index", "global_claude"}
 
 
 def is_copy(a: Artifact) -> bool:
@@ -76,7 +78,7 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
             "kind": a.kind,
             "repo": str(a.repo) if a.repo else None,
             "bytes": a.size,
-            "tokens_est": estimate.prose(a.text, estimator),
+            "tokens_est": estimate.prose(claude_loaded(a.text) if a.kind in CLAUDE_KINDS else a.text, estimator),
             "units": sum(1 for u in units if u.kind == "text"),
             "emphasis": emphasis_count(a.text),
             "loaded_in_stacks": loaded_count.get(str(a.path), 0),

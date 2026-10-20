@@ -4,11 +4,11 @@
  "views": {
   "DesignLAB@claude": {
    "verdict": "TRIM",
-   "tokens": 11442,
+   "tokens": 11440,
    "sentence": "~11,400 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
    "sums": {
-    "shared": 2129,
-    "owned": 8508,
+    "shared": 2128,
+    "owned": 8507,
     "skills": 805
    },
    "counts": {
@@ -34,14 +34,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      19
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     8508,
+     8507,
      "owned",
      74
     ],
@@ -56,11 +56,11 @@
   },
   "atc/controller@claude": {
    "verdict": "OVER BUDGET",
-   "tokens": 26462,
+   "tokens": 26459,
    "sentence": "~26,500 est. tokens load before your first prompt (budget 14,500). Largest: ./CLAUDE.md ~13,400.",
    "sums": {
-    "shared": 2129,
-    "owned": 17159,
+    "shared": 2128,
+    "owned": 17157,
     "memory": 5628,
     "skills": 1546
    },
@@ -87,21 +87,21 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      8
     ],
     [
      "ancestor",
      "../CLAUDE.md",
-     3795,
+     3794,
      "owned",
      14
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     13364,
+     13363,
      "owned",
      51
     ],
@@ -123,11 +123,11 @@
   },
   "atc@claude": {
    "verdict": "LEAN",
-   "tokens": 12994,
+   "tokens": 12992,
    "sentence": "~13,000 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
    "sums": {
-    "shared": 2129,
-    "owned": 3795,
+    "shared": 2128,
+    "owned": 3794,
     "memory": 5628,
     "skills": 1442
    },
@@ -150,14 +150,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      16
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     3795,
+     3794,
      "owned",
      29
     ],
@@ -179,10 +179,10 @@
   },
   "claude-config/global@claude": {
    "verdict": "TRIM",
-   "tokens": 5061,
+   "tokens": 5060,
    "sentence": "~5,100 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
    "sums": {
-    "shared": 2129,
+    "shared": 2128,
     "owned": 2127,
     "skills": 805
    },
@@ -208,7 +208,7 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      42
     ],
@@ -230,11 +230,11 @@
   },
   "runup@claude": {
    "verdict": "LEAN",
-   "tokens": 4063,
+   "tokens": 4061,
    "sentence": "~4,100 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 2129,
-    "owned": 1129,
+    "shared": 2128,
+    "owned": 1128,
     "skills": 805
    },
    "counts": {
@@ -257,14 +257,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      52
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     1129,
+     1128,
      "owned",
      28
     ],
@@ -279,11 +279,11 @@
   },
   "tennis-web@claude": {
    "verdict": "LEAN",
-   "tokens": 5291,
+   "tokens": 5289,
    "sentence": "~5,300 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 2129,
-    "owned": 1710,
+    "shared": 2128,
+    "owned": 1709,
     "memory": 647,
     "skills": 805
    },
@@ -308,14 +308,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      40
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     1710,
+     1709,
      "owned",
      32
     ],
@@ -337,11 +337,11 @@
   },
   "vocado_RN@claude": {
    "verdict": "LEAN",
-   "tokens": 5675,
+   "tokens": 5673,
    "sentence": "~5,700 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
    "sums": {
-    "shared": 2129,
-    "owned": 2741,
+    "shared": 2128,
+    "owned": 2740,
     "skills": 805
    },
    "counts": {},
@@ -361,14 +361,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      38
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     2741,
+     2740,
      "owned",
      48
     ],
@@ -431,10 +431,10 @@
   },
   "~/projects@claude": {
    "verdict": "LEAN",
-   "tokens": 2934,
+   "tokens": 2933,
    "sentence": "~2,900 est. tokens load before your first prompt (budget 14,500). Nothing to read in your files.",
    "sums": {
-    "shared": 2129,
+    "shared": 2128,
     "skills": 805
    },
    "counts": {},
@@ -452,7 +452,7 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     2129,
+     2128,
      "shared",
      73
     ],

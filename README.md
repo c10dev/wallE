@@ -116,8 +116,10 @@ The id is a hash of the rule, the text and the file path. It stays the same when
 
 **Verdicts.** The budget is 14,500 estimated tokens per stack (`--max-tokens`).
 Token counts use the bytes-v2 estimator, which has the same prose rates as `walle context`, so the two commands give one number for one file.
+A file that Claude Code loads counts without its HTML comment blocks, as Claude Code drops them. Codex files count whole.
 `--estimator v1` counts with bytes-v1 (ASCII at 4 characters per token), and its default budget is 8,000.
-On the author's machine, 14,500 bytes-v2 tokens puts the same stacks over the budget as 8,000 bytes-v1 tokens.
+On the author's machine, 14,500 bytes-v2 tokens put the same stacks over the budget as 8,000 bytes-v1 tokens when scan still counted HTML comment lines (2026-10-20).
+Without the comment lines, one stack there is over the budget only in bytes-v2 tokens.
 The other token thresholds scale by the same factor (14,500 / 8,000).
 Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle context` shows what they cost.
 

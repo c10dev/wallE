@@ -10,7 +10,7 @@ from test_walle import Tree
 
 from walle import cli, context, estimate, transcript
 from walle.scan import scan
-from walle.stack import estimate_tokens
+from walle.stack import claude_loaded, claude_stack, estimate_tokens, memory_slug
 
 FIXTURE = Path(__file__).parent / "fixtures" / "session-630f787e.jsonl"
 SID = "630f787e-f784-445a-9d87-19be85313a8b"
@@ -49,6 +49,78 @@ class FirstCallFixtureTest(unittest.TestCase):
         v1 = sum(estimate.estimate(s.text, k, "bytes-v1") for k, s in self.src.items())
         self.assertLess(90499 - sum(est.values()), 0.05 * 90499)
         self.assertGreater(90499 - v1, 0.25 * 90499)
+
+
+class ScanCountsTheRecordedTextTest(unittest.TestCase):
+    """walle scan counts an instruction file as the session recorded it, not as the disk holds it.
+
+    The fixture records ~/.claude/CLAUDE.md and MEMORY.md as Claude Code sent them. The real
+    ~/.claude/CLAUDE.md has a comment line at the top and at the end, which Claude Code drops.
+    """
+
+    def setUp(self):
+        att = next(d["attachment"] for d in map(json.loads, FIXTURE.read_text().splitlines())
+                   if d.get("type") == "attachment" and d["attachment"].get("type") == "instructions")
+        self.recorded = {f["type"]: f["content"] for f in att["files"]}
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name).resolve() / "home"
+        self.folder = self.home / "projects"
+        self.folder.mkdir(parents=True)
+        (self.home / ".claude").mkdir()
+        self.disk = ("<!-- claude-config:begin sha256=92abb94f682243f4 (managed block: edit global/CLAUDE.md in the "
+                     "claude-config repo, then run install.py) -->\n" + self.recorded["User"]
+                     + "\n<!-- claude-config:end -->\n")
+        (self.home / ".claude" / "CLAUDE.md").write_text(self.disk)
+        mem = self.home / ".claude" / "projects" / memory_slug(self.folder) / "memory" / "MEMORY.md"
+        mem.parent.mkdir(parents=True)
+        mem.write_text("<!-- index of memory files -->\n" + self.recorded["AutoMem"] + "\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_layers_have_the_recorded_bytes_and_tokens(self):
+        self.assertEqual(len(self.recorded["User"].encode()), 4919)
+        self.assertEqual(claude_loaded(self.disk), self.recorded["User"])
+        for est in estimate.ESTIMATORS:
+            st = claude_stack(self.folder, self.home, est)
+            layers = {l.label: l for l in st.layers}
+            for label, kind in (("global", "User"), ("memory", "AutoMem")):
+                text = self.recorded[kind]
+                self.assertEqual(layers[label].bytes, len(text.encode()), (est, label))
+                self.assertEqual(layers[label].tokens, estimate.estimate(text, "instructions", est), (est, label))
+            # The disk text counts the two comment lines too.
+            self.assertGreater(estimate.estimate(self.disk, "instructions", est), layers["global"].tokens)
+            # walle context counts the same files, joined by a line break, in one row.
+            row = next(r for r in context.session_context(transcript.first_call(FIXTURE), est, self.home)["sources"]
+                       if r["source"] == "instructions")
+            self.assertEqual(row["bytes"], layers["global"].bytes + 1 + layers["memory"].bytes)
+            self.assertLessEqual(abs(row["tokens_est"] - layers["global"].tokens - layers["memory"].tokens), 1)
+            # One file, one number: the files list of a scan agrees with the layer.
+            data = scan([self.folder], self.home, estimator=est)
+            files = {f["path"]: f["tokens_est"] for f in data["files"]}
+            self.assertEqual(files[str(self.home / ".claude" / "CLAUDE.md")], layers["global"].tokens)
+
+    def test_comment_blocks_go_as_claude_code_drops_them(self):
+        # Expected texts from Claude Code's rule run with the marked 18 lexer.
+        cases = {
+            "<!-- a -->\n# T\n\n- x\n<!-- e -->\n": "# T\n\n- x",
+            "para\n<!-- c -->\nnext": "para\nnext",
+            "text\n<!-- c -->\n\n<!-- d -->\nz": "text\n\n\nz",
+            "a\n\n<!--\nmulti\nline\n-->\n\nb": "a\n\n\n\nb",
+            "<!-- c --> tail\nb": "tail\nb",
+            "x\n\n<!-- c --> tail\nb": "x\n\n tail\nb",
+            "# T\n\n```\n<!-- k -->\n```": "# T\n\n```\n<!-- k -->\n```",
+            "text <!-- k --> more": "text <!-- k --> more",
+            "- item\n  <!-- k -->\nnext": "- item\n  <!-- k -->\nnext",
+            "1. one\n  <!-- c -->": "1. one",
+            "para\n  <!-- k -->\nnext": "para\n  <!-- k -->\nnext",
+            "<div>\n<!-- k -->\n</div>": "<div>\n<!-- k -->\n</div>",
+            "a\n\n    <!-- k -->": "a\n\n    <!-- k -->",
+            "a\n\n<!-- open\nb": "a\n\n<!-- open\nb",
+            "  plain text  \n": "plain text",
+        }
+        for text, want in cases.items():
+            self.assertEqual(claude_loaded(text), want, text)
 
 
 class EstimateTest(unittest.TestCase):

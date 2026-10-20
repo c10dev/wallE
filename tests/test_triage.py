@@ -15,8 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from real0817 import STACKS, Tree as RealTree  # noqa: E402
 
 from walle import cli, estimate, judge, runs, triage  # noqa: E402
-from walle.scan import scan  # noqa: E402
-from walle.stack import memory_slug  # noqa: E402
+from walle.scan import CLAUDE_KINDS, scan  # noqa: E402
+from walle.stack import claude_loaded, memory_slug  # noqa: E402
 
 SCHEMA_1 = {"generated", "roots", "artifact_count", "copy_count", "stacks", "files", "flags", "pairs", "copies"}
 
@@ -206,8 +206,12 @@ class DefaultEstimatorTest(unittest.TestCase):
         self.assertEqual(triage.BUDGET, 14500)
 
     def test_a_file_has_the_number_walle_context_gives_it(self):
+        # walle context counts the text a session recorded: for Claude files, the loaded text.
+        # tests/test_context.py compares it with the recorded text of a real session.
         for f in self.data["files"]:
             text = Path(f["path"]).read_text()
+            if f["kind"] in CLAUDE_KINDS:
+                text = claude_loaded(text)
             self.assertEqual(f["tokens_est"], estimate.estimate(text, "instructions", "bytes-v2"), f["path"])
         layers = {l["path"]: l["tokens_est"] for s in self.data["stacks"] for l in s["layers"] if l["label"] == "ancestor"}
         files = {f["path"]: f["tokens_est"] for f in self.data["files"]}
