@@ -5,13 +5,16 @@ description: Audit the instruction files coding agents load (CLAUDE.md, AGENTS.m
 
 # walle
 
-Run `walle` if it is on PATH. Otherwise run `python3 <plugin root>/bin/walle`; the plugin root is two folders above this file. It needs Python 3.11+ and nothing else.
+Run `walle` if it is on PATH. Otherwise run `python3 <plugin root>/bin/walle`; the plugin root is two folders above this file. It needs Python 3.11+ and nothing else. Reports go to `~/.walle/runs/`, never into the audited folder.
 
-1. `walle scan [folder ...]` (default: current folder). It prints the report path.
-2. For real cost, `walle eve [--since YYYY-MM-DD] [--before YYYY-MM-DD]`. It reads `~/.claude/projects` transcripts and prints a report path.
-3. Read the Markdown report. Section 1 gives the stack per folder, section 3 gives flags by cause, section 4 gives duplicates, drift and other conflict candidates (topic, protocol), section 5 gives worktree copies.
-4. Report the top findings with file:line. scan.md shows the first items of each kind; scan.json has all of them. Read a line before you call it a problem. `walle judge` covers cause 1 and conflict candidates; cause 4 flags (dates, model names) are for the user to read.
-5. To judge the candidates, read `judging.md` next to this file and follow it. You judge them; walle needs no API key and makes no network call.
-6. Do not edit instruction files unless the user asks. After an edit, run `scan` again and `walle diff <old scan.json> <new scan.json>`.
-
-Add `--html` to `scan` for a page the user can filter. Reports go to `~/.walle/runs/`, never into the audited folder.
+1. Run `walle scan --format brief-md [folder]` (default: the current folder; add `--lang ko` when the user writes Korean) and answer from its output. Read the full report (the `Report:` line) only when the user asks about something the brief does not show.
+2. Answer in at most 8 lines, in the user's language. Use no headings and no tables. One exception: when 4 or more stacks are OVER BUDGET, show them in one table of at most 6 rows.
+   - First line: the brief's `walle:` line, word for word.
+   - Then at most 3 items (5 if the user asks for more), one line each: the verb, `file:line`, a quote of at most 100 characters cut at a word boundary with `...`, and walle's label.
+   - Under each candidate, one line that starts with `My read:` (Korean: `에이전트 판단:`). First read the 3 lines above and below it in the file. Never call a candidate a problem or an error.
+   - Add the `Shared:` line and the report path only if lines are left.
+   - Last line: one yes/no question. Edit no file before the user says yes.
+3. Give session measures only when the user asks. Real cost comes from transcripts: `walle eve [--since YYYY-MM-DD]`.
+4. Before you edit a shared file (one outside the folder), name it and say how many folders load it.
+5. After an edit, run the scan again and `walle diff <old scan.json> <new scan.json>` (scan.json is next to each report). Report one line, for example `Stack ~3,200 -> ~3,180 est. tokens; item 1 closed.`
+6. `walle show <id>` prints one item with the lines around it. To judge candidates with your own agent, read `judging.md` next to this file.

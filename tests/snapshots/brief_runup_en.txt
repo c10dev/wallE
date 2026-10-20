@@ -1,0 +1,20 @@
+walle 0.2  scan ~/projects/runup  claude  2026-10-20 08:17
+
+LEAN  ~2,500 est. tokens load before your first prompt (budget 8,000).
+      2 items to read in your files.
+      your files ~690 | shared ~1,300 | skills ~490
+
+Start here
+1  CHECK  CLAUDE.md:8                                 every-task step? candidate
+   8 | - Open a PR for every change. structure reviews it; SUPERVISOR merges. Do
+     |   not merge your own PR.
+   "for every change" adds a step to every task. Keep it if every task needs it.
+
+2  CHECK  CLAUDE.md:3                                 every-task step? candidate
+   3 | RUN-UP is a public MIT repository. Read this before changing anything.
+   "Read this before changing any" adds a read to every task. Keep it if every
+   task needs it.
+
+Shared  ~/.claude/CLAUDE.md: 3 findings
+Next    walle show 1 | walle scan --all
+~/.walle/runs/20261020-081752/scan.md

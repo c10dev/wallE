@@ -114,10 +114,11 @@ class ScanConflictTest(unittest.TestCase):
 
     def test_report_and_page_show_them(self):
         md = report.render_scan(self.data)
-        self.assertIn("## 4. 중복, drift, 충돌 후보", md)
-        self.assertIn("### topic", md)
-        self.assertIn("부정이 갈린 말: 보내", md)
-        self.assertIn("형식: READBACK D-xxxx ↔ READBACK D-xxxx @xxxxxx", md)
+        # scan.md (design brief 3.6): topic pairs are term clashes, protocol pairs differ across repos.
+        self.assertIn("same term, opposite wording? · candidate", md)
+        self.assertIn("both lines name DISPATCH, OCC", md)
+        self.assertIn("format differs across repos? · candidate", md)
+        self.assertIn("write READBACK D-xxxx in different forms", md)
         labels = {it["label"] for it in report_html.page_data(self.data)["items"].values()}
         self.assertIn("format differs across repos?", labels)
 

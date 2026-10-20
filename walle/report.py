@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 
+from . import brief
 from .collect import HOME
+from .strings import label as item_label
+from .strings import round_tokens, t
+from .triage import LEAN
 
 CAUSE = {1: "무관 비용 후보", 2: "충돌 후보", 3: "모호한 품질", 4: "구모델 보정"}
 
@@ -24,81 +28,157 @@ def table(headers: list[str], rows: list[list]) -> str:
     return "\n".join(out)
 
 
-def render_scan(r: dict, top: int = 15) -> str:
-    md = [f"# walle 지시 문서 리포트\n\n생성: {r['generated']} · 루트: {', '.join(short(x) for x in r['roots'])}\n"]
-    md.append(f"수거한 지시 파일 {r['artifact_count']}개 (워크트리 사본 {r['copy_count']}개 포함). "
-              "토큰은 바이트 기반 추정치다.\n")
+def _md_item(n: int, it: dict, lang: str, home: Path, cap: int, data: dict) -> list[str]:
+    """`1. **CHECK** `path:8` · label · candidate`, the reason, then at most cap quoted source lines."""
+    verb = f"**{t('verb.' + it['verb'], lang)}** " if it["verb"] else ""
+    head = f"{n}. {verb}`{brief.location(it, None, home)}` · {item_label(it, lang)} · {brief.certainty(it, lang)}"
+    return [head + "  ", "   " + brief.reason(it, lang, None, home)] + brief._md_quote(it, cap, it["id"], lang)
 
-    md.append("## 1. 세션 시작 스택 (큰 순)\n")
-    md.append("세션을 그 폴더에서 열 때 첫 프롬프트 전에 읽히는 지시. 커넥터 도구와 claude.ai 플러그인 스킬은 빠졌다.\n")
-    rows = sorted(r["stacks"], key=lambda s: -s["tokens_est"])
-    md.append(table(
-        ["폴더", "에이전트", "추정 토큰", "바이트", "지시 단위", "원인1", "원인3", "원인4", "구성"],
-        [[short(s["folder"]), s["agent"], s["tokens_est"], s["bytes"], s["units"],
-          s["flags"]["1"], s["flags"]["3"], s["flags"]["4"],
-          ", ".join(f"{l['label']}:{l['tokens_est']}" + (" ⚠" if l["note"].startswith("over") else "")
-                    for l in s["layers"])]
-         for s in rows[:top * 2]]))
 
-    md.append("\n## 2. 파일별 (로드되는 스택 수, 크기 순)\n")
-    md.append(table(
-        ["파일", "종류", "로드 스택 수", "바이트", "지시 단위", "강조어", "원인1", "원인3", "원인4"],
-        [[short(f["path"]), f["kind"], f["loaded_in_stacks"], f["bytes"], f["units"], f["emphasis"],
-          f["flags"]["1"], f["flags"]["3"], f["flags"]["4"]] for f in r["files"][:top * 2]]))
+def _md_line(it: dict, lang: str, home: Path, indent: str = "") -> list[str]:
+    """One item of All findings: verb, location, label, certainty and id, then the reason."""
+    verb = f"**{t('verb.' + it['verb'], lang)}** " if it["verb"] else ""
+    return [f"{indent}- {verb}`{brief.location(it, None, home)}` · {item_label(it, lang)} · "
+            f"{brief.certainty(it, lang)} · `{it['id']}`  ",
+            f"{indent}  {brief.reason(it, lang, None, home)}"]
 
-    md.append("\n## 3. 원인별 발견\n")
-    by = defaultdict(list)
-    for fl in r["flags"]:
-        by[(fl["cause"], fl["kind"])].append(fl)
-    for (cause, kind), fls in sorted(by.items()):
-        files = Counter(short(f["file"]) for f in fls)
-        md.append(f"### 원인 {cause} {CAUSE[cause]} · {kind} · {len(fls)}건"
-                  + (" (후보: 사람이 판정)" if fls[0]["candidate"] else "") + "\n")
-        md.append("많은 파일: " + ", ".join(f"{f} {n}" for f, n in files.most_common(5)) + "\n")
-        for fl in fls[:5]:
-            md.append(f"- `{short(fl['file'])}:{fl['line']}` [{fl['match']}] {fl['text'][:140]}")
-        md.append("")
 
-    md.append("## 4. 중복, drift, 충돌 후보\n")
-    md.append("duplicate: 같은 규칙이 두 곳에. drift: 비슷하지만 달라진 규칙(원인 2 충돌 후보). "
-              "topic: 한 세션에 함께 읽히고 핵심어(백틱 토큰, 대문자 용어, 도구 이름)를 공유하는데 "
-              "한쪽이 부정하거나 메시지 형식이 다른 규칙(원인 2 충돌 후보, 글자가 닮지 않아도 잡는다). "
-              "protocol: 두 저장소가 같은 메시지를 다른 형식으로 쓴 규칙(원인 2 충돌 후보). "
-              "repeat: 한 파일 안 반복(원인 4).\n")
-    kinds = Counter(p["kind"] for p in r["pairs"])
-    md.append(", ".join(f"{k} {n}건" for k, n in kinds.most_common()) + "\n")
-    for kind in ("drift", "topic", "protocol", "duplicate", "repeat"):
-        ps = [p for p in r["pairs"] if p["kind"] == kind][:top]
-        if not ps:
-            continue
-        md.append(f"### {kind}\n")
-        for p in ps:
-            if kind in ("topic", "protocol"):
-                why = [f"공유: {', '.join(p.get('shared', []))}"]
-                if p.get("opposite"):
-                    why.append(f"부정이 갈린 말: {', '.join(p['opposite'])}")
-                why += [f"형식: {' / '.join(v['a'])} ↔ {' / '.join(v['b'])}" for v in p.get("variants", [])]
-                head = " · ".join(why)
+def _md_groups(data: dict, entries: list[dict], on_screen, lang: str, home: Path) -> list[str]:
+    items = {it["id"]: it for it in data["items"]}
+    md = [f"## {t('level.all_findings', lang)}", ""]
+    for g, members in brief.collect_groups(entries, on_screen).items():
+        md.append(f"### {t(f'group.{g}', lang)} ({brief.group_count(g, members)})")
+        note = {"on_demand": "group.on_demand_note", "other_agents": "group.other_agents_note"}.get(g)
+        if note and members:
+            md.append(t(note, lang) + "  ")
+        blocks: list[list[str]] = []
+        for m in members:
+            if g == "worktree_copies":
+                blocks.append(["- " + brief._worktree_text(m, lang)])
+                continue
+            if isinstance(m, str):
+                if m in items:
+                    blocks.append(_md_line(items[m], lang, home))
+                continue
+            if g == "shared":
+                row = "- " + brief.shared_text(m, lang, home)
             else:
-                head = str(p["score"])
-            md.append(f"- {head} · `{short(p['a']['file'])}:{p['a']['line']}` ↔ "
-                      f"`{short(p['b']['file'])}:{p['b']['line']}`\n  - A: {p['a']['text'][:120]}\n"
-                      f"  - B: {p['b']['text'][:120]}")
+                counts = ", ".join(f"{t(f'label.{k}', lang)} {v}" for k, v in sorted(m["counts"].items()))
+                row = "- " + t("md.copies_row", lang, a=f"`{short(m['file'])}`", b=f"`{short(m['other'])}`",
+                               counts=counts)
+                if m.get("parent"):
+                    row += " · " + t("md.move_to_parent", lang, parent=f"`{short(m['parent'])}`")
+            sub = [line for i in m["items"][:brief.GROUP_ROWS] if i in items for line in _md_line(items[i], lang, home, "  ")]
+            if len(m["items"]) > brief.GROUP_ROWS:
+                sub.append("  - " + t("md.more", lang, n=len(m["items"]) - brief.GROUP_ROWS))
+            blocks.append([row] + sub)
+        for b in blocks[:brief.GROUP_ROWS]:
+            md += b
+        if len(blocks) > brief.GROUP_ROWS:
+            md.append("- " + t("md.more", lang, n=len(blocks) - brief.GROUP_ROWS))
         md.append("")
+    return md
 
-    md.append("## 5. 워크트리 사본\n")
-    drifted = [c for c in r["copies"] if c["variants"] > 1]
-    md.append(f"사본이 있는 파일 {len(r['copies'])}개, 그중 내용이 갈라진 파일 {len(drifted)}개.\n")
-    md.append(table(
-        ["저장소", "파일", "사본", "변형", "main 판", "크기들"],
-        [[Path(c["repo"]).name, c["file"], c["copies"], c["variants"],
-          c["main_sha"] or "main에 없음", ", ".join(map(str, c["sizes"][:5]))]
-         for c in drifted[:top * 2]]))
 
-    md.append("\n## 6. 한계\n")
-    md.append("- 원인 1과 원인 2는 정규식과 유사도로 찾은 후보다. 작업과 무관한지, 실제로 충돌하는지는 사람이 판정한다.\n"
-              "- 로드 규칙은 이 기계에서 관찰한 것만 반영한다. 커넥터 도구, 플러그인 스킬, 시스템 프롬프트는 `walle eve`의 실측으로 본다.\n"
-              "- 코드 품질은 보지 않는다. 코드 쪽은 에이전트 세션에 영향을 주는 것(워크트리 사본, 스킬 사본)만 본다.")
+def _md_stack_table(data: dict, entries: list[dict], lang: str, home: Path) -> list[str]:
+    head = [t(f"table.{c}", lang) for c in ("folder", "agent", "tokens", "verdict", "to_read")]
+    return table(head, [[brief._folder_name(e["folder"], data, home), e["agent"],
+                         "~" + round_tokens(e["tokens_est"], e["budget"]), t(f"verdict.{e['verdict']}", lang),
+                         e["to_read"]] for e in entries]).splitlines()
+
+
+def _md_tail(data: dict, entries: list[dict], lang: str, home: Path, history: list[dict] | None) -> list[str]:
+    md = [f"## {t('level.stacks', lang)}", ""]
+    if brief.is_single(data):
+        rows = {(s["folder"], s["agent"]): s for s in data["stacks"]}
+        for e in entries:
+            st = rows.get((e["folder"], e["agent"]))
+            if not st:
+                continue
+            md.append(f"### {e['agent']} · {t('verdict.' + e['verdict'], lang)} · "
+                      f"~{round_tokens(e['tokens_est'], e['budget'])} {t('term.est_tokens', lang)}")
+            md += table([t("table.layer", lang), t("table.file", lang), t("table.tokens", lang)],
+                        [[l["label"], short(l["path"]) if l["path"] else l["note"],
+                          "~" + round_tokens(l["tokens_est"]) + (" over" if l["note"].startswith("over") else "")]
+                         for l in st["layers"]]).splitlines()
+            md.append("")
+    else:
+        md += _md_stack_table(data, brief._stack_rows(data), lang, home) + [""]
+    md += [f"## {t('level.measure', lang)}", "", t("md.measure_none", lang), ""]
+    md += [f"## {t('level.history', lang)}", ""]
+    rows = history or []
+    if len(rows) <= 1:
+        md.append(t("empty.first_run", lang))
+    else:
+        md += table([t(f"table.{c}", lang) for c in ("run", "label", "rules", "stack_sum", "open", "kept")],
+                    [[r.get("id") or "-", r.get("label") or "-", (r.get("rules") or "----")[:4],
+                      "~" + round_tokens(r.get("stack_sum") or 0), r.get("open", 0), r.get("kept", 0)]
+                     for r in rows[-10:]]).splitlines()
+    md += ["", f"## {t('level.method', lang)}", ""]
+    run = data.get("run") or {}
+    md.append("- " + t("md.method_estimate", lang, estimator=run.get("estimator") or "-"))
+    md.append("- " + t("md.method_rules", lang, rules=brief.rules_id(data)))
+    md.append("- " + t("md.method_load", lang))
+    md.append("- " + t("md.method_candidates", lang))
+    hidden = data["triage"].get("hidden", {}).get("elsewhere", 0)
+    if hidden:
+        md.append("- " + t("sentence.hidden_elsewhere", lang, n=hidden))
+    md.append("")
+    md += table([t("table.cause", lang), t("table.meaning", lang)],
+                [[c, t(f"md.cause.{c}", lang)] for c in (1, 2, 3, 4)]).splitlines()
+    return md
+
+
+def render_scan(r: dict, top: int = 15, lang: str = "en", history: list[dict] | None = None,
+                home: Path = HOME) -> str:
+    """scan.md in the order of design brief 3.6: verdict and Start here in the first 25 lines, then
+    All findings, Stacks, Measure, History, Method and limits. `top` is kept for old callers."""
+    items = {it["id"]: it for it in r["items"]}
+    if not r["triage"]["stacks"] or r.get("artifact_count", 1) == 0:
+        root = brief.shown((r.get("roots") or ["."])[0], None, home)
+        return f"# {t('md.title_many', lang, root=root)}\n\n{t('empty.no_files', lang, path=root)}\n"
+    meta = t("md.meta", lang, date=brief.stamp(r), rules=brief.rules_id(r))
+    if brief.is_single(r):
+        lead, others = brief.primary(r)
+        entries = [lead, *others]
+        start = [items[i] for i in lead["start_here"] if i in items]
+        vword = t(f"verdict.{lead['verdict']}", lang)
+        sentences = brief._verdict_sentences(lead, lang, lead["folder"], home, r)
+        if lead["verdict"] == LEAN and not start:
+            sentences = [t("empty.lean", lang, tokens=round_tokens(lead["tokens_est"], lead["budget"]),
+                           budget=f"{lead['budget']:,}").partition(" · ")[2]]
+        md = [f"# {t('md.title', lang, root=short(lead['folder']), agent=lead['agent'])}", "",
+              f"**{vword}** · " + " ".join(sentences),
+              brief.split_line(lead, lang).replace(" | ", " · ") + " · " + meta, ""]
+        on_screen = lead["start_here"]
+        heading, cap = t("level.start_here", lang), brief.MD_QUOTE_LINES + 1
+    else:
+        entries = brief._stack_rows(r)
+        counts = r["triage"]["verdicts"]
+        words = [f"{t(f'verdict.{v}', lang)} {counts.get(v, 0)}" for v in brief.VERDICT_ORDER]
+        roots = " ".join(short(x) for x in r["roots"])
+        md = [f"# {t('md.title_many', lang, root=roots)}", "",
+              f"**{words[0]}** · {words[1]} · {words[2]} · "
+              + t("brief.budget", lang, budget=f"{r['triage']['budget']:,}"),
+              t("md.counts", lang, stacks=len(entries), files=r.get("artifact_count", 0),
+                copies=r.get("copy_count", 0)) + " · " + meta,
+              ""]
+        md += _md_stack_table(r, entries[:5], lang, home)
+        if len(entries) > 5:
+            md.append(t("brief.more_rows", lang, n=len(entries) - 5, root=roots))
+        md.append("")
+        start = [items[i] for i in brief.numbered(r) if i in items]
+        on_screen = brief.numbered(r)
+        heading, cap = t("level.start_here_by_reach", lang), 1
+    md.append(f"## {heading}")
+    if start:
+        for n, it in enumerate(start, 1):
+            md += _md_item(n, it, lang, home, cap, r)
+    else:
+        md.append(t("sentence.nothing", lang))
+    md.append("")
+    md += _md_groups(r, entries, on_screen, lang, home)
+    md += _md_tail(r, entries, lang, home, history)
     return "\n".join(md) + "\n"
 
 

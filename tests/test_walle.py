@@ -149,7 +149,7 @@ class TreeTest(unittest.TestCase):
         self.assertEqual(data["copy_count"], 1)
         self.assertEqual(data["copies"][0]["variants"], 2)
         md = report.render_scan(data)
-        self.assertIn("## 5. 워크트리 사본", md)
+        self.assertIn("### Worktree copies (1)", md)
         page = report_html.render({**data, "flags": data["flags"] + [{**data["flags"][0], "text": "</script><b>"}]})
         self.assertNotIn("</script><b>", page)
 

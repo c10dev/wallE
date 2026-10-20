@@ -7,13 +7,15 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
-from . import eve, judge, report, report_html, runs
+from . import brief, eve, judge, report, report_html, runs
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
+from .strings import LANGS, resolve_lang
 from .triage import BUDGET
 
 DEFAULT_OUT = HOME / ".walle" / "runs"
@@ -49,26 +51,31 @@ def check(data: dict, max_tokens: int, agent: str) -> int:
 
 
 def alarm() -> int:
-    """SessionStart hook. Silent unless the option is on and the stack is over budget."""
+    """SessionStart hook. Silent unless the option is on and the stack is OVER BUDGET; never blocks a session.
+
+    It reads only the Claude stack of the folder (no scan), so it ends well inside the 5 second hook timeout.
+    """
     if not re.match(r"^(true|1|yes|on)$", os.environ.get("CLAUDE_PLUGIN_OPTION_SESSION_ALARM", ""), re.I):
         return 0
     try:
-        payload = json.loads(sys.stdin.read() or "{}")
-    except ValueError:
-        payload = {}
-    folder = Path(payload.get("cwd") or os.getcwd())
-    try:
-        budget = int(float(os.environ.get("CLAUDE_PLUGIN_OPTION_BUDGET_TOKENS") or 8000))
-    except ValueError:
-        budget = 8000
-    st = claude_stack(folder)
-    if st.tokens <= budget:
+        try:
+            payload = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            payload = {}
+        folder = Path(payload.get("cwd") or os.getcwd())
+        try:
+            budget = int(float(os.environ.get("CLAUDE_PLUGIN_OPTION_BUDGET_TOKENS") or BUDGET))
+        except ValueError:
+            budget = BUDGET
+        st = claude_stack(folder, HOME)
+        if st.tokens <= budget:  # TRIM and LEAN: nothing
+            return 0
+        biggest = max((l for l in st.layers if l.path), key=lambda l: l.tokens, default=None)
+        msg = brief.alarm_text(st.tokens, budget, brief.relative_to(biggest.path, folder, HOME) if biggest else None,
+                               biggest.tokens if biggest else 0, resolve_lang())
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}}))
+    except Exception:  # an alarm must never stop a session from starting
         return 0
-    biggest = max((l for l in st.layers if l.path), key=lambda l: l.tokens, default=None)
-    msg = (f"walle: the instruction stack for this folder is about {st.tokens} tokens, over the {budget} budget"
-           + (f"; the largest layer is {biggest.path} (~{biggest.tokens})" if biggest else "")
-           + ". Mention this only if the user asks about instructions or session cost.")
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}}))
     return 0
 
 
@@ -118,6 +125,16 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--html", action="store_true", help=argparse.SUPPRESS)  # scan.html is always written
     s.add_argument("--max-tokens", type=int, default=BUDGET, help="token budget of one stack (default 8000)")
     s.add_argument("--label", help="a name for this run, kept in the run index (for example 'before trim')")
+    s.add_argument("--format", choices=brief.FORMATS,
+                   help="path: the report path (default when stdout is not a terminal); brief: verdict and "
+                        "Start here (default in a terminal); brief-md: the same as Markdown, for agents; md; json")
+    s.add_argument("--json", dest="format", action="store_const", const="json", help="same as --format json")
+    s.add_argument("--all", dest="show_all", action="store_true",
+                   help="brief: every folder and every item, with item ids and rule ids")
+    s.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+                   help="auto: color in a terminal unless NO_COLOR is set")
+    s.add_argument("-q", "--quiet", action="store_true", help="no progress line on stderr")
+    s.add_argument("--lang", choices=LANGS, help="en or ko (default: from LC_ALL, LC_MESSAGES or LANG)")
 
     c = sub.add_parser("check", help="exit 1 when a stack is over budget (for CI)")
     c.add_argument("roots", nargs="*", type=Path, default=[Path.cwd()])
@@ -145,19 +162,34 @@ def main(argv: list[str] | None = None) -> int:
                    help="let the judge open the instruction files, not only the batch file (more tokens)")
     j.add_argument("--dry-run", action="store_true", help="print the items and the estimated tokens; write nothing")
 
+    w = sub.add_parser("show", help="show an item of a recent scan with the lines around it")
+    w.add_argument("ref", help="an item id, or its number in the newest scan of the current folder")
+    w.add_argument("--color", choices=["auto", "always", "never"], default="auto")
+    w.add_argument("--lang", choices=LANGS)
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
+                                                   or (i and argv[i - 1] == "--out"))]
+    if not rest:
+        argv.append("scan")  # `walle` alone scans the current folder
     args = ap.parse_args(argv)
     args.out = args.out.expanduser().resolve()
     if args.cmd == "judge":
         return run_judge(args)
+    if args.cmd == "show":
+        return brief.show_command(args, HOME)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
+        started = time.monotonic()
+        fmt = args.format or ("brief" if sys.stdout.isatty() else "path")
         roots = [r.expanduser().resolve() for r in args.roots]
         data = _scan(roots, args.max_tokens)
         run_dir = runs.new_run_dir(args.out)
         data.setdefault("run", runs.run_block(roots, []))
         data["run"].update(id=run_dir.name, label=args.label,
                            parent_id=runs.parent_of(args.out, data["run"]["roots"]))
-        path = _write(run_dir, "scan", data, report.render_scan(data, args.top))
+        history = runs.history(args.out, data, run_dir / "scan.json")
+        path = _write(run_dir, "scan", data, report.render_scan(data, args.top, resolve_lang(args.lang), history))
         runs.append_index(args.out, data, run_dir / "scan.json")
         (run_dir / "scan.html").write_text(report_html.render(data, args.out), encoding="utf-8")
     elif args.cmd == "check":
@@ -174,5 +206,7 @@ def main(argv: list[str] | None = None) -> int:
         md = report.render_diff(a, b)
         sys.stdout.write(md)
         return 0
+    if args.cmd == "scan":
+        return brief.print_scan(args, data, path, fmt, time.monotonic() - started, HOME)
     print(path)
     return 0

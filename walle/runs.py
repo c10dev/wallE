@@ -140,3 +140,10 @@ def append_index(out: Path, data: dict, path: Path) -> dict:
     with open(out / INDEX, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     return row
+
+
+def history(out: Path, data: dict, path: Path, n: int = 10) -> list[dict]:
+    """The newest n index lines of these roots, this run last (it is not in the index yet)."""
+    want = sorted(data["run"]["roots"])
+    rows = [r for r in read_index(out) if r.get("kind") == "scan" and sorted(r.get("roots") or []) == want]
+    return (rows + [summary(data, path)])[-n:]

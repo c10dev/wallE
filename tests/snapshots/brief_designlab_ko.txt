@@ -1,0 +1,28 @@
+walle 0.2  scan ~/projects/DesignLAB  claude  2026-10-20 08:17
+
+다듬기  첫 프롬프트 전에 약 7,000 토큰(추정)을 읽는다(예산 8,000).
+        내 파일에서 읽어 볼 항목이 3개다.
+        내 파일 ~5,200 | 공용 ~1,300 | 스킬 ~490
+
+여기부터
+1  확인   CLAUDE.md:161                                       매 작업 단계? 후보
+   161 | - **Drafts (2026-08-05).** Always keep the draft in the advisor
+       |   session. vibutusa peza razeduri fibura ruvelu kedetaki kiviki bubasu.
+   "Always"는 모든 작업에 단계 하나를 더한다. 모든 작업에 필요하면 남긴다.
+
+2  옮기기 CLAUDE.md:22                                                큰 층 후보
+    22 | ## Release and copy rules
+   ... 94줄 더 (walle show 2)
+   "Release and copy rules"(22-117줄)은 약 2,300 토큰(추정)이고 모든 세션에
+   읽힌다. 스킬로 옮기면 그 작업을 할 때만 읽힌다.
+
+3  확인   CLAUDE.md:28                             날짜 줄 10개: 아직 맞나? 후보
+    28 | - **Decision (2026-07-27).** kufuzuku bakefabe rufi kelika bibi tesasi
+       |   kedu faba rediri siduzaru.
+   ... 9줄 더 (walle show 3)
+   날짜나 모델명이 있는 줄이 10개다. 규칙마다 아직 맞는지 확인한다. 아직 맞으면
+   남긴다.
+
+공용  ~/.claude/CLAUDE.md: 발견 3건
+다음  walle show 1 | walle scan --all
+~/.walle/runs/20261020-081752/scan.md
