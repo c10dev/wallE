@@ -5,10 +5,12 @@ Only loading rules observed on this machine are encoded:
   every parent, @imports in those files, MEMORY.md of the main repository's slug
   (first 200 lines or 25 KB), and the name+description of the user and project skills.
   Synced claude.ai skills and plugin skills load too, but they are not the user's files: the layer
-  note counts them, and `walle context` measures them. The 8,000-token budget stays on the files.
+  note counts them, and `walle context` measures them. The budget stays on the user's own files.
 - Codex: ~/.codex/AGENTS.md, then AGENTS.override.md or AGENTS.md from the
   repository root down to the folder, capped at 32 KiB by default.
 Connector tools and built-in skills are not on disk and are not counted.
+
+Layer tokens come from estimate.py: bytes-v2 prose rates by default, bytes-v1 on request.
 """
 
 from __future__ import annotations
@@ -17,26 +19,17 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import skills
+from . import estimate, skills
 from .collect import HOME, Artifact, find_checkout, frontmatter, is_disabled_skill
 
 MEMORY_LINE_LIMIT = 200
 MEMORY_BYTE_LIMIT = 25 * 1024
 CODEX_PROJECT_DOC_MAX = 32 * 1024
-# Name of the token estimator. Change it when estimate_tokens changes: totals of two runs
-# compare only when both used the same estimator.
-ESTIMATOR = "bytes-v1"
 IMPORT_RE = re.compile(r"(?:^|\s)@((?:~|\.{1,2})?/?[\w./-]+\.md)\b", re.M)
 
 
-def estimate_tokens(text: str) -> int:
-    """Rough token count: ASCII at 4 chars per token, other chars at 1.3 chars per token.
-
-    Calibrate with `walle eve` before trusting absolute numbers.
-    """
-    ascii_n = sum(1 for c in text if ord(c) < 128)
-    other = len(text) - ascii_n
-    return round(ascii_n / 4 + other / 1.3)
+# bytes-v1, kept for sizes that are not instruction stacks (the brief-md cap, judge batch files).
+estimate_tokens = estimate.bytes_v1
 
 
 def memory_slug(folder: Path) -> str:
@@ -81,6 +74,7 @@ class Stack:
     folder: Path
     agent: str  # claude | codex
     layers: list[Layer] = field(default_factory=list)
+    estimator: str = estimate.DEFAULT
 
     @property
     def bytes(self) -> int:
@@ -94,13 +88,19 @@ class Stack:
         return [l.path for l in self.layers if l.path and l.label not in ("skill_catalog",)]
 
 
-def _layer(label: str, path: Path, text: str | None = None, note: str = "") -> Layer:
+def _layer(label: str, path: Path, text: str | None = None, note: str = "",
+           estimator: str = estimate.DEFAULT) -> Layer:
     if text is None:
         text = path.read_text(errors="replace")
-    return Layer(label, path, len(text.encode()), estimate_tokens(text), note)
+    return Layer(label, path, len(text.encode()), estimate.estimate(text, "instructions", estimator), note)
 
 
-def _imports(path: Path, text: str, depth: int = 0, seen: set[Path] | None = None) -> list[Layer]:
+def _catalog_layer(text: str, note: str, estimator: str) -> Layer:
+    return Layer("skill_catalog", None, len(text.encode()), estimate.estimate(text, "skill_listing", estimator), note)
+
+
+def _imports(path: Path, text: str, depth: int = 0, seen: set[Path] | None = None,
+             estimator: str = estimate.DEFAULT) -> list[Layer]:
     seen = seen if seen is not None else set()
     out: list[Layer] = []
     if depth >= 5:
@@ -124,8 +124,8 @@ def _imports(path: Path, text: str, depth: int = 0, seen: set[Path] | None = Non
             continue
         seen.add(target)
         t = target.read_text(errors="replace")
-        out.append(_layer("import", target, t, note=f"@import from {path.name}"))
-        out.extend(_imports(target, t, depth + 1, seen))
+        out.append(_layer("import", target, t, note=f"@import from {path.name}", estimator=estimator))
+        out.extend(_imports(target, t, depth + 1, seen, estimator))
     return out
 
 
@@ -145,25 +145,26 @@ def _skill_catalog(dirs: list[Path]) -> tuple[str, int]:
     return "\n".join(parts), count
 
 
-def claude_stack(folder: Path, home: Path = HOME) -> Stack:
-    st = Stack(folder, "claude")
+def claude_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFAULT) -> Stack:
+    est = estimate.name(estimator)
+    st = Stack(folder, "claude", estimator=est)
     g = home / ".claude" / "CLAUDE.md"
     if g.is_file():
         t = g.read_text(errors="replace")
-        st.layers.append(_layer("global", g, t))
-        st.layers.extend(_imports(g, t))
+        st.layers.append(_layer("global", g, t, estimator=est))
+        st.layers.extend(_imports(g, t, estimator=est))
     chain = list(reversed([folder, *folder.parents]))
     for d in chain:
         for name in ("CLAUDE.md", "CLAUDE.local.md"):
             p = d / name
             if p.is_file() and p.resolve() != g.resolve():
                 t = p.read_text(errors="replace")
-                st.layers.append(_layer("ancestor", p, t))
-                st.layers.extend(_imports(p, t))
+                st.layers.append(_layer("ancestor", p, t, estimator=est))
+                st.layers.extend(_imports(p, t, estimator=est))
     mem = home / ".claude" / "projects" / memory_slug(memory_folder(folder)) / "memory" / "MEMORY.md"
     if mem.is_file():
         text, note = memory_text(mem.read_text(errors="replace"))
-        st.layers.append(_layer("memory", mem, text, note))
+        st.layers.append(_layer("memory", mem, text, note, est))
     every = [s for s in skills.discover(folder, home) if not s.disabled]
     listed = [s for s in every if s.source in skills.OWN]
     if listed:
@@ -174,15 +175,16 @@ def claude_stack(folder: Path, home: Path = HOME) -> Stack:
         note = f"{len(listed)} skills on disk (" + ", ".join(f"{k} {v}" for k, v in by_source.items()) + ")"
         if len(every) > len(listed):
             note += f"; {len(every) - len(listed)} more synced or plugin skills are measured by walle context"
-        st.layers.append(Layer("skill_catalog", None, len(text.encode()), estimate_tokens(text), note))
+        st.layers.append(_catalog_layer(text, note, est))
     return st
 
 
-def codex_stack(folder: Path, home: Path = HOME) -> Stack:
-    st = Stack(folder, "codex")
+def codex_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFAULT) -> Stack:
+    est = estimate.name(estimator)
+    st = Stack(folder, "codex", estimator=est)
     g = home / ".codex" / "AGENTS.md"
     if g.is_file():
-        st.layers.append(_layer("codex_global", g))
+        st.layers.append(_layer("codex_global", g, estimator=est))
     checkout, _repo, _wt = find_checkout(folder)
     top = checkout or folder
     chain = [top] + [p for p in reversed(folder.parents) if top in p.parents] + ([folder] if folder != top else [])
@@ -197,11 +199,11 @@ def codex_stack(folder: Path, home: Path = HOME) -> Stack:
                 if used + size > CODEX_PROJECT_DOC_MAX:
                     note = f"over the {CODEX_PROJECT_DOC_MAX} byte project doc cap: Codex truncates"
                 used += size
-                st.layers.append(_layer("codex_project", p, t, note))
+                st.layers.append(_layer("codex_project", p, t, note, est))
                 break
     text, n = _skill_catalog([home / ".codex" / "skills"])
     if n:
-        st.layers.append(Layer("skill_catalog", None, len(text.encode()), estimate_tokens(text), f"{n} codex skills"))
+        st.layers.append(_catalog_layer(text, f"{n} codex skills", est))
     return st
 
 

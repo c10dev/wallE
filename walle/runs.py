@@ -13,9 +13,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import __version__, estimate
 from .collect import find_checkout
-from .stack import ESTIMATOR
 from .triage import rules_hash
 
 INDEX = "index.jsonl"
@@ -57,8 +56,11 @@ def git_head(folder: Path) -> str | None:
     return None
 
 
-def run_block(roots: list[Path], folders: list[Path]) -> dict:
-    """The `run` block, without id, parent and label: the CLI sets them when it writes the run."""
+def run_block(roots: list[Path], folders: list[Path], estimator: str = estimate.DEFAULT) -> dict:
+    """The `run` block, without id, parent and label: the CLI sets them when it writes the run.
+
+    `estimator` is the full name of the estimator of every token count in the scan (bytes-v1 or bytes-v2).
+    """
     heads = {}
     for f in [*roots, *folders]:
         checkout = find_checkout(f)[0]
@@ -71,7 +73,7 @@ def run_block(roots: list[Path], folders: list[Path]) -> dict:
         "label": None,
         "walle_version": __version__,
         "rules_hash": rules_hash(),
-        "estimator": ESTIMATOR,
+        "estimator": estimate.name(estimator),
         "roots": [str(r) for r in roots],
         "git_heads": heads,
     }

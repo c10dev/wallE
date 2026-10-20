@@ -1,15 +1,15 @@
 {
- "budget": 8000,
+ "budget": 14500,
  "default": "~/projects@claude",
  "views": {
   "DesignLAB@claude": {
    "verdict": "TRIM",
-   "tokens": 6977,
-   "sentence": "~7,000 est. tokens load before your first prompt (budget 8,000). 3 items to read in your files.",
+   "tokens": 11442,
+   "sentence": "~11,400 est. tokens load before your first prompt (budget 14,500). 3 items to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 5188,
-    "skills": 491
+    "shared": 2129,
+    "owned": 8508,
+    "skills": 805
    },
    "counts": {
     "every-task step": 1,
@@ -34,21 +34,21 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      19
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     5188,
+     8508,
      "owned",
      74
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      7
     ]
@@ -56,13 +56,13 @@
   },
   "atc/controller@claude": {
    "verdict": "OVER BUDGET",
-   "tokens": 16134,
-   "sentence": "~16,100 est. tokens load before your first prompt (budget 8,000). Largest: ./CLAUDE.md ~8,100.",
+   "tokens": 26462,
+   "sentence": "~26,500 est. tokens load before your first prompt (budget 14,500). Largest: ./CLAUDE.md ~13,400.",
    "sums": {
-    "shared": 1298,
-    "owned": 10462,
-    "memory": 3432,
-    "skills": 942
+    "shared": 2129,
+    "owned": 17159,
+    "memory": 5628,
+    "skills": 1546
    },
    "counts": {
     "large layer": 1,
@@ -87,35 +87,35 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      8
     ],
     [
      "ancestor",
      "../CLAUDE.md",
-     2314,
+     3795,
      "owned",
      14
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     8148,
+     13364,
      "owned",
      51
     ],
     [
      "memory",
      "~/.claude/projects/-tmpX-home-projects-atc/memory/MEMORY.md",
-     3432,
+     5628,
      "memory",
      21
     ],
     [
      "skill_catalog",
      "skills",
-     942,
+     1546,
      "skills",
      6
     ]
@@ -123,13 +123,13 @@
   },
   "atc@claude": {
    "verdict": "LEAN",
-   "tokens": 7923,
-   "sentence": "~7,920 est. tokens load before your first prompt (budget 8,000). 1 item to read in your files.",
+   "tokens": 12994,
+   "sentence": "~13,000 est. tokens load before your first prompt (budget 14,500). 1 item to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 2314,
-    "memory": 3432,
-    "skills": 879
+    "shared": 2129,
+    "owned": 3795,
+    "memory": 5628,
+    "skills": 1442
    },
    "counts": {
     "every-task step": 1
@@ -150,28 +150,28 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      16
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     2314,
+     3795,
      "owned",
      29
     ],
     [
      "memory",
      "~/.claude/projects/-tmpX-home-projects-atc/memory/MEMORY.md",
-     3432,
+     5628,
      "memory",
      43
     ],
     [
      "skill_catalog",
      "skills",
-     879,
+     1442,
      "skills",
      11
     ]
@@ -179,23 +179,24 @@
   },
   "claude-config/global@claude": {
    "verdict": "TRIM",
-   "tokens": 3086,
-   "sentence": "~3,100 est. tokens load before your first prompt (budget 8,000). 3 items to read in your files.",
+   "tokens": 5061,
+   "sentence": "~5,100 est. tokens load before your first prompt (budget 14,500). 4 items to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 1297,
-    "skills": 491
+    "shared": 2129,
+    "owned": 2127,
+    "skills": 805
    },
    "counts": {
     "every-task step": 2,
+    "large layer": 1,
     "dated": 1
    },
    "start": [
     "~/projects/claude-config/global/CLAUDE.md:12 every-task step?",
     "~/projects/claude-config/global/CLAUDE.md:4 every-task step?",
-    "~/projects/claude-config/global/CLAUDE.md:37 dated: still true?"
+    "~/projects/claude-config/global/CLAUDE.md:37 large layer"
    ],
-   "rest": 0,
+   "rest": 1,
    "file_copy": 1,
    "shared": [
     [
@@ -208,21 +209,21 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      42
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     1297,
+     2127,
      "owned",
      42
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      16
     ]
@@ -230,12 +231,12 @@
   },
   "runup@claude": {
    "verdict": "LEAN",
-   "tokens": 2477,
-   "sentence": "~2,500 est. tokens load before your first prompt (budget 8,000). 2 items to read in your files.",
+   "tokens": 4063,
+   "sentence": "~4,100 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 688,
-    "skills": 491
+    "shared": 2129,
+    "owned": 1129,
+    "skills": 805
    },
    "counts": {
     "every-task step": 2
@@ -257,21 +258,21 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      52
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     688,
+     1129,
      "owned",
      28
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      20
     ]
@@ -279,13 +280,13 @@
   },
   "tennis-web@claude": {
    "verdict": "LEAN",
-   "tokens": 3226,
-   "sentence": "~3,200 est. tokens load before your first prompt (budget 8,000). 2 items to read in your files.",
+   "tokens": 5291,
+   "sentence": "~5,300 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 1043,
-    "memory": 394,
-    "skills": 491
+    "shared": 2129,
+    "owned": 1710,
+    "memory": 647,
+    "skills": 805
    },
    "counts": {
     "every-task step": 1,
@@ -308,28 +309,28 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      40
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     1043,
+     1710,
      "owned",
      32
     ],
     [
      "memory",
      "~/.claude/projects/-tmpX-home-projects-tennis-web/memory/MEMORY.md",
-     394,
+     647,
      "memory",
      12
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      15
     ]
@@ -337,15 +338,18 @@
   },
   "vocado_RN@claude": {
    "verdict": "LEAN",
-   "tokens": 3460,
-   "sentence": "~3,500 est. tokens load before your first prompt (budget 8,000). 1 item to read in your files.",
+   "tokens": 5675,
+   "sentence": "~5,700 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 1298,
-    "owned": 1671,
-    "skills": 491
+    "shared": 2129,
+    "owned": 2741,
+    "skills": 805
    },
-   "counts": {},
+   "counts": {
+    "large layer": 1
+   },
    "start": [
+    "~/projects/vocado_RN/CLAUDE.md:1 large layer",
     "~/projects/vocado_RN/CLAUDE.md:129 repeated?"
    ],
    "rest": 0,
@@ -361,21 +365,21 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      38
     ],
     [
      "ancestor",
      "./CLAUDE.md",
-     1671,
+     2741,
      "owned",
      48
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      14
     ]
@@ -383,17 +387,19 @@
   },
   "vocado_RN@codex": {
    "verdict": "LEAN",
-   "tokens": 2694,
-   "sentence": "~2,700 est. tokens load before your first prompt (budget 8,000). 1 item to read in your files.",
+   "tokens": 4419,
+   "sentence": "~4,400 est. tokens load before your first prompt (budget 14,500). 2 items to read in your files.",
    "sums": {
-    "shared": 532,
-    "owned": 1918,
-    "skills": 244
+    "shared": 873,
+    "owned": 3146,
+    "skills": 400
    },
    "counts": {
+    "large layer": 1,
     "loaded twice": 1
    },
    "start": [
+    "~/projects/vocado_RN/AGENTS.md:1 large layer",
     "~/projects/vocado_RN/AGENTS.md:74 repeated in file"
    ],
    "rest": 0,
@@ -409,21 +415,21 @@
     [
      "codex_global",
      "~/.codex/AGENTS.md",
-     532,
+     873,
      "shared",
      20
     ],
     [
      "codex_project",
      "./AGENTS.md",
-     1918,
+     3146,
      "owned",
      71
     ],
     [
      "skill_catalog",
      "skills",
-     244,
+     400,
      "skills",
      9
     ]
@@ -431,11 +437,11 @@
   },
   "~/projects@claude": {
    "verdict": "LEAN",
-   "tokens": 1789,
-   "sentence": "~1,800 est. tokens load before your first prompt (budget 8,000). Nothing to read in your files.",
+   "tokens": 2934,
+   "sentence": "~2,900 est. tokens load before your first prompt (budget 14,500). Nothing to read in your files.",
    "sums": {
-    "shared": 1298,
-    "skills": 491
+    "shared": 2129,
+    "skills": 805
    },
    "counts": {},
    "start": [],
@@ -452,14 +458,14 @@
     [
      "global",
      "~/.claude/CLAUDE.md",
-     1298,
+     2129,
      "shared",
      73
     ],
     [
      "skill_catalog",
      "skills",
-     491,
+     805,
      "skills",
      27
     ]
@@ -467,11 +473,11 @@
   },
   "~/projects@codex": {
    "verdict": "LEAN",
-   "tokens": 776,
-   "sentence": "~780 est. tokens load before your first prompt (budget 8,000). Nothing to read in your files.",
+   "tokens": 1273,
+   "sentence": "~1,300 est. tokens load before your first prompt (budget 14,500). Nothing to read in your files.",
    "sums": {
-    "shared": 532,
-    "skills": 244
+    "shared": 873,
+    "skills": 400
    },
    "counts": {},
    "start": [],
@@ -488,14 +494,14 @@
     [
      "codex_global",
      "~/.codex/AGENTS.md",
-     532,
+     873,
      "shared",
      69
     ],
     [
      "skill_catalog",
      "skills",
-     244,
+     400,
      "skills",
      31
     ]
@@ -551,8 +557,8 @@
   "~/projects/DesignLAB/CLAUDE.md:22 large layer": {
    "verb": "MOVE",
    "cert": "candidate",
-   "impact": "~2,300 est. tokens · 33% of stack",
-   "reason": "\"Release and copy rules\" (lines 22-117) is ~2,300 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
+   "impact": "~3,800 est. tokens · 33% of stack",
+   "reason": "\"Release and copy rules\" (lines 22-117) is ~3,800 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
    "blocks": [
     null
    ]
@@ -578,8 +584,8 @@
   "~/projects/atc/controller/CLAUDE.md:45 large layer": {
    "verb": "MOVE",
    "cert": "candidate",
-   "impact": "~3,500 est. tokens · 21% of stack",
-   "reason": "\"Landing queue\" (lines 45-118) is ~3,500 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
+   "impact": "~5,700 est. tokens · 21% of stack",
+   "reason": "\"Landing queue\" (lines 45-118) is ~5,700 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
    "blocks": [
     null
    ]
@@ -616,6 +622,15 @@
    "cert": "candidate",
    "impact": "may be out of date",
    "reason": "Dated \"2026-10-02\". Is the rule still true? Keep it if the date records a decision you still follow.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/claude-config/global/CLAUDE.md:37 large layer": {
+   "verb": "MOVE",
+   "cert": "candidate",
+   "impact": "~1,200 est. tokens · 23% of stack",
+   "reason": "\"Output format ladder (2026-10-02)\" (lines 37-75) is ~1,200 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
    "blocks": [
     null
    ]
@@ -665,14 +680,32 @@
     null
    ]
   },
+  "~/projects/vocado_RN/AGENTS.md:1 large layer": {
+   "verb": "MOVE",
+   "cert": "candidate",
+   "impact": "~3,100 est. tokens · 71% of stack",
+   "reason": "~/projects/vocado_RN/AGENTS.md is ~3,100 est. tokens, 71% of the stack, and loads in every session. Move parts of it to skills so they load only when that work runs.",
+   "blocks": [
+    null
+   ]
+  },
   "~/projects/vocado_RN/AGENTS.md:74 repeated in file": {
    "verb": "DELETE",
    "cert": "certain",
-   "impact": "-~20 est. tokens",
+   "impact": "-~30 est. tokens",
    "reason": "Repeated in file: same rule as line 53. Keep line 53.",
    "blocks": [
     "delete · AGENTS.md:74",
     "keep · AGENTS.md:53"
+   ]
+  },
+  "~/projects/vocado_RN/CLAUDE.md:1 large layer": {
+   "verb": "MOVE",
+   "cert": "candidate",
+   "impact": "~2,700 est. tokens · 48% of stack",
+   "reason": "~/projects/vocado_RN/CLAUDE.md is ~2,700 est. tokens, 48% of the stack, and loads in every session. Move parts of it to skills so they load only when that work runs.",
+   "blocks": [
+    null
    ]
   },
   "~/projects/vocado_RN/CLAUDE.md:129 repeated?": {

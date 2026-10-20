@@ -17,7 +17,8 @@ findings of the engine ("flags", "pairs"), which keep their old form.
 - ownership tells whose file it is: owned (inside the git checkout of the folder),
   memory (the MEMORY.md of the folder), shared (global files and parent files outside
   the checkout) or skills (global skill bodies).
-- verdict of a stack: OVER BUDGET when its estimated tokens exceed the budget, TRIM when
+- verdict of a stack: OVER BUDGET when its estimated tokens exceed the budget (the default budget
+  depends on the estimator: estimate.BUDGETS), TRIM when
   the stack has certain DELETE lines of TRIM_DELETE_TOKENS or more or a conflict (two
   drifted lines that load together), or the user's own files have TRIM_CANDIDATES open
   candidates, else LEAN.
@@ -36,13 +37,16 @@ import re
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from . import estimate
 from .classify import Flag
 from .collect import Artifact, find_checkout
 from .compact import DUP, MIN_LEN, Pair
 from .segment import Unit
-from .stack import Stack, estimate_tokens
+from .stack import Stack
 
-BUDGET = 8000
+BUDGET = estimate.budget(estimate.DEFAULT)  # bytes-v2 tokens; a bytes-v1 run uses estimate.budget("bytes-v1")
+# LARGE_LAYER_TOKENS and TRIM_DELETE_TOKENS were chosen with bytes-v1 tokens. They apply to the tokens of
+# the run's estimator, so a bytes-v2 run finds more large layers than a bytes-v1 run.
 SAFE_DELETE = 0.95  # duplicate or repeat at or above: DELETE (certain); below: CHECK (candidate)
 LARGE_LAYER_TOKENS = 2000  # an owned layer above this many tokens...
 LARGE_LAYER_SHARE = 0.4  # ...and above this share of its stack: MOVE
@@ -119,7 +123,7 @@ def rules_hash() -> str:
     """sha1 of every pattern and threshold that decides what the scan finds.
 
     Two runs with the same hash count findings the same way. The token estimator is
-    named separately (stack.ESTIMATOR): token totals compare when only the rules changed.
+    named separately (run.estimator): token totals compare when only the rules changed.
     """
     from . import classify, compact, conflict
     parts = {
@@ -135,7 +139,7 @@ def rules_hash() -> str:
     return hashlib.sha1(json.dumps(parts, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def sections(text: str) -> list[dict]:
+def sections(text: str, estimator: str = estimate.DEFAULT) -> list[dict]:
     """`##` sections: heading, first and last line (trailing blank lines cut), estimated tokens."""
     lines = text.splitlines()
     start = 0
@@ -162,7 +166,7 @@ def sections(text: str) -> list[dict]:
         while end > n and not lines[end - 1].strip():
             end -= 1
         out.append({"heading": title, "line_start": n, "line_end": end,
-                    "tokens_est": estimate_tokens("\n".join(lines[n - 1:end]))})
+                    "tokens_est": estimate.prose("\n".join(lines[n - 1:end]), estimator)})
     return out
 
 
@@ -189,8 +193,9 @@ def chain_runs(rows: list, ix, iy, gap: int = GROUP_GAP) -> list[list]:
 
 
 class _Triage:
-    def __init__(self, roots, home, artifacts, stacks, units, budget, copies):
+    def __init__(self, roots, home, artifacts, stacks, units, budget, copies, estimator=estimate.DEFAULT):
         self.roots, self.home, self.budget, self.copies = roots, home, budget, copies
+        self.estimator = estimate.name(estimator)
         self.by_path = {str(a.path): a for a in artifacts}
         self.units = units
         self.unit_index = {p: {u.line: i for i, u in enumerate(us)} for p, us in units.items()}
@@ -317,6 +322,10 @@ class _Triage:
                     break
         return out
 
+    def tok(self, text: str) -> int:
+        """Estimated tokens of a part of an instruction file, with the estimator of the stacks."""
+        return estimate.prose(text, self.estimator)
+
     def base(self, rule: str, cause: int, verb: str | None, certainty: str, label: str, path: str) -> dict:
         return {
             "id": "", "rule": rule, "cause": cause, "verb": verb, "certainty": certainty, "label": label,
@@ -371,7 +380,7 @@ class _Triage:
         it = self.base(f.kind, f.cause, verb, "candidate" if f.candidate else "certain", label, path)
         it["locations"] = [self.loc(path, u, f.match)]
         it["match"] = f.match
-        it["tokens_est"] = estimate_tokens(u.text)
+        it["tokens_est"] = self.tok(u.text)
         it["also"] = [FLAG_LABEL[g.kind][0] for g in fls[1:]]
         self.put(it, [f.kind, norm_id(u.text), self.locator(path)])
 
@@ -381,7 +390,7 @@ class _Triage:
         cause = next(fls[0].cause for _ln, fls in entries if fls[0].kind == rule)
         it = self.base(rule, cause, "CHECK", "candidate", label, path)
         it["locations"] = [self.loc(path, fls[0].unit, fls[0].match) for _ln, fls in entries]
-        it["tokens_est"] = sum(estimate_tokens(fls[0].unit.text) for _ln, fls in entries)
+        it["tokens_est"] = sum(self.tok(fls[0].unit.text) for _ln, fls in entries)
         it["group_size"] = len(entries)
         it["group"] = {"kind": "memory" if label == "memory_lines" else "per_file", "rules": dict(rules)}
         # The id names the file, not the lines: it stays while lines join or leave the group.
@@ -501,7 +510,7 @@ class _Triage:
         roles = r["roles"] or (None, None)
         it = self.base(p.kind, CAUSE.get(p.kind, 4), r["verb"], r["cert"], r["label"], x.file)
         it.update(scope=r["scope"], relation=r["relation"], stacks=self.sorted_keys(r["stacks"]),
-                  score=round(p.score, 2), tokens_est=estimate_tokens(x.text),
+                  score=round(p.score, 2), tokens_est=self.tok(x.text),
                   locations=[self.loc(x.file, x, role=roles[0], side="a"), self.loc(y.file, y, role=roles[1], side="b")])
         if p.why:
             it["why"] = p.why
@@ -542,7 +551,7 @@ class _Triage:
         stacks = set().union(*(r["stacks"] for r in chain))
         it.update(scope=head["scope"], relation=head["relation"], stacks=self.sorted_keys(stacks),
                   score=round(min(r["p"].score for r in chain), 2), group_size=len(chain),
-                  tokens_est=sum(estimate_tokens(u.text) for u in xs),
+                  tokens_est=sum(self.tok(u.text) for u in xs),
                   locations=[self.loc(u.file, u, role=roles[0], side="a") for u in xs]
                   + [self.loc(u.file, u, role=roles[1], side="b") for u in ys])
         it["group"] = {
@@ -597,7 +606,7 @@ class _Triage:
         it = self.base("duplicate", 4, None, "info", c["label"], copy)
         it.update(scope="session_start", relation="file_copy", stacks=self.sorted_keys(stacks),
                   group_size=len(ps), score=round(min(p.score for p in ps), 2),
-                  tokens_est=sum(estimate_tokens(u.text) for u in {u.line: u for u in mine}.values()))
+                  tokens_est=sum(self.tok(u.text) for u in {u.line: u for u in mine}.values()))
         it["of"] = src
         locs = []
         for units, role, side in ((mine, "copy", "a"), (theirs, "source", "b")):
@@ -621,7 +630,7 @@ class _Triage:
         for p, rs in rows.items():
             secs = file_sections.get(p) or []
             if p not in file_sections:
-                secs = sections("\n".join(self.lines_of(p)))
+                secs = sections("\n".join(self.lines_of(p)), self.estimator)
             best = max(secs, key=lambda s: s["tokens_est"]) if secs else None
             first, last = (best["line_start"], best["line_end"]) if best else (1, max(1, len(self.lines_of(p))))
             text = self.raw(p, first, last)
@@ -840,6 +849,12 @@ class _Triage:
 
 def triage(roots: list[Path], home: Path, artifacts: list[Artifact], stacks: list[Stack],
            units: dict[str, list[Unit]], flags: list[Flag], pairs: list[Pair], copies: list[dict],
-           file_sections: dict[str, list[dict]], budget: int = BUDGET) -> dict:
-    """Items, the triage block of scan.json schema 2, and the ownership of each collected file."""
-    return _Triage(roots, home, artifacts, stacks, units, budget, copies).run(flags, pairs, file_sections)
+           file_sections: dict[str, list[dict]], budget: int | None = None,
+           estimator: str = estimate.DEFAULT) -> dict:
+    """Items, the triage block of scan.json schema 2, and the ownership of each collected file.
+
+    The budget is in the tokens of the estimator. None is the estimator's default budget.
+    """
+    if budget is None:
+        budget = estimate.budget(estimator)
+    return _Triage(roots, home, artifacts, stacks, units, budget, copies, estimator).run(flags, pairs, file_sections)

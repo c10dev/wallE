@@ -86,7 +86,7 @@ class SnapshotTest(unittest.TestCase):
         text = render("runup")
         lines = text.splitlines()
         self.assertEqual(lines[0], "walle 0.2  scan ~/projects/runup  claude  2026-10-20 08:17")
-        self.assertEqual(lines[2], "LEAN  ~2,500 est. tokens load before your first prompt (budget 8,000).")
+        self.assertEqual(lines[2], "LEAN  ~4,100 est. tokens load before your first prompt (budget 14,500).")
         self.assertIn("1  CHECK  CLAUDE.md:8", text)
         self.assertIn("every-task step? candidate", text)
         self.assertIn("   8 | - Open a PR for every change.", text)
@@ -293,7 +293,7 @@ class BriefMdTest(unittest.TestCase):
                     self.assertIn(f"{n}. **", text)
                     self.assertIn(f"id {i}", text)
         text = brief.render_brief_md(Fixture.data("runup"), "en", Fixture.tree.home, Fixture.report_path())
-        self.assertIn("walle: LEAN · runup loads ~2,500 est. tokens before your first prompt (budget 8,000). "
+        self.assertIn("walle: LEAN · runup loads ~4,100 est. tokens before your first prompt (budget 14,500). "
                       "2 items to read in your files.", text)
         self.assertIn("1. **CHECK** `CLAUDE.md:8` · every-task step? · candidate", text)
         self.assertIn("   > 8: - Open a PR for every change.", text)
@@ -352,8 +352,8 @@ class AlarmTest(unittest.TestCase):
     def test_over_budget_is_one_short_line(self):
         text, secs = self.alarm(Fixture.tree.projects / "atc" / "controller")
         msg = json.loads(text)["hookSpecificOutput"]["additionalContext"]
-        self.assertEqual(msg, "walle: this folder loads ~16,100 est. tokens of instructions before the first prompt "
-                              "(budget 8,000); largest ./CLAUDE.md ~8,100. Mention only if asked about instructions "
+        self.assertEqual(msg, "walle: this folder loads ~26,500 est. tokens of instructions before the first prompt "
+                              "(budget 14,500); largest ./CLAUDE.md ~13,400. Mention only if asked about instructions "
                               "or cost.")
         self.assertLessEqual(len(msg), 200)
         self.assertLess(secs, 5)

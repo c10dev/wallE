@@ -11,14 +11,15 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from . import estimate
 from .classify import classify_unit, emphasis_count
 from .collect import HOME, Artifact, collect
 from .compact import copy_groups, rule_pairs
 from .conflict import protocol_pairs, topic_pairs
 from .runs import run_block
 from .segment import segment
-from .stack import claude_stack, codex_stack, estimate_tokens, session_folders
-from .triage import BUDGET, sections, triage
+from .stack import claude_stack, codex_stack, session_folders
+from .triage import sections, triage
 
 SCHEMA = 2
 
@@ -31,7 +32,13 @@ def is_copy(a: Artifact) -> bool:
     return a.is_worktree or "/worktrees/" in str(a.path)
 
 
-def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
+def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
+         estimator: str = estimate.DEFAULT) -> dict:
+    """The scan of roots. Token counts use the estimator (default bytes-v2) for every stack, file, section
+    and item. The budget is in the same tokens; None is the estimator's default budget."""
+    estimator = estimate.name(estimator)
+    if budget is None:
+        budget = estimate.budget(estimator)
     artifacts = collect(roots, home)
     by_path = {str(a.path): a for a in artifacts}
 
@@ -41,8 +48,8 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
             folders.insert(0, r)
     stacks = []
     for f in folders:
-        stacks.append(claude_stack(f, home))
-        cx = codex_stack(f, home)
+        stacks.append(claude_stack(f, home, estimator))
+        cx = codex_stack(f, home, estimator)
         # A Codex stack is only worth a row when a project AGENTS.md is in it, or for a root.
         if f in roots or any(l.label == "codex_project" for l in cx.layers):
             stacks.append(cx)
@@ -60,7 +67,7 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
             continue
         units = segment(a.text, str(a.path))
         unit_cache[str(a.path)] = units
-        file_sections[str(a.path)] = sections(a.text)
+        file_sections[str(a.path)] = sections(a.text, estimator)
         flags = [fl for u in units for fl in classify_unit(u)]
         flags_all.extend(flags)
         by_cause = Counter(fl.cause for fl in flags)
@@ -69,7 +76,7 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
             "kind": a.kind,
             "repo": str(a.repo) if a.repo else None,
             "bytes": a.size,
-            "tokens_est": estimate_tokens(a.text),
+            "tokens_est": estimate.prose(a.text, estimator),
             "units": sum(1 for u in units if u.kind == "text"),
             "emphasis": emphasis_count(a.text),
             "loaded_in_stacks": loaded_count.get(str(a.path), 0),
@@ -130,12 +137,13 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
         })
 
     copies = [g.to_dict() for g in copy_groups(artifacts)]
-    tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget)
+    tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget,
+                 estimator)
     for f in files:
         f["ownership"] = tri["ownership"][f["path"]]
     return {
         "schema": SCHEMA,
-        "run": run_block(roots, [st.folder for st in stacks]),
+        "run": run_block(roots, [st.folder for st in stacks], estimator),
         "generated": datetime.now().isoformat(timespec="seconds"),
         "roots": [str(r) for r in roots],
         "artifact_count": len(artifacts),

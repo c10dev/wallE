@@ -14,7 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from real0817 import STACKS, Tree as RealTree  # noqa: E402
 
-from walle import cli, judge, runs, triage  # noqa: E402
+from walle import cli, estimate, judge, runs, triage  # noqa: E402
 from walle.scan import scan  # noqa: E402
 from walle.stack import memory_slug  # noqa: E402
 
@@ -65,12 +65,15 @@ def at(data, path, line):
 
 
 class RealShapeTest(unittest.TestCase):
-    """The hand check of design brief 2.2 and 10.1, on a tree with the shape of the 08:17 run."""
+    """The hand check of design brief 2.2 and 10.1, on a tree with the shape of the 08:17 run.
+
+    The 08:17 run counted tokens with bytes-v1 against the 8,000 budget, so this check does too.
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.t = RealTree()
-        cls.data = scan([cls.t.projects], cls.t.home)
+        cls.data = scan([cls.t.projects], cls.t.home, estimator="bytes-v1")
         cls.items = by_id(cls.data)
         cls.p = cls.t.projects
 
@@ -167,6 +170,7 @@ class RealShapeTest(unittest.TestCase):
                          ["Release and copy rules", "Sessions", "Reports", "Landing"])
         self.assertEqual(self.data["triage"]["verdicts"]["OVER BUDGET"], 1)
         self.assertEqual(self.data["triage"]["budget"], 8000)
+        self.assertEqual(self.data["run"]["estimator"], "bytes-v1")
         ids = [it["id"] for it in self.data["items"]]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{6}", i) for i in ids))
@@ -181,6 +185,42 @@ class RealShapeTest(unittest.TestCase):
     def test_judge_reads_schema_2(self):
         items = judge.select_items(self.data, self.t.home)
         self.assertIn(f"cost:{self.p}/runup/CLAUDE.md:8", {it["id"] for it in items})
+
+
+class DefaultEstimatorTest(unittest.TestCase):
+    """The same tree with the defaults: bytes-v2 tokens and the bytes-v2 budget."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.t = RealTree()
+        cls.v1 = scan([cls.t.projects], cls.t.home, estimator="bytes-v1")
+        cls.data = scan([cls.t.projects], cls.t.home)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.t.close()
+
+    def test_run_and_budget(self):
+        self.assertEqual(self.data["run"]["estimator"], "bytes-v2")
+        self.assertEqual(self.data["triage"]["budget"], triage.BUDGET)
+        self.assertEqual(triage.BUDGET, 14500)
+
+    def test_a_file_has_the_number_walle_context_gives_it(self):
+        for f in self.data["files"]:
+            text = Path(f["path"]).read_text()
+            self.assertEqual(f["tokens_est"], estimate.estimate(text, "instructions", "bytes-v2"), f["path"])
+        layers = {l["path"]: l["tokens_est"] for s in self.data["stacks"] for l in s["layers"] if l["label"] == "ancestor"}
+        files = {f["path"]: f["tokens_est"] for f in self.data["files"]}
+        self.assertTrue(layers)
+        for path, tokens in layers.items():
+            self.assertEqual(tokens, files[path], path)
+
+    def test_the_same_stacks_are_over_budget(self):
+        over = lambda d: {k for k, e in d["triage"]["stacks"].items() if e["verdict"] == "OVER BUDGET"}
+        self.assertEqual(over(self.data), over(self.v1))
+        self.assertEqual(over(self.data), {f"{self.t.projects}/atc/controller@claude"})
+        for k, e in self.data["triage"]["stacks"].items():
+            self.assertGreater(e["tokens_est"], self.v1["triage"]["stacks"][k]["tokens_est"], k)
 
 
 class ItemTest(unittest.TestCase):
@@ -516,13 +556,24 @@ class RunRecordTest(unittest.TestCase):
         data = json.loads(Path(rows[1]["path"]).read_text())
         run = data["run"]
         self.assertEqual((run["id"], run["kind"], run["parent_id"], run["estimator"]),
-                         (rows[1]["id"], "scan", rows[0]["id"], "bytes-v1"))
+                         (rows[1]["id"], "scan", rows[0]["id"], "bytes-v2"))
         self.assertEqual(run["rules_hash"], triage.rules_hash())
         self.assertEqual(run["roots"], [app])
         self.assertEqual(rows[1]["per_folder"], {f"{app}@claude": data["stacks"][0]["tokens_est"],
                                                  f"{app}@codex": data["stacks"][1]["tokens_est"]})
         self.assertEqual((rows[1]["open"], rows[1]["kept"], rows[1]["verdicts"][f"{app}@claude"]), (1, 0, "LEAN"))
         self.assertEqual(Path(rows[1]["path"]).parent.name, rows[1]["id"])
+
+    def test_estimator_v1_has_its_own_budget(self):
+        app = str(self.h.projects / "app")
+        with redirect_stdout(io.StringIO()), mock.patch("walle.cli.scan",
+                                                        lambda roots, **kw: scan(roots, self.h.home, **kw)):
+            self.assertEqual(cli.main(["--out", str(self.out), "scan", app, "--estimator", "v1"]), 0)
+            self.assertEqual(cli.main(["--out", str(self.out), "scan", app, "--estimator", "v1", "--max-tokens", "9"]), 0)
+        rows = runs.read_index(self.out)
+        self.assertEqual([r["estimator"] for r in rows], ["bytes-v1", "bytes-v1"])
+        budgets = [json.loads(Path(r["path"]).read_text())["triage"]["budget"] for r in rows]
+        self.assertEqual(budgets, [8000, 9])
 
     def test_rules_hash_follows_the_thresholds(self):
         h = triage.rules_hash()

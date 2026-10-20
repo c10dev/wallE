@@ -17,8 +17,8 @@
     "budget_tokens": {
       "type": "number",
       "title": "Stack budget (estimated tokens)",
-      "description": "Instruction stack size that triggers the alarm and fails `walle check`.",
-      "default": 8000
+      "description": "Instruction stack size in bytes-v2 estimated tokens that triggers the alarm and fails `walle check`.",
+      "default": 14500
     }
   }
 }
