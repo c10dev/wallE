@@ -10,6 +10,11 @@ bytes-v2: tokens per byte for each kind of source. The values come from a least-
 
 The fit leaves about 1,900 tokens per call (bootstrap range 1,200-2,400) that no recorded source
 explains. `walle context` shows them in the residual row.
+
+The bootstrap resamples sessions, not time. A fit on the earlier half that predicts the later half
+moves prose_ascii to 0.48 and the unexplained part to about 0. Sources that barely change between
+sessions (the skill list, the system prompt) share their weight with that constant, so their rates
+are less certain than `range` shows.
 """
 
 from __future__ import annotations

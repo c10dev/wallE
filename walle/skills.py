@@ -135,15 +135,20 @@ def _enabled_plugins(home: Path) -> dict:
         return {}
 
 
-def discover(folder: Path | None, home: Path = HOME, org: str | None = None) -> list[Skill]:
+OWN = ("user", "project")  # skills the user writes; the instruction stack counts only these
+
+
+def discover(folder: Path | None, home: Path = HOME, org: str | None = None,
+             sources: tuple[str, ...] | None = None) -> list[Skill]:
     """Skills a session started in `folder` can list at start, one per listed name.
 
-    Disabled skills are kept with disabled=True, so a caller can count them.
+    Disabled skills are kept with disabled=True, so a caller can count them. `sources` keeps only
+    skills from those sources (for example OWN).
     """
     found: dict[str, Skill] = {}
 
     def add(path: Path, name: str, source: str):
-        if name in found:
+        if name in found or (sources is not None and source not in sources):
             return
         s = read_skill(path, name, source)
         if s:
@@ -163,6 +168,8 @@ def discover(folder: Path | None, home: Path = HOME, org: str | None = None) -> 
         if source != "remote_plugin":
             for p in _skill_dirs(root / "skills"):
                 add(p, f"{prefix}:{p.parent.name}", source)
+    if sources is not None and not {"plugin", "synced_plugin", "remote_plugin", "synced"} & set(sources):
+        return list(found.values())
     # The host's copies hold every plugin it ever fetched. Use them only for plugins already active above.
     active = {n.split(":", 1)[0] for n in found if ":" in n}
     for root, source, prefix in roots:

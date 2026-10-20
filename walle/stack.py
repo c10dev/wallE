@@ -3,8 +3,9 @@
 Only loading rules observed on this machine are encoded:
 - Claude Code: ~/.claude/CLAUDE.md, CLAUDE.md / CLAUDE.local.md in the folder and
   every parent, @imports in those files, MEMORY.md of the main repository's slug
-  (first 200 lines or 25 KB), and the name+description of each skill it lists that is
-  on disk (skills.py).
+  (first 200 lines or 25 KB), and the name+description of the user and project skills.
+  Synced claude.ai skills and plugin skills load too, but they are not the user's files: the layer
+  note counts them, and `walle context` measures them. The 8,000-token budget stays on the files.
 - Codex: ~/.codex/AGENTS.md, then AGENTS.override.md or AGENTS.md from the
   repository root down to the folder, capped at 32 KiB by default.
 Connector tools and built-in skills are not on disk and are not counted.
@@ -163,13 +164,16 @@ def claude_stack(folder: Path, home: Path = HOME) -> Stack:
     if mem.is_file():
         text, note = memory_text(mem.read_text(errors="replace"))
         st.layers.append(_layer("memory", mem, text, note))
-    listed = [s for s in skills.discover(folder, home) if not s.disabled]
+    every = [s for s in skills.discover(folder, home) if not s.disabled]
+    listed = [s for s in every if s.source in skills.OWN]
     if listed:
         text = "\n".join(s.line for s in listed)
         by_source: dict[str, int] = {}
         for s in listed:
             by_source[s.source] = by_source.get(s.source, 0) + 1
         note = f"{len(listed)} skills on disk (" + ", ".join(f"{k} {v}" for k, v in by_source.items()) + ")"
+        if len(every) > len(listed):
+            note += f"; {len(every) - len(listed)} more synced or plugin skills are measured by walle context"
         st.layers.append(Layer("skill_catalog", None, len(text.encode()), estimate_tokens(text), note))
     return st
 
