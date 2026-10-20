@@ -1,0 +1,24 @@
+{
+  "name": "walle",
+  "version": "0.1.0",
+  "description": "Collect, compact and sort the instruction files your coding agents load (CLAUDE.md, AGENTS.md, skills, memory, Cursor and Copilot rules), find bloat, duplicates and drift, and measure their cost in real sessions",
+  "author": {
+    "name": "c10dev",
+    "url": "https://github.com/c10dev"
+  },
+  "license": "MIT",
+  "userConfig": {
+    "session_alarm": {
+      "type": "boolean",
+      "title": "Session start alarm",
+      "description": "At session start, add one line of context when the folder's instruction stack is over the budget. Never blocks.",
+      "default": false
+    },
+    "budget_tokens": {
+      "type": "number",
+      "title": "Stack budget (estimated tokens)",
+      "description": "Instruction stack size that triggers the alarm and fails `walle check`.",
+      "default": 8000
+    }
+  }
+}

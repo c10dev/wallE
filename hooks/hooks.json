@@ -1,0 +1,10 @@
+{
+  "description": "walle: one line of context at session start when the folder's instruction stack is over budget (off by default)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/walle\" alarm", "timeout": 5 }]
+      }
+    ]
+  }
+}

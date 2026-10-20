@@ -1,0 +1,16 @@
+{
+  "name": "walle",
+  "owner": {
+    "name": "c10dev",
+    "url": "https://github.com/c10dev"
+  },
+  "description": "walle for agent instructions: collect, compact, sort",
+  "plugins": [
+    {
+      "name": "walle",
+      "source": "./",
+      "description": "Audit CLAUDE.md, AGENTS.md, skills and memory for bloat, duplicates, drift and vague rules; measure cost from transcripts",
+      "version": "0.1.0"
+    }
+  ]
+}
