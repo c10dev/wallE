@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import brief, eve, judge, report, report_html, runs
+from . import brief, context, eve, judge, report, report_html, runs
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -167,6 +167,8 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--color", choices=["auto", "always", "never"], default="auto")
     w.add_argument("--lang", choices=LANGS)
 
+    context.add_parser(sub, HOME / ".claude" / "projects")
+
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
                                                    or (i and argv[i - 1] == "--out"))]
@@ -178,6 +180,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_judge(args)
     if args.cmd == "show":
         return brief.show_command(args, HOME)
+    if args.cmd == "context":
+        return context.run_cli(args)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
         started = time.monotonic()
