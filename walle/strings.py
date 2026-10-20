@@ -58,6 +58,7 @@ STRINGS: dict[str, tuple[str, str]] = {
     "label.format_differs": ("format differs across repos?", "저장소마다 형식이 다름?"),
     "label.source_of": ("source of {file}", "{file}의 원본"),
     "label.copy_of": ("copy of {file}", "{file}의 사본"),
+    "label.term_clash": ("same term, opposite wording?", "같은 용어, 반대 표현?"),
     "label.loose_group": ("loose group", "느슨한 묶음"),
     "label.over_budget": ("over budget", "예산 초과"),
     "label.lines": ("lines {start}-{end} ({n} rules)", "{start}-{end}줄 (규칙 {n}개)"),
@@ -149,6 +150,10 @@ STRINGS: dict[str, tuple[str, str]] = {
     "reason.conflict": ("Candidate: these two lines load in the same session and say different things. "
                         "Which one should win?",
                         "후보: 두 줄이 한 세션에 함께 읽히고 다르게 말한다. 어느 쪽을 따를까?"),
+    "reason.term_clash": ('Candidate: both lines name {shared}, and one says "do not" or writes it in another form. '
+                          "Most such pairs agree. Read both, or run walle judge.",
+                          '후보: 두 줄이 {shared}를 함께 말하고, 한쪽은 "하지 않는다"고 하거나 다른 형식으로 쓴다. '
+                          "이런 쌍은 대개 같은 말이다. 둘 다 읽거나 walle judge를 돌린다."),
     "reason.different_agents": ("These lines load in different agents' stacks ({agents}). You may need both. "
                                 "To share one rule, @import a common file.",
                                 "두 줄은 서로 다른 에이전트 스택({agents})에서 읽힌다. 둘 다 필요할 수 있다. "

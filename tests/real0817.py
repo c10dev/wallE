@@ -90,7 +90,7 @@ class Tree:
 
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.home = Path(self.tmp.name) / "home"
+        self.home = Path(self.tmp.name).resolve() / "home"  # the CLI resolves paths
         self.projects = self.home / "projects"
         self.global_md = self.write(".claude/CLAUDE.md", self.global_text())
         self.write(".codex/AGENTS.md", fill(layout(30, {1: "# Codex"}), "codex", TOKENS["codex_global"]))

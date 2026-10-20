@@ -106,15 +106,20 @@ Caches go to the `cache/` folder next to the runs folder (`--out`), by default `
 
 **Items.** One flagged line is one item. Lines that belong together are one item: the dated and model-name lines of one file (from 3 lines), the flagged lines of one MEMORY.md, a run of consecutive copied lines between two files, and a file that copies another file of its stack (a `file_copy` note).
 Each item has a `rule`, a `verb` (`DELETE`, `CHECK`, `PICK ONE`, `MOVE`, `REWRITE`, `SYNC?`), a `certainty` (`certain`, `candidate`, `info`), a `scope`, an `ownership`, and `locations` with the whole text, `end_line` and a hash.
-The id is a hash of the rule, the text and the path inside the checkout. It stays the same when a line moves. The same line in two sibling folders gets two ids.
+A pair item has one location for each line: `side` `a` (the line to act on) first, then `side` `b`. A run of copied lines has one location for each copied line, so a DELETE never names a line between them.
+The id is a hash of the rule, the text and the file path. It stays the same when a line moves, and when you scan a folder alone or inside its parent. The same line in two folders gets two ids. The path is the path on this machine: a clone in another place gets other ids.
 
 **Scope.** Only `session_start` items change the verdict and Start here. Items in skill, agent and command bodies (`on_demand`), lines that no stack loads together (`not_together`, for example copies between sibling folders), and Cursor, Copilot, Gemini, Windsurf and Cline files (`other_agent`) stay in folded groups with their counts. Findings outside every stack of the scan (`elsewhere`) are counted in `triage.hidden`.
+
+**Ownership.** `owned` is a file in the git checkout of the folder. `memory` is the MEMORY.md of the folder. `shared` is a global file or a parent file outside the checkout. `files[].ownership` follows the stacks: a file that any stack sees as shared is shared.
 
 **Verdicts.** The budget is 8,000 estimated tokens per stack (`--max-tokens`).
 
 - `OVER BUDGET`: the stack is over the budget.
-- `TRIM`: in your own files, certain DELETE lines total 100 estimated tokens or more, or there is a conflict, or there are 3 or more open candidates.
+- `TRIM`: the stack has certain DELETE lines of 100 estimated tokens or more, or a conflict (two drifted lines that load together), shared files included. Or your own files have 3 or more open candidates.
 - `LEAN`: all other stacks.
+
+**Term clashes.** A `topic` or `protocol` pair in one stack shares a term or a message, not the wording. On real files most such pairs agree. walle shows them as `term_clash` CHECK candidates in Everything else. They are not in Start here, and they do not change the verdict. `walle judge` reads them.
 
 **Start here.** At most 3 items from your own files: the git checkout of the folder and its MEMORY.md. The order is conflicts, every-task steps, large layers, duplicates, old-model habits, dates and model names, then vague words. A stack over the budget puts its large layer (MOVE) first. A scan of several folders also writes `start_here_by_reach`, which includes shared files and ranks by estimated tokens times the number of stacks that load the line.
 

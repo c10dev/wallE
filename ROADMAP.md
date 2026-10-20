@@ -40,6 +40,8 @@ Every surface gives the same answer in the same order: one verdict word, at most
   An unknown key fails a test. The command name stays `walle eve`; `walle measure` stays its alias.
 - Next: the terminal brief as the default TTY output of `walle scan`, `--lang en|ko` (default from `LANG`), `walle show`, and Markdown for agents (`--format brief-md`).
 - Next: `walle keep` (personal `~/.walle/keep.json`, team `.wallekeep`), then `walle runs`, `walle pin` and `walle diff` without arguments.
+  Item ids use the path on this machine, so a team file needs a key that is the same in every clone (for example the remote URL and the path in the repository).
+- Next: judge verdicts in the items. A term clash that the judge calls real becomes a conflict (PICK ONE); "no conflict" moves an item to its own folded group.
 - Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
 
 ## 0.3 — trim and measure

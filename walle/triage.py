@@ -18,8 +18,11 @@ findings of the engine ("flags", "pairs"), which keep their old form.
   memory (the MEMORY.md of the folder), shared (global files and parent files outside
   the checkout) or skills (global skill bodies).
 - verdict of a stack: OVER BUDGET when its estimated tokens exceed the budget, TRIM when
-  the user's own files have certain DELETE lines of TRIM_DELETE_TOKENS or more, a
-  conflict, or TRIM_CANDIDATES open candidates, else LEAN.
+  the stack has certain DELETE lines of TRIM_DELETE_TOKENS or more or a conflict (two
+  drifted lines that load together), or the user's own files have TRIM_CANDIDATES open
+  candidates, else LEAN.
+- topic and protocol pairs in one stack are term clashes: CHECK candidates outside Start
+  here and the verdict, until `walle judge` reads them.
 - Start here: at most START_HERE items in the user's own files, by SEVERITY.
 
 Labels and verbs are keys, not display text. walle/strings.py gives the text in English and Korean.
@@ -34,7 +37,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from .classify import Flag
-from .collect import HOME, Artifact, find_checkout
+from .collect import Artifact, find_checkout
 from .compact import DUP, MIN_LEN, Pair
 from .segment import Unit
 from .stack import Stack, estimate_tokens
@@ -51,7 +54,7 @@ PER_FILE_GROUP = 3  # dated and model-name lines of one file become one item fro
 START_HERE = 3
 PER_RULE = 2  # Start here holds at most this many items of one rule when other rules wait
 # Bump when the item logic changes in a way that the constants above do not show.
-RULES_REVISION = 1
+RULES_REVISION = 2
 
 OVER, TRIM, LEAN = "OVER BUDGET", "TRIM", "LEAN"
 YOURS = ("owned", "memory")
@@ -63,8 +66,10 @@ VERBS = ("DELETE", "PICK ONE", "CHECK", "REWRITE", "MOVE", "SYNC?")
 LABELS = (
     "conflict", "every_task_step", "large_layer", "loaded_twice", "similar_twice", "repeated", "repeated_maybe",
     "model_habit", "dated", "model_name", "dated_lines", "memory_lines", "vague", "stacked_emphasis",
-    "different_agents", "copied_between", "drifted_copy", "format_differs", "source_of", "copy_of",
+    "different_agents", "copied_between", "drifted_copy", "format_differs", "source_of", "copy_of", "term_clash",
 )
+# Out of Start here and out of the verdict: mirrors go to Everything else; term clashes wait for a judge.
+NOT_IN_POOL = ("different_agents", "term_clash")
 SEVERITY = {
     "conflict": 1, "every_task_step": 2, "large_layer": 3,
     "loaded_twice": 4, "similar_twice": 4, "repeated": 4, "repeated_maybe": 4,
@@ -161,20 +166,26 @@ def sections(text: str) -> list[dict]:
     return out
 
 
-def file_ownership(a: Artifact, roots: list[Path], home: Path = HOME) -> str:
-    """Whose file it is, seen from the scan roots (files[].ownership)."""
-    if a.kind == "memory_index":
-        return "memory"
-    if a.kind in ("global_claude", "global_codex"):
-        return "shared"
-    p = str(a.path)
-    if a.kind in ON_DEMAND and (_under(p, home / ".claude") or _under(p, home / ".codex")):
-        return "skills"
-    for r in roots:
-        top = find_checkout(r)[0] or r
-        if _under(p, top) or _under(p, r):
-            return "owned"
-    return "shared"
+def chain_runs(rows: list, ix, iy, gap: int = GROUP_GAP) -> list[list]:
+    """Split the pairs of two files into runs of consecutive pairs.
+
+    ix and iy give the unit index of a pair on each side. A pair joins the run whose last
+    pair is at most `gap` units before it on side x and at most `gap` units away on side y;
+    of several such runs it joins the closest. So a far-off match of one line does not
+    break the run of its neighbours.
+    """
+    runs: list[list] = []
+    for r in sorted(rows, key=lambda r: (ix(r), iy(r))):
+        best = None
+        for run in runs:
+            dx, dy = ix(r) - ix(run[-1]), abs(iy(r) - iy(run[-1]))
+            if 0 <= dx <= gap and dy <= gap and (best is None or (dx, dy) < best[0]):
+                best = ((dx, dy), run)
+        if best:
+            best[1].append(r)
+        else:
+            runs.append([r])
+    return runs
 
 
 class _Triage:
@@ -187,6 +198,10 @@ class _Triage:
         self.stacks = stacks
         self.keys = [stack_key(st) for st in stacks]
         self.order = {k: i for i, k in enumerate(self.keys)}
+        # A layer names a file by the path the loader uses (~/.claude/CLAUDE.md, a resolved @import).
+        # collect() keeps one artifact per resolved file, under the first path it walked.
+        # Every layer path is mapped to that artifact path, so a symlinked file keeps its stacks.
+        self.canon = {str(a.path.resolve()): p for p, a in self.by_path.items()}
         self.loads: dict[str, set[str]] = defaultdict(set)
         self.layer_rank: dict[str, dict[str, int]] = {}
         self.own: dict[str, dict[str, str]] = {}
@@ -196,17 +211,48 @@ class _Triage:
             self.layer_rank[k] = {}
             self.own[k] = {}
             for i, l in enumerate(x for x in st.layers if x.path):
-                p = str(l.path)
+                p = self.layer_path(l)
                 self.loads[p].add(k)
                 self.layer_rank[k].setdefault(p, i)
                 if l.label == "memory":
-                    self.own[k][p] = "memory"
+                    self.own[k].setdefault(p, "memory")
                 elif l.label in ("global", "codex_global"):
-                    self.own[k][p] = "shared"
+                    self.own[k].setdefault(p, "shared")
                 else:
-                    self.own[k][p] = "owned" if _under(p, self.checkout[k]) else "shared"
-        self.file_own = {p: file_ownership(a, roots, home) for p, a in self.by_path.items()}
+                    self.own[k].setdefault(p, "owned" if _under(p, self.checkout[k]) else "shared")
+        self.file_own = {p: self.file_ownership(p) for p in self.by_path}
         self.items: dict[str, dict] = {}
+
+    def layer_path(self, layer) -> str | None:
+        if not layer.path:
+            return None
+        p = str(layer.path)
+        try:
+            return self.canon.get(str(layer.path.resolve()), p)
+        except OSError:
+            return p
+
+    def file_ownership(self, p: str) -> str:
+        """Whose file it is (files[].ownership, items[].ownership), in agreement with the stacks.
+
+        A file that loads in a stack takes that stack's view: shared when any stack sees it as
+        a global file or a parent outside its checkout. A file that loads nowhere takes the
+        view of the deepest stack folder that holds it.
+        """
+        a = self.by_path[p]
+        if a.kind == "memory_index":
+            return "memory"
+        if a.kind in ("global_claude", "global_codex"):
+            return "shared"
+        if a.kind in ON_DEMAND and (_under(p, self.home / ".claude") or _under(p, self.home / ".codex")):
+            return "skills"
+        views = {self.own[k][p] for k in self.loads.get(p, ())}
+        if views:
+            return "shared" if "shared" in views else ("memory" if views == {"memory"} else "owned")
+        holders = [(len(str(st.folder)), k) for st, k in zip(self.stacks, self.keys) if _under(p, st.folder)]
+        if holders:
+            return "owned" if _under(p, self.checkout[max(holders)[1]]) else "shared"
+        return "shared"
 
     # ------------------------------------------------------------------ helpers
     def kind(self, path: str) -> str:
@@ -220,17 +266,13 @@ class _Triage:
         return {k.rsplit("@", 1)[1] for k in keys}
 
     def locator(self, path: str) -> str:
-        """The path part of an item id: stable across clones and line moves.
+        """The path part of an item id: the file path, as ~/<path> under home.
 
-        Inside a checkout: <checkout folder name>/<path in the checkout>, so two sibling
-        folders with the same CLAUDE.md line get two ids. Under home: ~/<path>.
+        Every file has its own locator, so two checkouts with the same folder name (or two
+        sibling folders) never share an id. The id does not depend on the scan roots, so a
+        folder scanned alone and inside its parent gives the same ids. It is the same on one
+        machine only: a clone in another place gets other ids.
         """
-        a = self.by_path.get(path)
-        if a and a.checkout:
-            try:
-                return f"{a.checkout.name}/{Path(path).relative_to(a.checkout)}"
-            except ValueError:
-                pass
         h = str(self.home).rstrip("/")
         return "~" + path[len(h):] if path.startswith(h + "/") else path
 
@@ -258,9 +300,12 @@ class _Triage:
     def raw(self, path: str, first: int, last: int) -> str:
         return "\n".join(self.lines_of(path)[first - 1:last])
 
-    def loc(self, path: str, u: Unit, match: str | None = None, role: str | None = None) -> dict:
+    def loc(self, path: str, u: Unit, match: str | None = None, role: str | None = None,
+            side: str | None = None) -> dict:
         out = {"file": path, "line": u.line, "end_line": u.end_line, "hash": text_hash(u.text),
                "text": self.raw(path, u.line, u.end_line) or u.text}
+        if side:
+            out["side"] = side
         if role:
             out["role"] = role
         if match:
@@ -282,8 +327,8 @@ class _Triage:
         }
 
     def put(self, it: dict, parts: list[str]) -> None:
-        """Add an item. The same id from the same parts is the same line again: its location joins."""
-        key = "\0".join(parts)
+        """Add an item. The same parts in the same files are the same rule again: its locations join."""
+        key = "\0".join(parts + sorted({l["file"] for l in it["locations"]}))
         it["id"] = _id(parts)
         n = 1
         while it["id"] in self.items:
@@ -291,6 +336,7 @@ class _Triage:
             if old["_key"] == key:
                 old["locations"].extend(it["locations"])
                 old["group_size"] += it["group_size"]
+                old["stacks"] = self.sorted_keys(set(old["stacks"]) | set(it["stacks"]))
                 return
             it["id"] = _id(parts + [str(n)])  # a 6-hex collision: rare, so the next id is good enough
             n += 1
@@ -410,7 +456,11 @@ class _Triage:
                     return "loaded_twice", "DELETE", "certain", dele, keep, ("delete", "keep")
                 return "similar_twice", "CHECK", "candidate", dele, keep, None
             x, y = self.ordered(a, b)
-            return "conflict", "PICK ONE", "candidate", x, y, None
+            if p.kind == "drift":
+                return "conflict", "PICK ONE", "candidate", x, y, None
+            # topic and protocol pairs share a term or a message, not the wording. Most of them agree
+            # when read: they are judge candidates, not conflicts, until `walle judge` says otherwise.
+            return "term_clash", "CHECK", "candidate", x, y, None
         x, y = self.ordered(a, b)
         if p.kind == "protocol":
             return "format_differs", "CHECK", "candidate", x, y, None
@@ -452,35 +502,26 @@ class _Triage:
         it = self.base(p.kind, CAUSE.get(p.kind, 4), r["verb"], r["cert"], r["label"], x.file)
         it.update(scope=r["scope"], relation=r["relation"], stacks=self.sorted_keys(r["stacks"]),
                   score=round(p.score, 2), tokens_est=estimate_tokens(x.text),
-                  locations=[self.loc(x.file, x, role=roles[0]), self.loc(y.file, y, role=roles[1])])
+                  locations=[self.loc(x.file, x, role=roles[0], side="a"), self.loc(y.file, y, role=roles[1], side="b")])
         if p.why:
             it["why"] = p.why
         sides = sorted([(norm_id(x.text), self.locator(x.file)), (norm_id(y.text), self.locator(y.file))])
         self.put(it, [p.kind, sides[0][0], sides[1][0], sides[0][1], sides[1][1]])
 
     def chain(self, rows: list[dict]) -> list[list[dict]]:
-        """Split pairs of two files into runs whose lines are at most GROUP_GAP units apart on both sides."""
         def idx(u: Unit) -> int:
             return self.unit_index.get(u.file, {}).get(u.line, -10 ** 6)
-        rows = sorted(rows, key=lambda r: (idx(r["x"]), idx(r["y"])))
-        out: list[list[dict]] = []
-        for r in rows:
-            if out:
-                last = out[-1][-1]
-                dx, dy = idx(r["x"]) - idx(last["x"]), idx(r["y"]) - idx(last["y"])
-                if 0 <= dx <= GROUP_GAP and abs(dy) <= GROUP_GAP:
-                    out[-1].append(r)
-                    continue
-            out.append([r])
-        return out
+        return chain_runs(rows, lambda r: idx(r["x"]), lambda r: idx(r["y"]))
 
-    def span(self, units: list[Unit], role: str | None) -> dict:
+    def span(self, units: list[Unit], role: str | None, side: str) -> dict:
+        """One location from the first to the last line of units. Only file_copy notes use it."""
         path = units[0].file
         first, last = min(u.line for u in units), max(u.end_line for u in units)
         joined = "\n".join(norm_id(u.text) for u in sorted({(u.line, u.text): u for u in units}.values(),
                                                               key=lambda u: u.line))
         out = {"file": path, "line": first, "end_line": last,
-               "hash": hashlib.sha1(joined.encode()).hexdigest()[:12], "text": self.raw(path, first, last)}
+               "hash": hashlib.sha1(joined.encode()).hexdigest()[:12], "text": self.raw(path, first, last),
+               "side": side}
         if role:
             out["role"] = role
         return out
@@ -492,14 +533,18 @@ class _Triage:
         if CHAIN_CLASS[label] == "copy":
             label, verb, cert = ("drifted_copy", "SYNC?", "candidate") if drifted else ("copied_between", None, "info")
         rule = "drift" if drifted else "duplicate"
-        xs = list({(r["x"].line): r["x"] for r in chain}.values())
+        # One location for each member line, side a first: a DELETE names only the copied lines,
+        # never a line between them.
+        xs = sorted({r["x"].line: r["x"] for r in chain}.values(), key=lambda u: u.line)
+        ys = sorted({r["y"].line: r["y"] for r in chain}.values(), key=lambda u: u.line)
         roles = head["roles"] or (None, None)
         it = self.base(rule, CAUSE[rule], verb, cert, label, head["x"].file)
         stacks = set().union(*(r["stacks"] for r in chain))
         it.update(scope=head["scope"], relation=head["relation"], stacks=self.sorted_keys(stacks),
                   score=round(min(r["p"].score for r in chain), 2), group_size=len(chain),
                   tokens_est=sum(estimate_tokens(u.text) for u in xs),
-                  locations=[self.span([r["x"] for r in chain], roles[0]), self.span([r["y"] for r in chain], roles[1])])
+                  locations=[self.loc(u.file, u, role=roles[0], side="a") for u in xs]
+                  + [self.loc(u.file, u, role=roles[1], side="b") for u in ys])
         it["group"] = {
             "kind": "consecutive",
             "loose": any(r["p"].score < DUP for r in chain),
@@ -555,8 +600,8 @@ class _Triage:
                   tokens_est=sum(estimate_tokens(u.text) for u in {u.line: u for u in mine}.values()))
         it["of"] = src
         locs = []
-        for units, role in ((mine, "copy"), (theirs, "source")):
-            s = self.span(units, role)
+        for units, role, side in ((mine, "copy", "a"), (theirs, "source", "b")):
+            s = self.span(units, role, side)
             s["text"] = None  # a note names the files; the copied lines are in the files themselves
             locs.append(s)
         it["locations"] = locs
@@ -569,7 +614,7 @@ class _Triage:
         for st, k in zip(self.stacks, self.keys):
             total = st.tokens
             for l in st.layers:
-                p = str(l.path) if l.path else None
+                p = self.layer_path(l)
                 if (p and self.own[k].get(p) == "owned" and l.tokens > LARGE_LAYER_TOKENS
                         and l.tokens > LARGE_LAYER_SHARE * total):
                     rows[p].append((k, l.tokens, total))
@@ -602,9 +647,28 @@ class _Triage:
                 return own[f]
         return None
 
+    @staticmethod
+    def is_open(it: dict) -> bool:
+        return it["scope"] == "session_start" and it["state"] == "open" and it["certainty"] != "info"
+
     def actionable(self, it: dict) -> bool:
-        return (it["scope"] == "session_start" and it["state"] == "open" and it["certainty"] != "info"
-                and it["label"] != "different_agents")
+        """An item that can be in Start here."""
+        return self.is_open(it) and it["label"] not in NOT_IN_POOL
+
+    def counts(self, here: list[dict], k: str) -> dict:
+        """The numbers behind the verdict of stack k (design brief 2.2).
+
+        DELETE tokens and conflicts count in the whole stack, shared files too. Candidates
+        count in your files only, mirrors (different_agents) included. Term clashes count
+        nowhere until a judge reads them.
+        """
+        mine = [it for it in here if self.is_open(it) and self.yours(it, k) and it["label"] != "term_clash"]
+        return {
+            "delete_tokens": sum(it["tokens_est"] for it in here if self.is_open(it) and it["verb"] == "DELETE"),
+            "conflicts": sum(1 for it in here if self.is_open(it) and it["label"] == "conflict"),
+            "candidates": sum(1 for it in mine if it["certainty"] == "candidate"),
+            "to_read": len(mine),
+        }
 
     def rank(self, verdict: str, own_of):
         def key(it):
@@ -648,15 +712,13 @@ class _Triage:
         items = list(self.items.values())
         here = [it for it in items if k in it["stacks"] and it["scope"] == "session_start"]
         pool = [it for it in here if self.actionable(it) and self.yours(it, k)]
-        delete_tokens = sum(it["tokens_est"] for it in pool if it["verb"] == "DELETE")
-        conflicts = sum(1 for it in pool if it["label"] == "conflict")
-        candidates = sum(1 for it in pool if it["certainty"] == "candidate")
+        checks = self.counts(here, k)
         reasons = []
-        if delete_tokens >= TRIM_DELETE_TOKENS:
+        if checks["delete_tokens"] >= TRIM_DELETE_TOKENS:
             reasons.append("delete_tokens")
-        if conflicts:
+        if checks["conflicts"]:
             reasons.append("conflict")
-        if candidates >= TRIM_CANDIDATES:
+        if checks["candidates"] >= TRIM_CANDIDATES:
             reasons.append("candidates")
         verdict = OVER if st.tokens > self.budget else (TRIM if reasons else LEAN)
         key = self.rank(verdict, lambda it: self.yours(it, k))
@@ -666,11 +728,13 @@ class _Triage:
 
         notes = [it for it in here if it["relation"] == "file_copy" and self.yours(it, k)]
         mirrors = [it for it in here if it["label"] == "different_agents" and self.yours(it, k)]
-        rest = notes + [it for it in pool if it["id"] not in start_ids] + sorted(mirrors, key=key)
+        clashes = [it for it in here if it["label"] == "term_clash" and self.yours(it, k)]
+        rest = (notes + [it for it in pool if it["id"] not in start_ids]
+                + sorted(mirrors, key=key) + sorted(clashes, key=key))
 
         shared_rows = []
         for l in st.layers:
-            p = str(l.path) if l.path else None
+            p = self.layer_path(l)
             if not p or own.get(p) != "shared" or any(r["file"] == p for r in shared_rows):
                 continue
             ids = [it["id"] for it in here
@@ -711,7 +775,7 @@ class _Triage:
 
         split = Counter()
         for l in st.layers:
-            p = str(l.path) if l.path else None
+            p = self.layer_path(l)
             o = "skills" if l.label == "skill_catalog" else ("your_files" if own.get(p) in YOURS else "shared")
             split[o] += l.tokens
         groups = {
@@ -731,8 +795,9 @@ class _Triage:
         return {
             "folder": str(st.folder), "agent": st.agent, "verdict": verdict, "tokens_est": st.tokens,
             "budget": self.budget, "split": {x: split.get(x, 0) for x in ("your_files", "shared", "skills")},
-            "to_read": len(pool), "reasons": reasons if verdict == TRIM else ([] if verdict == LEAN else ["over_budget"]),
-            "checks": {"delete_tokens": delete_tokens, "conflicts": conflicts, "candidates": candidates},
+            "to_read": checks.pop("to_read"),
+            "reasons": reasons if verdict == TRIM else ([] if verdict == LEAN else ["over_budget"]),
+            "checks": checks,
             "start_here": [it["id"] for it in start], "groups": groups, "counts": counts,
         }
 
@@ -769,11 +834,12 @@ class _Triage:
                 "start_here_by_reach": self.by_reach(entries) if len(folders) > 1 else [],
                 "hidden": {"elsewhere": sum(1 for it in items if it["scope"] == "elsewhere")},
             },
+            "ownership": dict(self.file_own),
         }
 
 
 def triage(roots: list[Path], home: Path, artifacts: list[Artifact], stacks: list[Stack],
            units: dict[str, list[Unit]], flags: list[Flag], pairs: list[Pair], copies: list[dict],
            file_sections: dict[str, list[dict]], budget: int = BUDGET) -> dict:
-    """Items and the triage block of scan.json schema 2."""
+    """Items, the triage block of scan.json schema 2, and the ownership of each collected file."""
     return _Triage(roots, home, artifacts, stacks, units, budget, copies).run(flags, pairs, file_sections)

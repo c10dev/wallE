@@ -23,7 +23,7 @@ def answer_all(files, only=None, real_for="conflict"):
 class JudgeTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        root = Path(self.tmp.name)
+        root = Path(self.tmp.name).resolve()  # the CLI resolves --out; macOS temp folders sit behind a symlink
         self.a = root / "a" / "CLAUDE.md"
         self.b = root / "b" / "CLAUDE.md"
         self.a.parent.mkdir()

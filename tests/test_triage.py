@@ -1,17 +1,22 @@
 import io
 import json
+import os
 import re
+import subprocess
+import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
-from real0817 import STACKS, Tree as RealTree
+# The fixture module sits next to this file: import it also when this file runs by path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real0817 import STACKS, Tree as RealTree  # noqa: E402
 
-from walle import cli, judge, runs, triage
-from walle.scan import scan
-from walle.stack import memory_slug
+from walle import cli, judge, runs, triage  # noqa: E402
+from walle.scan import scan  # noqa: E402
+from walle.stack import memory_slug  # noqa: E402
 
 SCHEMA_1 = {"generated", "roots", "artifact_count", "copy_count", "stacks", "files", "flags", "pairs", "copies"}
 
@@ -26,7 +31,9 @@ def words(seed: str, n: int = 9) -> str:
 class Home:
     def __init__(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.home = Path(self.tmp.name) / "home"
+        # The CLI resolves roots and --out; a temp folder behind a symlink (macOS /var) must compare equal.
+        self.root = Path(self.tmp.name).resolve()
+        self.home = self.root / "home"
         self.projects = self.home / "projects"
         (self.home / ".claude").mkdir(parents=True)
         (self.home / ".codex").mkdir(parents=True)
@@ -248,8 +255,11 @@ class ItemTest(unittest.TestCase):
         self.assertEqual(len(dele), 1)
         it = dele[0]
         self.assertEqual((it["group_size"], it["group"]["kind"], it["group"]["loose"]), (6, "consecutive", False))
-        self.assertEqual((it["locations"][0]["line"], it["locations"][0]["end_line"]), (3, 8))
-        self.assertEqual(it["locations"][0]["text"], "\n".join(rules))
+        # One location for each copied line: six to delete in the repo file, six to keep in the global file.
+        delete = [l for l in it["locations"] if l["side"] == "a"]
+        self.assertEqual([(l["line"], l["end_line"], l["role"]) for l in delete], [(n, n, "delete") for n in range(3, 9)])
+        self.assertEqual([l["text"] for l in delete], rules)
+        self.assertEqual({l["role"] for l in it["locations"] if l["side"] == "b"}, {"keep"})
         self.assertFalse([i for i in data["items"] if i["relation"] == "file_copy"])
 
     def test_one_rename_between_sibling_folders_is_one_item(self):
@@ -312,12 +322,178 @@ class ItemTest(unittest.TestCase):
         self.assertEqual((e["verdict"], e["reasons"]), ("TRIM", ["delete_tokens"]))
 
 
+class ReviewFixTest(unittest.TestCase):
+    """One test for each defect that the review of 32f6f7e found (numbered as in the review)."""
+
+    def setUp(self):
+        self.h = Home()
+
+    def tearDown(self):
+        self.h.close()
+
+    def stack(self, data, rel, agent="claude"):
+        return data["triage"]["stacks"][f"{self.h.projects / rel}@{agent}"]
+
+    def test_1_same_named_checkouts_keep_their_own_items(self):
+        line = "- Run the full check suite for every change."
+        big = "## Big\n\n" + "\n\n".join(f"{words(f'big{n}', 40)}." for n in range(60)) + "\n"
+        for client in ("clientA", "clientB"):
+            self.h.repo(f"{client}/web")
+            dated = "\n\n".join(f"- Decision 2026-0{n}-0{n}: {words(f'{client}{n}')}." for n in range(1, 4))
+            self.h.write(f"projects/{client}/web/CLAUDE.md", f"# Web\n\n{line}\n\n{dated}\n\n{big}")
+        data = self.h.scan()
+        items = by_id(data)
+        for client in ("clientA", "clientB"):
+            key = f"{self.h.projects / client / 'web'}@claude"
+            mine = [items[i] for i in data["triage"]["stacks"][key]["start_here"]]
+            self.assertEqual({it["label"] for it in mine}, {"every_task_step", "large_layer", "dated_lines"}, client)
+            for it in mine:
+                self.assertEqual(it["stacks"], [key])
+                self.assertEqual({l["file"] for l in it["locations"]}, {str(self.h.projects / client / "web/CLAUDE.md")})
+        # The ids of a folder do not depend on the roots of the scan.
+        a = str(self.h.projects / "clientA")
+        alone = self.h.scan(self.h.projects / "clientA" / "web")
+        self.assertEqual({it["id"] for it in alone["items"] if it["locations"][0]["file"].startswith(a)},
+                         {it["id"] for it in data["items"] if it["locations"][0]["file"].startswith(a)})
+
+    def test_2_a_delete_run_names_only_the_copied_lines(self):
+        rules = [f"- Rule {n}: {words(f'r{n}')}." for n in range(5)]
+        self.h.write(".claude/CLAUDE.md", "# Global\n\n" + "\n".join(rules) + "\n")
+        r = self.h.repo("app")
+        filler = "\n\n" + "\n\n".join(f"{words(f'own{n}')}." for n in range(10)) + "\n"
+        own = f"- {words('mine')}."
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n" + "\n".join(rules[:2] + [own] + rules[2:]) + filler)
+        dele = [it for it in self.h.scan(r)["items"] if it["verb"] == "DELETE"]
+        self.assertEqual(len(dele), 1)
+        self.assertEqual([l["line"] for l in dele[0]["locations"] if l["side"] == "a"], [3, 4, 6, 7, 8])
+        # A rule edited in the copy is a conflict, and the DELETE does not name it.
+        words2 = rules[2].split()
+        edited = " ".join(words2[:-2] + ["deploy", "never on fridays."])
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n" + "\n".join(rules[:2] + [edited] + rules[3:]) + filler)
+        data = self.h.scan(r)
+        dele = [it for it in data["items"] if it["verb"] == "DELETE"]
+        self.assertEqual([l["line"] for it in dele for l in it["locations"] if l["side"] == "a"], [3, 4, 6, 7])
+        conflict = at(data, r / "CLAUDE.md", 5)
+        self.assertEqual([(it["label"], it["verb"]) for it in conflict], [("conflict", "PICK ONE")])
+
+    def test_3_a_conflict_between_shared_files_makes_the_stack_trim(self):
+        base = f"- Rule: {words('g', 9)}."
+        self.h.write(".claude/CLAUDE.md", "# Global\n\n" + base + "\n")
+        self.h.write("projects/CLAUDE.md", "# Projects\n\n" + base.rsplit(" ", 2)[0] + " deploy never.\n")
+        self.h.repo("app")
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n" + words("app") + ".\n")
+        data = self.h.scan()
+        e = self.stack(data, "app")
+        self.assertEqual((e["verdict"], e["reasons"], e["start_here"]), ("TRIM", ["conflict"], []))
+        conflict = [it for it in data["items"] if it["label"] == "conflict"]
+        self.assertEqual(len(conflict), 1)
+        self.assertIn(conflict[0]["id"], e["groups"]["shared"][0]["items"] + e["groups"]["shared"][1]["items"])
+
+    def test_4_a_parent_file_outside_every_checkout_is_shared(self):
+        self.h.write("projects/CLAUDE.md", "# Projects\n\n- Run the linter for every change.\n")
+        for name in ("app", "api"):
+            self.h.repo(name)
+            self.h.write(f"projects/{name}/CLAUDE.md", f"# {name}\n\n{words(name)}.\n")
+        data = self.h.scan()
+        own = {f["path"]: f["ownership"] for f in data["files"]}
+        self.assertEqual(own[str(self.h.projects / "CLAUDE.md")], "shared")
+        self.assertEqual(own[str(self.h.projects / "app/CLAUDE.md")], "owned")
+        it = at(data, self.h.projects / "CLAUDE.md", 3)[0]
+        self.assertEqual(it["ownership"], "shared")
+        for name in ("app", "api"):
+            row = self.stack(data, name)["groups"]["shared"][0]
+            self.assertEqual((row["file"], row["items"]), (str(self.h.projects / "CLAUDE.md"), [it["id"]]))
+
+    def test_5_mirrors_count_toward_trim(self):
+        lines = [f"- Write the report in plain words {n}: {words(f'm{n}')}." for n in range(3)]
+        def body(seed):  # each line, then four filler paragraphs of its own
+            return "\n\n".join(line + "\n\n" + "\n\n".join(f"{words(f'{seed}{i}-{n}')}." for n in range(4))
+                               for i, line in enumerate(lines)) + "\n"
+        self.h.write(".claude/CLAUDE.md", "# Global\n\n" + body("gap"))
+        r = self.h.repo("app")
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n@AGENTS.md\n")
+        self.h.write("projects/app/AGENTS.md", "# Agents\n\n" + body("own"))
+        data = self.h.scan(r)
+        e = self.stack(data, "app")
+        mirrors = [it["id"] for it in data["items"] if it["label"] == "different_agents"]
+        self.assertEqual(len(mirrors), 3)
+        self.assertEqual((e["verdict"], e["reasons"], e["checks"]["candidates"], e["to_read"]),
+                         ("TRIM", ["candidates"], 3, 3))
+        self.assertEqual((e["start_here"], set(e["groups"]["everything_else"])), ([], set(mirrors)))
+
+    def test_6_symlinked_files_keep_their_stacks(self):
+        self.h.repo("dotfiles")
+        self.h.write("projects/dotfiles/CLAUDE.md", "# Dotfiles\n\n- Run the full test suite for every change.\n")
+        (self.h.home / ".claude" / "CLAUDE.md").symlink_to(self.h.projects / "dotfiles" / "CLAUDE.md")
+        self.h.repo("app")
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n" + words("app") + ".\n")
+        data = self.h.scan()
+        it = at(data, self.h.projects / "dotfiles/CLAUDE.md", 3)[0]
+        self.assertEqual((it["scope"], it["ownership"]), ("session_start", "shared"))
+        app = f"{self.h.projects / 'app'}@claude"
+        self.assertIn(app, it["stacks"])
+        self.assertIn(it["id"], data["triage"]["stacks"][app]["groups"]["shared"][0]["items"])
+        # A CLAUDE.md that links to AGENTS.md: both agents load the line.
+        r = self.h.repo("both")
+        self.h.write("projects/both/AGENTS.md", "# Both\n\n- Check the logs for every task.\n")
+        (r / "CLAUDE.md").symlink_to("AGENTS.md")
+        data = self.h.scan(r)
+        files = [f["path"] for f in data["files"] if f["path"].startswith(str(r))]
+        self.assertEqual(len(files), 1)
+        it = at(data, Path(files[0]), 3)[0]
+        self.assertEqual(it["stacks"], [f"{r}@claude", f"{r}@codex"])
+        for agent in ("claude", "codex"):
+            self.assertEqual(self.stack(data, "both", agent)["start_here"], [it["id"]])
+
+    def test_7_a_home_behind_a_symlink_gives_the_same_items(self):
+        mirror = f"- Write the report in plain words: {words('mirror')}."
+        self.h.write(".claude/CLAUDE.md", f"# Global\n\n{mirror}\n")
+        self.h.repo("app")
+        self.h.write("projects/app/CLAUDE.md", "# App\n\n@AGENTS.md\n")
+        self.h.write("projects/app/AGENTS.md", f"# Agents\n\n{mirror}\n\n{words('a2')}.\n")
+        link = self.h.root / "link"
+        link.symlink_to(self.h.home)
+        # The @import target resolves to the real path; the walked files keep the link path.
+        data = scan([link / "projects" / "app"], link)
+        m = at(data, link / "projects/app/AGENTS.md", 3)[0]
+        self.assertEqual((m["label"], m["relation"], m["scope"]), ("different_agents", "same_stack", "session_start"))
+        self.assertIn(m["id"], data["triage"]["stacks"][f"{link / 'projects/app'}@claude"]["groups"]["everything_else"])
+
+    def test_8_the_test_file_imports_when_run_by_path(self):
+        root = Path(__file__).resolve().parent.parent
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+        done = subprocess.run([sys.executable, "-c", "import runpy; runpy.run_path('tests/test_triage.py', run_name='x')"],
+                              cwd=root, env=env, capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_9_topic_pairs_wait_for_a_judge(self):
+        r = self.h.repo("app")
+        self.h.write("projects/app/CLAUDE.md",
+                     "# App\n\n- Send the result to `OCC` with SendMessage when the run ends.\n\n"
+                     f"{words('x')}.\n\n- Do not send messages to `OCC` during a review {words('y', 4)}.\n")
+        data = self.h.scan(r)
+        clash = [it for it in data["items"] if it["rule"] == "topic"]
+        self.assertEqual(len(clash), 1)
+        it = clash[0]
+        self.assertEqual((it["label"], it["verb"], it["certainty"], it["relation"]),
+                         ("term_clash", "CHECK", "candidate", "same_file"))
+        e = self.stack(data, "app")
+        self.assertEqual((e["verdict"], e["checks"]["conflicts"], e["checks"]["candidates"], e["start_here"]),
+                         ("LEAN", 0, 0, []))
+        self.assertEqual(e["groups"]["everything_else"], [it["id"]])
+
+    def test_10_a_far_off_match_does_not_break_a_run(self):
+        rows = [(2, 11), (3, 12), (4, 13), (2, 26)]
+        self.assertEqual(triage.chain_runs(rows, lambda r: r[0], lambda r: r[1]),
+                         [[(2, 11), (3, 12), (4, 13)], [(2, 26)]])
+
+
 class RunRecordTest(unittest.TestCase):
     def setUp(self):
         self.h = Home()
         self.h.repo("app")
         self.h.write("projects/app/CLAUDE.md", "# App\n\n- Run the tests for every change.\n")
-        self.out = Path(self.h.tmp.name) / "runs"
+        self.out = self.h.root / "runs"
 
     def tearDown(self):
         self.h.close()
@@ -364,7 +540,7 @@ class RunRecordTest(unittest.TestCase):
         (git / "refs" / "heads" / "main").unlink()
         (git / "packed-refs").write_text(f"# pack-refs\n{'b' * 40} refs/heads/main\n")
         self.assertEqual(runs.git_head(self.h.projects / "app"), "b" * 40)
-        self.assertIsNone(runs.git_head(Path(self.h.tmp.name)))
+        self.assertIsNone(runs.git_head(self.h.root))
 
 
 if __name__ == "__main__":

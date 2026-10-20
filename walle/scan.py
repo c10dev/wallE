@@ -18,7 +18,7 @@ from .conflict import protocol_pairs, topic_pairs
 from .runs import run_block
 from .segment import segment
 from .stack import claude_stack, codex_stack, estimate_tokens, session_folders
-from .triage import BUDGET, file_ownership, sections, triage
+from .triage import BUDGET, sections, triage
 
 SCHEMA = 2
 
@@ -75,7 +75,7 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
             "loaded_in_stacks": loaded_count.get(str(a.path), 0),
             "flags": {str(k): by_cause.get(k, 0) for k in (1, 3, 4)},
             "sha": a.sha1,
-            "ownership": file_ownership(a, roots, home),
+            "ownership": None,  # set from the stacks after triage
             "sections": file_sections[str(a.path)],
         })
 
@@ -131,6 +131,8 @@ def scan(roots: list[Path], home: Path = HOME, budget: int = BUDGET) -> dict:
 
     copies = [g.to_dict() for g in copy_groups(artifacts)]
     tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget)
+    for f in files:
+        f["ownership"] = tri["ownership"][f["path"]]
     return {
         "schema": SCHEMA,
         "run": run_block(roots, [st.folder for st in stacks]),

@@ -1,13 +1,15 @@
 import re
 import string
+import sys
 import unittest
 from pathlib import Path
 
-from real0817 import Tree as RealTree
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real0817 import Tree as RealTree  # noqa: E402
 
-from walle import strings, triage
-from walle.scan import scan
-from walle.strings import STRINGS, UnknownString, approx, label, resolve_lang, round_tokens, t, tn
+from walle import strings, triage  # noqa: E402
+from walle.scan import scan  # noqa: E402
+from walle.strings import STRINGS, UnknownString, approx, label, resolve_lang, round_tokens, t, tn  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 FILM = re.compile(r"WALL-E|Wall-E|WALL·E|\bEVE\b")
