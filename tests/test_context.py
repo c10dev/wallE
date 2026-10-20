@@ -290,6 +290,16 @@ class ContextCommandTest(unittest.TestCase):
         md1 = self.run_cli("--last", "--estimator", "bytes-v1")
         self.assertEqual(json.loads((md1.parent / "context.json").read_text())["run"]["estimator"], "bytes-v1")
 
+    def test_estimator_takes_the_short_names_of_scan(self):
+        for short, full in (("v1", "bytes-v1"), ("v2", "bytes-v2")):
+            data = json.loads((self.run_cli("--last", "--estimator", short).parent / "context.json").read_text())
+            self.assertEqual((data["run"]["estimator"], data["run"]["estimator_detail"]["name"]), (full, full))
+            rows = {r["source"]: r for r in data["first_call"]["sources"]}
+            self.assertEqual(rows["deferred_tools"]["basis"], "bytes-v1" if short == "v1" else "fit")
+        with redirect_stdout(io.StringIO()), unittest.mock.patch("sys.stderr", io.StringIO()):
+            with self.assertRaises(SystemExit):
+                cli.main(["--out", str(self.out), "context", "--transcripts", str(self.root), "--estimator", "v9"])
+
     def test_errors(self):
         buf = io.StringIO()
         with redirect_stdout(buf), unittest.mock.patch("sys.stderr", io.StringIO()):

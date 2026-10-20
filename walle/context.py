@@ -505,6 +505,7 @@ def run_block(estimator: str, label: str | None, kind_args: dict) -> dict:
 def build(args, root: Path, out: Path) -> dict:
     if getattr(args, "agent", "claude") != "claude":
         raise ContextError("only --agent claude is supported; the Codex rollout reader is plan step C3")
+    args.estimator = estimate.name(args.estimator)  # v1 -> bytes-v1: context.json names the estimator in full
     data = {"schema": SCHEMA, "generated": datetime.now().isoformat(timespec="seconds"), "note": NOTE}
     cache = out.parent / "cache" / "context-usage.json"
     names: dict[str, str] = {}
@@ -645,8 +646,8 @@ def add_parser(sub, default_transcripts: Path):
     x.add_argument("--usage", action="store_true", help="loaded against used, for every main session of the period")
     x.add_argument("--since", help="with --usage: ISO date, sessions that start on or after it")
     x.add_argument("--before", help="with --usage: ISO date, sessions that start before it")
-    x.add_argument("--estimator", choices=estimate.ESTIMATORS, default=estimate.DEFAULT,
-                   help=f"token estimator (default {estimate.DEFAULT})")
+    x.add_argument("--estimator", choices=[*estimate.ALIASES, *estimate.ESTIMATORS], default="v2",
+                   help="token estimator: v2 (bytes-v2, default) or v1 (bytes-v1), as in walle scan")
     x.add_argument("--transcripts", type=Path, default=default_transcripts)
     x.add_argument("--label", help="a name for this run")
     return x
