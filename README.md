@@ -56,6 +56,7 @@ python3 bin/walle scan ~/projects --html
 ```
 
 Reports go to `~/.walle/runs/<time>/` (`scan.md`, `scan.json`, `scan.html`). Each scan also adds one line to `~/.walle/runs/index.jsonl`. walle never writes into the folders it reads.
+`walle scan` and `walle check` stop with exit code 2 when `--out` or its sibling `cache/` is inside a folder they scan.
 
 ### Claude Code plugin
 

@@ -295,6 +295,10 @@ STRINGS: dict[str, tuple[str, str]] = {
     "show.no_number": ("no item {ref} in the last scan of this folder", "이 폴더의 마지막 스캔에 {ref}번 항목이 없다."),
     "show.no_item": ("no item {ref} in recent scans; run walle scan", "최근 스캔에 항목 {ref}가 없다. walle scan을 돌린다."),
     "show.changed": ("file changed since scan; run walle scan", "스캔 뒤 파일이 바뀌었다. walle scan을 다시 돌린다."),
+    # --out of scan and check: walle never writes into a folder that it scans
+    "out.in_scan": ("walle: {path} is inside {root}, which this command scans. "
+                    "Use an --out folder outside it, such as ~/.walle/runs.",
+                    "walle: {path}는 이 명령이 스캔하는 {root} 안에 있다. 그 밖의 --out 폴더를 쓴다(예: ~/.walle/runs)."),
     # Session alarm: one line of agent context, OVER BUDGET only, at most 200 characters
     "alarm.over": ("walle: this folder loads ~{tokens} est. tokens of instructions before the first prompt "
                    "(budget {budget}); largest {file} ~{largest}. Mention only if asked about instructions or cost.",

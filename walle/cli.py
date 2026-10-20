@@ -15,7 +15,7 @@ from . import brief, context, estimate, eve, judge, report, report_html, runs
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
-from .strings import LANGS, resolve_lang
+from .strings import LANGS, resolve_lang, t
 from .triage import BUDGET
 
 DEFAULT_OUT = HOME / ".walle" / "runs"
@@ -49,6 +49,33 @@ def _scan(roots: list[Path], budget: int, estimator: str = estimate.DEFAULT) -> 
     if budget == BUDGET and estimator == estimate.DEFAULT:
         return scan(roots)
     return scan(roots, budget=budget, estimator=estimator)
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    return path == folder or folder in path.parents
+
+
+def out_in_scan(out: Path, roots: list[Path], home: Path = HOME) -> tuple[Path, Path] | None:
+    """(path, root) when --out or its sibling cache/ is inside a folder that the command scans, else None.
+
+    walle does not write into the folders it scans. A scan reads only what is under its roots (os.walk does
+    not follow links), so every checkout it scans is inside a root. ~/.walle is walle's own folder: it stays
+    allowed when a root holds it, for example `walle scan ~` with the default --out.
+    """
+    own = (home / ".walle").resolve()
+    for path in (out, out.parent / "cache"):
+        for root in roots:
+            if _inside(path, root) and not (_inside(own, root) and _inside(path, own)):
+                return path, root
+    return None
+
+
+def _refuse_out(args, roots: list[Path]) -> bool:
+    """Print one line and return True when --out is inside a scanned folder (scan and check: exit 2)."""
+    hit = out_in_scan(args.out, roots, HOME)
+    if hit:
+        print(t("out.in_scan", resolve_lang(getattr(args, "lang", None)), path=hit[0], root=hit[1]), file=sys.stderr)
+    return bool(hit)
 
 
 def check(data: dict, max_tokens: int, agent: str) -> int:
@@ -131,7 +158,8 @@ def run_judge(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="walle", description="Collect, compact and sort agent instruction files.")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT,
-                    help="run output folder (default ~/.walle/runs); caches go to its sibling folder cache/")
+                    help="run output folder (default ~/.walle/runs); caches go to its sibling folder cache/. "
+                         "scan and check refuse a folder inside the folders they scan")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("scan", help="static pass over instruction files")
@@ -206,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         started = time.monotonic()
         fmt = args.format or ("brief" if sys.stdout.isatty() else "path")
         roots = [r.expanduser().resolve() for r in args.roots]
+        if _refuse_out(args, roots):
+            return 2
         data = _scan(roots, _budget(args), args.estimator)
         run_dir = runs.new_run_dir(args.out)
         data.setdefault("run", runs.run_block(roots, [], args.estimator))
@@ -217,6 +247,8 @@ def main(argv: list[str] | None = None) -> int:
         (run_dir / "scan.html").write_text(report_html.render(data, args.out), encoding="utf-8")
     elif args.cmd == "check":
         roots = [r.expanduser().resolve() for r in args.roots]
+        if _refuse_out(args, roots):
+            return 2
         budget = _budget(args)
         return check(_scan(roots, budget, args.estimator), budget, args.agent)
     elif args.cmd == "alarm":

@@ -20,7 +20,7 @@ python3 bin/walle judge                    # 후보를 배치 파일로 내보�
 python3 bin/walle judge --import           # 답을 읽어 judge.md 작성
 ```
 
-리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다.
+리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`과 `walle check`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다.
 
 ## scan.json (schema 2)
 

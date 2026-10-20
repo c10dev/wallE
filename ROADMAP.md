@@ -43,6 +43,7 @@ Every surface gives the same answer in the same order: one verdict word, at most
   Item ids use the path on this machine, so a team file needs a key that is the same in every clone (for example the remote URL and the path in the repository).
 - Next: judge verdicts in the items. A term clash that the judge calls real becomes a conflict (PICK ONE); "no conflict" moves an item to its own folded group.
 - Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
+  The badge (`walle check --badge`) will follow the `--out` rule: walle will refuse a badge path inside a folder that it scans.
 
 ## 0.3 — trim and measure
 

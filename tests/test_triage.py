@@ -719,6 +719,43 @@ class RunRecordTest(unittest.TestCase):
         self.assertNotIn("추정기", diff)
         self.assertNotIn("세는 방식", report.render_diff(new, new))
 
+    def test_scan_and_check_refuse_an_out_folder_inside_a_scanned_folder(self):
+        app = self.h.projects / "app"
+
+        def run(*argv):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), mock.patch("sys.stderr", err), mock.patch("walle.cli.HOME", self.h.home), \
+                    mock.patch("walle.cli.scan", lambda roots, **kw: scan(roots, self.h.home, **kw)):
+                code = cli.main(list(argv))
+            return code, err.getvalue()
+
+        inside = app / "runs"
+        for cmd in ("scan", "check"):
+            code, err = run("--out", str(inside), cmd, str(app), *(["--lang", "en"] if cmd == "scan" else []))
+            self.assertEqual(code, 2, cmd)
+            self.assertEqual(err, f"walle: {inside} is inside {app}, which this command scans. "
+                                  "Use an --out folder outside it, such as ~/.walle/runs.\n")
+            # Any root counts, and a root that holds the folder: here ~/projects holds app/runs.
+            self.assertEqual(run("--out", str(inside), cmd, str(self.h.root / "none"), str(self.h.projects))[0], 2)
+        self.assertFalse(inside.exists())
+        # The sibling cache/ folder counts too: a project folder named cache.
+        cache = self.h.repo("cache")
+        code, err = run("--out", str(self.h.projects / "runs"), "check", str(cache))
+        self.assertEqual(code, 2)
+        self.assertIn(f"walle: {cache} is inside {cache},", err)
+        # Next to the scanned folder is fine, and so is ~/.walle when the scan root holds it (walle scan ~).
+        self.assertEqual(run("--out", str(self.h.projects / "runs"), "scan", str(app))[0], 0)
+        self.assertEqual(run("--out", str(self.h.projects / "runs"), "check", str(app))[0], 0)
+        self.assertEqual(run("--out", str(self.h.home / ".walle" / "runs"), "check", str(self.h.home))[0], 0)
+        ko = run("--out", str(inside), "scan", str(app), "--lang", "ko")[1]
+        self.assertEqual(ko.count("\n"), 1)
+        self.assertIn("이 명령이 스캔하는", ko)
+        # Other commands know no roots and keep working with any --out.
+        scan_json = sorted(self.h.projects.glob("runs/*/scan.json"))[-1]
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["--out", str(inside), "diff", str(scan_json), str(scan_json)]), 0)
+            self.assertEqual(cli.main(["--out", str(inside), "judge", str(scan_json), "--dry-run"]), 0)
+
     def test_rules_hash_follows_the_thresholds(self):
         h = triage.rules_hash()
         self.assertRegex(h, r"^[0-9a-f]{40}$")
