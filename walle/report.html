@@ -1162,7 +1162,7 @@ function render() {
     <div class="srows" id="srows"></div></div></section>`;
 
   // measure
-  html += `<section id="measure" aria-labelledby="mh"><h2 class="sh" id="mh">Measure <span class="shn"><code>walle measure</code></span></h2><div id="mbody"></div></section>`;
+  if (D.eve_ref) html += `<section id="measure" aria-labelledby="mh"><h2 class="sh" id="mh">Measure <span class="shn"><code>walle measure</code></span></h2><div id="mbody"></div></section>`;
   // history
   html += `<section id="history" aria-labelledby="hh"><h2 class="sh" id="hh">History</h2><div class="panelbox" id="hbody"></div></section>`;
   // method
@@ -1182,7 +1182,7 @@ function render() {
   });
 
   drawStacks();
-  drawMeasure();
+  if (D.eve_ref) drawMeasure();
   drawHistory();
   drawMethod();
   bindTips(m);
@@ -1384,7 +1384,6 @@ function drawMeasure() {
   const box = $("#mbody");
   const M = D.measure[V.key];
   const ref = D.eve_ref;
-  if (!ref) { box.innerHTML = `<p class="mintro">No measure run yet. Run <code>walle measure</code> to read real sessions from Claude Code transcripts.</p>`; return; }
   const refTable = `<details class="sub" style="margin-top:16px"><summary>All folders (reference only)</summary><div class="subbody">
     <p class="gnote">Folders differ in model, connectors and task mix. Do not rank folders by this. Run ${esc(ref.id)}, ${int(ref.sessions)} sessions, all model families together.</p>
     <div class="tblwrap"><table class="tbl"><thead><tr><th>Folder group</th><th class="r">Sessions</th><th class="r">First-call input</th><th class="r hide-s">Calls / prompt</th><th class="r hide-s">Calls before edit</th></tr></thead><tbody>

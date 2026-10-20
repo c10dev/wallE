@@ -22,19 +22,25 @@ TEMPLATE = resources.files("walle") / "report.html"
 
 
 def snapshot_of(D: dict) -> dict:
-    """The parts of the page data that must not change by accident. Times, run ids and the rules hash are left out."""
+    """The parts of the page data that must not change by accident.
+
+    Times, run ids and the rules hash are left out. Item ids hash the file path, and the
+    temp folder name is random, so items are keyed by location and label.
+    """
+    name = {i: f"{it['loc']['file'].split('/home/', 1)[-1]}:{it['loc']['line']} {it['label']}" for i, it in D["items"].items()}
     views = {}
     for k, v in sorted(D["views"].items()):
         views[k] = {
             "verdict": v["verdict"], "tokens": v["tokens"], "sentence": v["sentence"], "sums": v["sums"],
-            "counts": v["counts"], "start": v["start"], "rest": len(v["rest"]), "file_copy": len(v["file_copy"]),
-            "shared": [(r["file"], r["findings"]) for r in v["shared"]], "copies": len(v["copies"]),
+            "counts": v["counts"], "start": [name[i] for i in v["start"]], "rest": len(v["rest"]),
+            "file_copy": len(v["file_copy"]), "shared": [(r["file"], r["findings"]) for r in v["shared"]],
+            "copies": len(v["copies"]),
             "layers": [(L["label"], L["rel"], L["tokens"], L["own"], L["share"]) for L in v["layers"]],
         }
-    items = {i: {"verb": it["verb"], "label": it["label"], "cert": it["cert"], "loc": f"{it['loc']['rel']}:{it['loc']['line']}",
-                 "impact": it["impact"], "reason": it["reason"], "blocks": [b["head"] for b in it["blocks"]]}
-             for i, it in sorted(D["items"].items())}
-    return {"budget": D["budget"], "default": D["default"], "views": views, "items": items}
+    items = {name[i]: {"verb": it["verb"], "cert": it["cert"], "impact": it["impact"], "reason": it["reason"],
+                       "blocks": [b["head"] for b in it["blocks"]]}
+             for i, it in D["items"].items()}
+    return {"budget": D["budget"], "default": D["default"], "views": views, "items": dict(sorted(items.items()))}
 
 
 class PageTest(unittest.TestCase):
@@ -51,8 +57,9 @@ class PageTest(unittest.TestCase):
         cls.t.close()
 
     def test_page_data_matches_the_snapshot(self):
-        got = json.loads(json.dumps(snapshot_of(self.D), ensure_ascii=False))
-        if os.environ.get("WALLE_UPDATE_SNAPSHOTS") or not SNAPSHOT.exists():
+        # The memory folder name holds a slug of the random temp folder.
+        got = json.loads(re.sub(r"tmp[A-Za-z0-9_-]*?-+home", "tmpX-home", json.dumps(snapshot_of(self.D), ensure_ascii=False)))
+        if os.environ.get("WALLE_UPDATE_SNAPSHOTS"):
             SNAPSHOT.parent.mkdir(exist_ok=True)
             SNAPSHOT.write_text(json.dumps(got, ensure_ascii=False, indent=1) + "\n")
         self.assertEqual(got, json.loads(SNAPSHOT.read_text()))
@@ -98,6 +105,7 @@ class PageTest(unittest.TestCase):
         self.assertIsNone(self.D["eve_ref"])
         self.assertEqual([r["id"] for r in self.D["history"]], ["20261020-081752"])
         self.assertEqual(self.D["features"], {"keep": False})
+        self.assertIn('if (D.eve_ref) html += `<section id="measure"', TEMPLATE.read_text(encoding="utf-8"))
 
     def test_schema_1_is_refused(self):
         with self.assertRaises(ValueError):

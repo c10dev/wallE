@@ -17,9 +17,9 @@
     "dated": 1
    },
    "start": [
-    "49b15a",
-    "cda222",
-    "1136ae"
+    "~/projects/DesignLAB/CLAUDE.md:161 every-task step?",
+    "~/projects/DesignLAB/CLAUDE.md:22 large layer",
+    "~/projects/DesignLAB/CLAUDE.md:28 10 dated lines: still true?"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -69,9 +69,9 @@
     "dated": 2
    },
    "start": [
-    "2a48c7",
-    "346b60",
-    "afb7bb"
+    "~/projects/atc/controller/CLAUDE.md:45 large layer",
+    "~/projects/atc/CLAUDE.md:18 every-task step?",
+    "~/projects/atc/controller/CLAUDE.md:59 model name: still true?"
    ],
    "rest": 1,
    "file_copy": 0,
@@ -127,7 +127,7 @@
     "every-task step": 1
    },
    "start": [
-    "346b60"
+    "~/projects/atc/CLAUDE.md:18 every-task step?"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -155,7 +155,7 @@
     ],
     [
      "memory",
-     "~/.claude/projects/-tmp-tmp3673u3gd-home-projects-atc/memory/MEMORY.md",
+     "~/.claude/projects/-tmpX-home-projects-atc/memory/MEMORY.md",
      3432,
      "memory",
      43
@@ -183,9 +183,9 @@
     "dated": 1
    },
    "start": [
-    "cd5944",
-    "0a7e5d",
-    "19fa32"
+    "~/projects/claude-config/global/CLAUDE.md:12 every-task step?",
+    "~/projects/claude-config/global/CLAUDE.md:4 every-task step?",
+    "~/projects/claude-config/global/CLAUDE.md:37 dated: still true?"
    ],
    "rest": 0,
    "file_copy": 1,
@@ -233,8 +233,8 @@
     "every-task step": 2
    },
    "start": [
-    "a514c3",
-    "1100a6"
+    "~/projects/runup/CLAUDE.md:8 every-task step?",
+    "~/projects/runup/CLAUDE.md:3 every-task step?"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -284,8 +284,8 @@
     "dated": 1
    },
    "start": [
-    "87d888",
-    "7f040d"
+    "~/projects/tennis-web/CLAUDE.md:57 every-task step?",
+    "~/.claude/projects/-tmpX-home-projects-tennis-web/memory/MEMORY.md:2 7 memory lines: still true?"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -313,7 +313,7 @@
     ],
     [
      "memory",
-     "~/.claude/projects/-tmp-tmp3673u3gd-home-projects-tennis-web/memory/MEMORY.md",
+     "~/.claude/projects/-tmpX-home-projects-tennis-web/memory/MEMORY.md",
      394,
      "memory",
      12
@@ -338,7 +338,7 @@
    },
    "counts": {},
    "start": [
-    "9ceea1"
+    "~/projects/vocado_RN/CLAUDE.md:129 repeated?"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -386,7 +386,7 @@
     "loaded twice": 1
    },
    "start": [
-    "bc02d4"
+    "~/projects/vocado_RN/AGENTS.md:74 repeated in file"
    ],
    "rest": 0,
    "file_copy": 0,
@@ -495,166 +495,171 @@
   }
  },
  "items": {
-  "0a7e5d": {
+  "~/.claude/CLAUDE.md:12 every-task step?": {
    "verb": "CHECK",
-   "label": "every-task step?",
    "cert": "candidate",
-   "loc": "./CLAUDE.md:4",
-   "impact": "every task",
-   "reason": "\"Every session\" adds a step to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "1100a6": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:3",
-   "impact": "every task",
-   "reason": "\"Read this before changing any\" adds a read to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "1136ae": {
-   "verb": "CHECK",
-   "label": "10 dated lines: still true?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:28",
-   "impact": "may be out of date",
-   "reason": "10 lines carry dates or model names. Check that each rule is still true. Keep a line if it still is.",
-   "blocks": [
-    null
-   ]
-  },
-  "19fa32": {
-   "verb": "CHECK",
-   "label": "dated: still true?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:37",
-   "impact": "may be out of date",
-   "reason": "Dated \"2026-10-02\". Is the rule still true? Keep it if the date records a decision you still follow.",
-   "blocks": [
-    null
-   ]
-  },
-  "2a48c7": {
-   "verb": "MOVE",
-   "label": "large layer",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:45",
-   "impact": "~3,500 est. tokens · 27% of stack",
-   "reason": "\"Landing queue\" (lines 45-118) is ~3,500 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
-   "blocks": [
-    null
-   ]
-  },
-  "346b60": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:18",
-   "impact": "every task",
-   "reason": "\"must all pass\" adds a step to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "49b15a": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:161",
-   "impact": "every task",
-   "reason": "\"Always\" adds a step to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "4c6dfe": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "~/.claude/CLAUDE.md:4",
-   "impact": "every task",
-   "reason": "\"Every session\" adds a step to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "6cc7cd": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "~/.claude/CLAUDE.md:12",
    "impact": "every task",
    "reason": "\"on every turn\" adds a step to every task. Keep it if every task needs it.",
    "blocks": [
     null
    ]
   },
-  "7f040d": {
+  "~/.claude/CLAUDE.md:37 dated: still true?": {
    "verb": "CHECK",
-   "label": "7 memory lines: still true?",
    "cert": "candidate",
-   "loc": "~/.claude/projects/-tmp-tmp3673u3gd-home-projects-tennis-web/memory/MEMORY.md:2",
+   "impact": "may be out of date",
+   "reason": "Dated \"2026-10-02\". Is the rule still true? Keep it if the date records a decision you still follow.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/.claude/CLAUDE.md:4 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"Every session\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/.claude/projects/-tmpX-home-projects-tennis-web/memory/MEMORY.md:2 7 memory lines: still true?": {
+   "verb": "CHECK",
+   "cert": "candidate",
    "impact": "may be out of date",
    "reason": "Dated notes are the normal form of memory. Read the lines that set a rule for the agent. Keep the ones that only record what happened.",
    "blocks": [
     null
    ]
   },
-  "87d888": {
+  "~/projects/DesignLAB/CLAUDE.md:161 every-task step?": {
    "verb": "CHECK",
-   "label": "every-task step?",
    "cert": "candidate",
-   "loc": "./CLAUDE.md:57",
    "impact": "every task",
-   "reason": "\"every task\" adds a step to every task. Keep it if every task needs it.",
+   "reason": "\"Always\" adds a step to every task. Keep it if every task needs it.",
    "blocks": [
     null
    ]
   },
-  "9ceea1": {
-   "verb": "CHECK",
-   "label": "repeated?",
+  "~/projects/DesignLAB/CLAUDE.md:22 large layer": {
+   "verb": "MOVE",
    "cert": "candidate",
-   "loc": "./CLAUDE.md:129",
-   "impact": "similar lines",
-   "reason": "Candidate: similar to line 21 in the same file. Keep both if one is a reference and the other a rule.",
-   "blocks": [
-    "A",
-    "B"
-   ]
-  },
-  "a514c3": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:8",
-   "impact": "every task",
-   "reason": "\"for every change\" adds a step to every task. Keep it if every task needs it.",
+   "impact": "~2,300 est. tokens · 33% of stack",
+   "reason": "\"Release and copy rules\" (lines 22-117) is ~2,300 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
    "blocks": [
     null
    ]
   },
-  "afb7bb": {
+  "~/projects/DesignLAB/CLAUDE.md:28 10 dated lines: still true?": {
    "verb": "CHECK",
-   "label": "model name: still true?",
    "cert": "candidate",
-   "loc": "./CLAUDE.md:59",
+   "impact": "may be out of date",
+   "reason": "10 lines carry dates or model names. Check that each rule is still true. Keep a line if it still is.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/atc/CLAUDE.md:18 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"must all pass\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/atc/controller/CLAUDE.md:45 large layer": {
+   "verb": "MOVE",
+   "cert": "candidate",
+   "impact": "~3,500 est. tokens · 27% of stack",
+   "reason": "\"Landing queue\" (lines 45-118) is ~3,500 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/atc/controller/CLAUDE.md:59 model name: still true?": {
+   "verb": "CHECK",
+   "cert": "candidate",
    "impact": "may be out of date",
    "reason": "Names a model (\"codexFindings\"). Keep it if the rule still applies to the model you run.",
    "blocks": [
     null
    ]
   },
-  "bc02d4": {
+  "~/projects/atc/controller/CLAUDE.md:60 model name: still true?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "may be out of date",
+   "reason": "Names a model (\"codex-review\"). Keep it if the rule still applies to the model you run.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/claude-config/global/CLAUDE.md:12 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"on every turn\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/claude-config/global/CLAUDE.md:37 dated: still true?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "may be out of date",
+   "reason": "Dated \"2026-10-02\". Is the rule still true? Keep it if the date records a decision you still follow.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/claude-config/global/CLAUDE.md:4 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"Every session\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/claude-config/global/CLAUDE.md:4 source of ~/.claude/CLAUDE.md": {
+   "verb": null,
+   "cert": "info",
+   "impact": "note",
+   "reason": "Source of ~/.claude/CLAUDE.md: its rules load twice in this folder (32 pairs). Rename it, or exclude it with claudeMdExcludes.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/runup/CLAUDE.md:3 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"Read this before changing any\" adds a read to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/runup/CLAUDE.md:8 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"for every change\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/tennis-web/CLAUDE.md:57 every-task step?": {
+   "verb": "CHECK",
+   "cert": "candidate",
+   "impact": "every task",
+   "reason": "\"every task\" adds a step to every task. Keep it if every task needs it.",
+   "blocks": [
+    null
+   ]
+  },
+  "~/projects/vocado_RN/AGENTS.md:74 repeated in file": {
    "verb": "DELETE",
-   "label": "repeated in file",
    "cert": "certain",
-   "loc": "./AGENTS.md:74",
    "impact": "-~20 est. tokens",
    "reason": "Repeated in file: same rule as line 53. Keep line 53.",
    "blocks": [
@@ -662,59 +667,14 @@
     "keep · AGENTS.md:53"
    ]
   },
-  "bee8b0": {
+  "~/projects/vocado_RN/CLAUDE.md:129 repeated?": {
    "verb": "CHECK",
-   "label": "dated: still true?",
    "cert": "candidate",
-   "loc": "~/.claude/CLAUDE.md:37",
-   "impact": "may be out of date",
-   "reason": "Dated \"2026-10-02\". Is the rule still true? Keep it if the date records a decision you still follow.",
+   "impact": "similar lines",
+   "reason": "Candidate: similar to line 21 in the same file. Keep both if one is a reference and the other a rule.",
    "blocks": [
-    null
-   ]
-  },
-  "ca28cd": {
-   "verb": "CHECK",
-   "label": "model name: still true?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:60",
-   "impact": "may be out of date",
-   "reason": "Names a model (\"codex-review\"). Keep it if the rule still applies to the model you run.",
-   "blocks": [
-    null
-   ]
-  },
-  "cadbc2": {
-   "verb": null,
-   "label": "source of ~/.claude/CLAUDE.md",
-   "cert": "info",
-   "loc": "./CLAUDE.md:4",
-   "impact": "note",
-   "reason": "Source of ~/.claude/CLAUDE.md: its rules load twice in this folder (32 pairs). Rename it, or exclude it with claudeMdExcludes.",
-   "blocks": [
-    null
-   ]
-  },
-  "cd5944": {
-   "verb": "CHECK",
-   "label": "every-task step?",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:12",
-   "impact": "every task",
-   "reason": "\"on every turn\" adds a step to every task. Keep it if every task needs it.",
-   "blocks": [
-    null
-   ]
-  },
-  "cda222": {
-   "verb": "MOVE",
-   "label": "large layer",
-   "cert": "candidate",
-   "loc": "./CLAUDE.md:22",
-   "impact": "~2,300 est. tokens · 33% of stack",
-   "reason": "\"Release and copy rules\" (lines 22-117) is ~2,300 est. tokens and loads in every session. Move it to a skill so it loads only when that work runs.",
-   "blocks": [
-    null
+    "A",
+    "B"
    ]
   }
  }
