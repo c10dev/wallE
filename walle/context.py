@@ -601,6 +601,17 @@ def _table(headers, rows) -> str:
     return "\n".join(out)
 
 
+def cost_line(measured: dict) -> str:
+    """The first call's input with caching counted: one line under the measured row."""
+    c = measured["cost"]
+    w1h = measured.get("cache_write_1h", 0)
+    writes = f"{_n(measured['cache_creation'] - w1h)} 5-minute and {_n(w1h)} 1-hour cache writes at 1.25x and 2x"
+    usd = (f", ${c['usd']:.4f} at {c['priced_as']} list prices of {c['prices_as_of']}" if c["usd"] is not None
+           else ", no list price for this model")
+    return (f"Billed as **{_n(c['input_equiv'])}** input-equivalent tokens{usd}: {writes}, "
+            f"{_n(measured['cache_read'])} cache reads at {c['read_rate']}x.")
+
+
 def render(data: dict) -> str:
     run = data["run"]
     md = []
@@ -623,6 +634,8 @@ def render(data: dict) -> str:
                      f"{_n(fc['measured']['cache_creation'])}, cache read {_n(fc['measured']['cache_read'])})",
                      "", "", f"**{_n(fc['measured']['total'])}**", "100%", ""])
         md.append(_table(["Source", "Bytes", "Items", "Est. tokens", "Share", "On disk"], rows))
+        if fc["measured"].get("cost"):
+            md.append("\n" + cost_line(fc["measured"]))
         notes = []
         for r in fc["sources"]:
             od = r["on_disk"]

@@ -215,6 +215,9 @@ class AroundTest(unittest.TestCase):
         self.assertEqual(opus["after"]["first_call"]["median"], 82000)
         self.assertEqual((opus["change"]["first_call"]["state"], opus["change"]["first_call"]["delta"]), ("lower", -10750))
         self.assertEqual(opus["after"]["calls_before_edit"]["no_edit"], 11)
+        # The fixture writes the whole prefix to the 5-minute cache: billed is 2 + 1.25 x the rest.
+        self.assertEqual(opus["after"]["first_call_billed"]["median"], 102500)
+        self.assertEqual(opus["change"]["first_call_billed"]["state"], "lower")
         # n < 5: no value at all, in the JSON and on screen.
         self.assertEqual(sonnet["after"]["sessions"], 3)
         self.assertIsNone(sonnet["after"]["first_call"]["median"])

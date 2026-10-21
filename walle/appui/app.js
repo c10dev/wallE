@@ -10,7 +10,7 @@
   var VERDICT_SHORT = { "OVER BUDGET": ["Over", "over"], "TRIM": ["Trim", "trim"], "LEAN": ["Lean", "lean"] };
   var VERB_TONE = { "DELETE": "walle", "PICK ONE": "walle", "REWRITE": "trim", "MOVE": "trim" };
   var AGENT = { claude: "Claude Code", codex: "Codex" };
-  var METRIC = { first_call: "First call (tokens)", calls_per_prompt: "Calls per prompt", calls_before_edit: "Calls before first edit" };
+  var METRIC = { first_call: "First call (tokens)", first_call_billed: "Billed (cache-weighted)", calls_per_prompt: "Calls per prompt", calls_before_edit: "Calls before first edit" };
   var SIDE = { period: "Period", before: "Before", after: "After" };
   var CHANGE_TONE = { lower: "leaf", higher: "walle", within_noise: "neutral", too_few: "neutral" };
 

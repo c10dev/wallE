@@ -54,6 +54,7 @@ Every surface gives the same answer in the same order: one verdict word, at most
 - Done: `walle trim --plan`: a plan of trim actions with the expected saving, the risk, the undo and the check for each. Instruction-file changes are patches in the run folder. Rows that need a judgment go to judge batch files (`walle trim --import`).
 - Done: `walle context --compare A B` and `walle context --compare <apply-id>`: two first calls source by source, the applied rows with the sessions that loaded and used them, and the measured medians around the apply.
 - Done: `walle apply <run> --only <id>` and `walle undo <apply-id>`: walle changes only the settings keys the user picks, after a backup, and `walle undo` puts them back. It changes instruction files only as patches in the run folder. It writes nothing into the project folders it scans.
+- Done: billed first-call input. `walle eve`, `walle context` and `--compare` weight cache reads and writes by price (`walle/cost.py`), with dollars at list price in `walle context` and `--compare`.
 - Next: Codex rows in the trim plan (plugin and skill switches in `~/.codex/config.toml`), after a test that they act.
 - `walle ablate`: run the same prompt with and without a block of rules (`claude -p`, fixed effort), then compare steps and pass/fail. This is the before/after check the vendor guides recommend.
 

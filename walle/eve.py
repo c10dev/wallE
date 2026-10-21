@@ -4,6 +4,8 @@ For each top-level session file under ~/.claude/projects/<slug>/<session>.jsonl:
 - baseline: input + cache_creation + cache_read tokens of the first API call.
   This is the whole prefix (system prompt, tool catalog, instruction stack)
   plus the first prompt.
+- billed: the same call weighted by price (cost.claude): cache reads at the
+  model's read rate, cache writes at 1.25x (5 minutes) or 2x (1 hour).
 - steps: user prompts, tool calls, check calls (test, lint, typecheck, gate),
   tool calls before the first edit.
 
@@ -34,7 +36,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, brief, measure, runs
+from . import __version__, brief, cost, measure, runs
 from .collect import HOME, find_checkout
 from .strings import resolve_lang, t, tn
 
@@ -44,7 +46,7 @@ CHECK_RE = re.compile(
     r"yarn (?:test|lint)|make (?:test|check|lint)|go test|cargo test|verify[- ]gate)",
 )
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-CACHE_VERSION = 4  # 4: entrypoint and resumed
+CACHE_VERSION = 5  # 4: entrypoint and resumed; 5: billed
 SCRATCH_ROOTS = (Path("/tmp"), Path("/var/tmp"))
 CONTAINER_RE = re.compile(r"^(.+)-[0-9a-f]{16}$")
 FOLDER_COLS = 18  # the folder and model columns of the across-folders table keep a line within 80 columns
@@ -69,12 +71,13 @@ class Session:
     control: bool = False
     entrypoint: str = ""  # claude-desktop, cli, sdk-py ...; for Codex the originator
     resumed: bool = False  # starts with another session's history (resume or fork)
+    billed: int | None = None  # the first call's input with caching counted (cost.claude); Claude only
 
 
 def parse_session(path: Path) -> Session | None:
     cwd = start = model = entrypoint = ""
     resumed = False
-    baseline = None
+    baseline = billed = None
     msg_ids: set[str] = set()
     tool_ids: set[str] = set()
     prompts = checks = out_tok = in_tok = 0
@@ -117,6 +120,11 @@ def parse_session(path: Path) -> Session | None:
                     if baseline is None and total_in:
                         baseline = total_in
                         model = msg.get("model", "")
+                        split = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else {}
+                        billed = cost.claude({"input": u.get("input_tokens", 0),
+                                              "cache_creation": u.get("cache_creation_input_tokens", 0),
+                                              "cache_write_1h": split.get("ephemeral_1h_input_tokens", 0),
+                                              "cache_read": u.get("cache_read_input_tokens", 0)}, model)["input_equiv"]
                 for b in msg.get("content") or []:
                     if not isinstance(b, dict) or b.get("type") != "tool_use":
                         continue
@@ -131,7 +139,8 @@ def parse_session(path: Path) -> Session | None:
     if baseline is None or not cwd:
         return None
     return Session(str(path), cwd, start, model, baseline, len(msg_ids), prompts,
-                   len(tool_ids), checks, before_edit, out_tok, in_tok, entrypoint=entrypoint, resumed=resumed)
+                   len(tool_ids), checks, before_edit, out_tok, in_tok, entrypoint=entrypoint, resumed=resumed,
+                   billed=billed)
 
 
 def load_sessions(transcripts: Path, cache_file: Path) -> list[Session]:
@@ -305,7 +314,8 @@ def run(since=None, before=None, transcripts: Path | None = None, cache_dir: Pat
 
 
 # ---------------------------------------------------------------------- one folder, one model family per row
-METRICS = {"claude": ("first_call", "calls_per_prompt", "calls_before_edit"), "codex": ("first_call",)}
+METRICS = {"claude": ("first_call", "first_call_billed", "calls_per_prompt", "calls_before_edit"),
+           "codex": ("first_call",)}
 
 
 def folder_key(cwd: str, memo: dict | None = None) -> str:
@@ -350,6 +360,8 @@ def codex_sessions(root: Path, cache_file: Path) -> tuple[list[Session], dict]:
 def _value(ss: list[Session], metric: str) -> dict:
     if metric == "first_call":
         return measure.stats([s.baseline for s in ss])
+    if metric == "first_call_billed":
+        return measure.stats([s.billed for s in ss])
     if metric == "calls_per_prompt":
         return measure.stats([s.tool_calls / s.prompts for s in ss if s.prompts], digits=1)
     st = measure.stats([s.calls_before_edit for s in ss])
@@ -486,6 +498,23 @@ def _rows(block: dict, rows: list[dict], metrics: list[str], lang: str, folder_c
     return table, spans
 
 
+def _fitted(block: dict, rows: list[dict], metrics: list[str], lang: str) -> list[str]:
+    """The metric columns in as few tables as fit within 80 columns, in order. A table holds one metric at least."""
+    out: list[str] = []
+    i = 0
+    while i < len(metrics):
+        j = i + 1
+        text = _table(*_rows(block, rows, metrics[i:j], lang, False))
+        while j < len(metrics):
+            wider = _table(*_rows(block, rows, metrics[i:j + 1], lang, False))
+            if max(brief.width(x) for x in wider) > brief.WIDTH:
+                break
+            text, j = wider, j + 1
+        out += ([""] if out else []) + text
+        i = j
+    return out
+
+
 def _mix_line(label: str, block: dict, field: str, lang: str) -> list[str]:
     """The model (or app) mix of each side: one line when it fits, else one line per side."""
     sides = []
@@ -566,12 +595,7 @@ def lines(block: dict, lang: str = "en", home: Path = HOME) -> list[str]:
         metrics = block["metrics"]
         shown, few = _shown_rows(block, block["rows"])
         if shown:
-            table, spans = _rows(block, shown, metrics, lang, False)
-            text = _table(table, spans)
-            if max(brief.width(x) for x in text) > brief.WIDTH and len(metrics) > 1:
-                text = _table(*_rows(block, shown, metrics[:1], lang, False))
-                text += [""] + _table(*_rows(block, shown, metrics[1:], lang, False))
-            out += text
+            out += _fitted(block, shown, metrics, lang)
         out += _too_few_line(block, few, lang)
         out += _mix_line(t("measure.models", lang), block, "models", lang)
         if len({k for r in block["rows"] for s in block["sides"] for k in r["entrypoints"][s]}) > 1:

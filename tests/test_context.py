@@ -25,7 +25,12 @@ class FirstCallFixtureTest(unittest.TestCase):
         self.src = {s.kind: s for s in self.fc.sources}
 
     def test_reproduces_the_research_numbers(self):
-        self.assertEqual(self.fc.measured, {"input": 2, "cache_creation": 59951, "cache_read": 30546, "total": 90499})
+        cost = self.fc.measured.pop("cost")
+        self.assertEqual(self.fc.measured, {"input": 2, "cache_creation": 59951, "cache_write_1h": 59951,
+                                            "cache_read": 30546, "total": 90499})
+        # 2 + 2 x 59951 (1-hour writes) + 0.05 x 30546 (Opus 5.5 reads at $0.20 of $4)
+        self.assertEqual(cost["input_equiv"], 121431)
+        self.assertEqual(cost["usd"], 0.4857)
         self.assertEqual((self.src["skill_listing"].count, self.src["skill_listing"].bytes), (64, 29698))
         self.assertEqual((self.src["deferred_tools"].count, self.src["deferred_tools"].bytes), (784, 43350))
         self.assertEqual(self.src["deferred_tools"].detail["mcp_names"], 763)

@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import cost
+
 SOURCES = ("system_prompt", "builtin_tools", "mcp_tools", "deferred_tools", "mcp_instructions",
            "skill_listing", "instructions", "agent_listing", "hook_context", "first_prompt", "other_attachments")
 CMD_RE = re.compile(r"<command-name>\s*/?([^<\s]+)\s*</command-name>")
@@ -122,7 +124,7 @@ class FirstCall:
     entrypoint: str
     version: str
     org: str | None  # organization UUID of the signed-in account, used to pick a skill sync bucket
-    measured: dict  # input, cache_creation, cache_read, total tokens of the first call
+    measured: dict  # input, cache_creation (cache_write_1h of it), cache_read, total tokens of the first call; cost
     sources: list[Source]
 
 
@@ -157,9 +159,12 @@ def first_call(path: Path) -> FirstCall | None:
                          + u.get("cache_read_input_tokens", 0))
                 if measured is None and total:
                     first_id, model = mid, msg.get("model", "")
+                    split = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else {}
                     measured = {"input": u.get("input_tokens", 0),
                                 "cache_creation": u.get("cache_creation_input_tokens", 0),
+                                "cache_write_1h": split.get("ephemeral_1h_input_tokens", 0),
                                 "cache_read": u.get("cache_read_input_tokens", 0), "total": total}
+                    measured["cost"] = cost.claude(measured, model)
                     if tools_snapshot is not None:
                         break
                 elif measured is not None and mid != first_id:
