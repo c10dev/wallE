@@ -391,7 +391,8 @@ def trim_view(out: Path, home: Path, folder: str) -> dict | None:
                 "counted": saving.get("counted") is not False, "not_counted": saving.get("not_counted"),
                 "past": bool(row.get("past")),
                 "saving": saving, "sessions": row.get("sessions"), "risk": row.get("risk"),
-                "undo": row.get("undo"), "check": row.get("check"),
+                "undo": row.get("undo"), "check": row.get("check"), "note": row.get("note"),
+                "connector": row.get("connector"), "url": row.get("url"), "surfaces": row.get("surfaces"),
                 "verdict": (row.get("judge") or {}).get("verdict"), "judge": (row.get("judge") or {}).get("judge"),
                 "here": folder in used or folder in keys,
                 "used_in": [brief.shown(u, None, home) for u in used if isinstance(u, str)],
@@ -622,7 +623,8 @@ def savings(rows: list[dict], period: dict | None, model: str | None) -> dict:
                     "sessions": sv.get("unused_sessions"), "period_tokens": unused, "month_tokens": month,
                     "month_usd": round(month * price[1] / 1_000_000, 4) if month is not None and price else None,
                     "where": r.get("where"), "check": r.get("check"), "undo": r.get("undo"),
-                    "risk": r.get("risk"), "command": r.get("command")})
+                    "risk": r.get("risk"), "command": r.get("command"), "connector": r.get("connector"),
+                    "url": r.get("url"), "surfaces": r.get("surfaces"), "note": r.get("note")})
     out.sort(key=lambda x: (-x["period_tokens"], x["id"]))
     total = sum(x["period_tokens"] for x in out)
     by_who = {}

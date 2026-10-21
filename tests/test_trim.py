@@ -189,7 +189,19 @@ class PlanRowsTest(unittest.TestCase):
         low = estimate.BYTES_V2
         self.assertEqual(v["saving"]["tokens_per_session_min"],
                          round(name_bytes * low["deferred_tools"]["range"][0] + instr * low["mcp_instructions"]["range"][0]))
-        self.assertEqual(v["saving"]["unused_sessions"], 11)
+        # 11 sessions left it unused: the manual row counts the 2 claude-desktop ones, where no setting reaches a
+        # connector; a deniedMcpServers row counts the 9 cli and sdk-cli ones.
+        self.assertEqual(v["saving"]["unused_sessions"], 2)
+        self.assertEqual(v["url"], trim.CONNECTORS_URL)
+        self.assertIn("claude.ai on the web and phone", v["risk"]["why"])
+        deny = next(r for r in data["rows"] if r["id"] == trim.row_id("connector-cli", "claude.ai:vercel"))
+        self.assertIn(deny["id"], v["note"])
+        self.assertEqual((deny["applies"], deny["change"]["op"], deny["change"]["keys"], deny["change"]["value"]),
+                         ("walle", "append", ["deniedMcpServers"], {"serverName": "claude.ai Vercel"}))
+        self.assertEqual((deny["saving"]["unused_sessions"], deny["saving"]["confirmed_surfaces"]), (9, ["cli", "sdk-cli"]))
+        self.assertEqual(deny["saving"]["tokens_per_session_min"], v["saving"]["tokens_per_session_min"])
+        self.assertIn("not on claude-desktop", deny["where"])
+        self.assertFalse(deny["judge"]["needed"])  # the connector's manual row carries the judge question
         # 40 calls in one session: used less than once per loaded session fails, so no row.
         self.assertNotIn("claude.ai Supa", rows)
         # A local MCP server: walle can apply it, a key of ~/.claude.json. The value (a secret) is never written.
@@ -294,7 +306,7 @@ class PlanRowsTest(unittest.TestCase):
     def test_a_kept_source_and_a_kept_line_leave_the_plan(self):
         self.f.cli("scan", str(self.f.repo), "--format", "path")
         data, _ = self.f.plan()
-        vercel = next(r for r in data["rows"] if r["source"]["name"] == "claude.ai Vercel")
+        vercel = next(r for r in data["rows"] if r["source"]["name"] == "claude.ai Vercel" and r["applies"] == "manual")
         line_row = next(r for r in data["rows"] if r["action"] == "T10")
         out, _ = self.f.cli("keep", vercel["id"], "--why", "deploys")
         self.assertIn(f"kept {vercel['id']}", out)
@@ -305,7 +317,10 @@ class PlanRowsTest(unittest.TestCase):
         ids = {r["id"] for r in again["rows"]}
         self.assertNotIn(vercel["id"], ids)
         self.assertNotIn(line_row["id"], ids)
-        self.assertEqual({k["id"] for k in again["kept"]}, {vercel["id"], line_row["id"]})
+        # A kept connector keeps its deniedMcpServers row too.
+        deny_id = trim.row_id("connector-cli", "claude.ai:vercel")
+        self.assertNotIn(deny_id, ids)
+        self.assertEqual({k["id"] for k in again["kept"]}, {vercel["id"], deny_id, line_row["id"]})
         self.assertIn("## Kept", (run_dir / "plan.md").read_text())
         # A kept line also leaves the next scan's Start here.
         self.f.cli("scan", str(self.f.repo), "--format", "path")
@@ -578,7 +593,7 @@ class PluginRowsTest(unittest.TestCase):
         self.assertFalse(trim.plugin_skill("atc:status", cat))  # a subfolder skill, no plugin of that name
         self.assertFalse(trim.plugin_skill("loop", cat))
         # No row deletes a key.
-        self.assertFalse([r for r in data["rows"] if r["change"].get("op") not in (None, "set", "remove", "move")])
+        self.assertFalse([r for r in data["rows"] if r["change"].get("op") not in (None, "set", "remove", "move", "append")])
 
     def test_a_synced_skill_saving_counts_only_cli_and_sdk_cli(self):
         data, run_dir = self.f.plan()

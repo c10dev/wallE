@@ -858,7 +858,8 @@ class DataTest(unittest.TestCase):
                          "command": None, "where": "w", "check": "c", "undo": "u", "risk": None,
                          "saving": {"tokens_per_session_min": per, "unused_sessions": unused // per,
                                     "unused_tokens_min": unused}}, **kw)
-        rows = [row("a", "walle", 100, 1000), row("b", "manual", 9000, 90000), row("c", "patch", 50, 500),
+        rows = [row("a", "walle", 100, 1000), row("b", "manual", 9000, 90000, connector="claude.ai:x",
+                                                    url="https://claude.ai/customize/connectors"), row("c", "patch", 50, 500),
                 row("d", "walle", 10, 100, already=True), row("e", "manual", 10, 100, counted=False),
                 row("f", "walle", 10, 0)]
         period = {"sessions": 40, "first": "2026-09-21T00:00:00Z", "last": "2026-10-21T00:00:00Z"}
@@ -868,6 +869,7 @@ class DataTest(unittest.TestCase):
         b = s["rows"][0]
         self.assertEqual((b["who"], b["per_session"], b["sessions"], b["month_tokens"]), ("You, in claude.ai or the app", 9000, 10, 90000))
         self.assertEqual(b["month_usd"], round(90000 * 0.20 / 1e6, 4))  # cache-read price of opus 5.5
+        self.assertEqual((b["connector"], b["url"]), ("claude.ai:x", "https://claude.ai/customize/connectors"))
         self.assertEqual(s["share"], {"manual": 98, "walle": 1, "patch": 1})
         s = appdata.savings(rows, {"sessions": 1}, "claude-next-9")
         self.assertEqual((s["days"], s["rows"][0]["month_tokens"], s["rows"][0]["month_usd"], s["priced_as"]), (None, None, None, None))

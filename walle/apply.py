@@ -8,8 +8,9 @@ walle apply <run> --only <id>[,<id>]
 - Every id must be a row of the plan. There is no default choice: the user's answer is the approval.
 - Manual rows (a place in an app or on the web) print a checklist with that place. A place that walle could
   not confirm is marked [unconfirmed]. Patch rows print how the agent applies them. walle changes neither.
-- Rows that walle can apply change keys of two files: ~/.claude/settings.json (enabledPlugins, skillOverrides)
-  and ~/.claude.json (an mcpServers entry). An enabledPlugins key is only set to false; "<name>@synced", a
+- Rows that walle can apply change keys of two files: ~/.claude/settings.json (enabledPlugins, skillOverrides,
+  deniedMcpServers) and ~/.claude.json (an mcpServers entry). deniedMcpServers only gets one more entry
+  {"serverName": "claude.ai <name>"}, a claude.ai connector by its display name; the entries there stay. An enabledPlugins key is only set to false; "<name>@synced", a
   claude.ai plugin synced to Claude Code, and "<name>@inline", the copy that the desktop host passes with
   --plugin-dir, are among them. A skillOverrides key is only set to user-invocable-only. No row deletes a settings key: any other op, file, key or value is refused, so a changed
   plan.json cannot make walle write a hook or a permission, or turn a plugin on.
@@ -50,6 +51,8 @@ SETTINGS = "~/.claude/settings.json"
 CLAUDE_JSON = "~/.claude.json"
 # The keys walle may change, per file: the first key of a "set", or the shape of an mcpServers entry.
 SET_KEYS = {SETTINGS: ("enabledPlugins", "skillOverrides")}
+# The lists walle may add one item to, per file: deniedMcpServers gets a claude.ai connector by its display name.
+APPEND_KEYS = {SETTINGS: (trim.DENIED_KEY,)}
 SERVER_FILES = (CLAUDE_JSON,)
 # Files that a running Claude app or session rewrites: written only with --app-closed and no Claude process.
 APP_FILES = (CLAUDE_JSON,)
@@ -263,6 +266,11 @@ def check_change(c: dict) -> str | None:
             ok = c.get("value") is False
         elif ok:
             ok = c.get("value") == trim.SKILL_OVERRIDE
+    elif c.get("op") == "append":
+        v = c.get("value")
+        ok = (c["file"] in APPEND_KEYS and keys == [trim.DENIED_KEY] and isinstance(v, dict) and list(v) == ["serverName"]
+              and isinstance(v["serverName"], str) and v["serverName"].startswith(trim.CONNECTOR_PREFIX)
+              and v["serverName"] == v["serverName"].strip() and len(v["serverName"]) > len(trim.CONNECTOR_PREFIX))
     elif c.get("op") == "remove":
         ok = c["file"] in SERVER_FILES and _server_keys(keys)
     elif c.get("op") == "move":
@@ -285,6 +293,8 @@ def change_text(c: dict, before) -> str:
         return f"{where}: {old} -> {json.dumps(c['value'], ensure_ascii=False)}"
     if c["op"] == "remove":
         return f"remove {where} (value not shown)"
+    if c["op"] == "append":
+        return f"{where}: add {json.dumps(c['value'], ensure_ascii=False)}"
     return f"move {where} -> {key_text([str(k) for k in c['to']])} (value not shown)"
 
 
@@ -301,6 +311,16 @@ def apply_change(doc: dict, c: dict) -> tuple[bool, object]:
         if before is MISSING:
             return False, before
         pop_at(doc, keys)
+        return True, before
+    if c["op"] == "append":
+        if before is MISSING:
+            set_at(doc, keys, [c["value"]], c["file"])
+            return True, before
+        if not isinstance(before, list):
+            raise ApplyError("apply.conflict", {"keys": key_text(keys), "file": c["file"]})
+        if c["value"] in before:
+            return False, before
+        before.append(c["value"])
         return True, before
     to = [str(k) for k in c["to"]]
     there = get_at(doc, to)
@@ -404,7 +424,8 @@ def apply(out: Path, plan_dir: Path, ids: list[str], *, app_closed: bool = False
             changed, before = apply_change(doc, r["change"])
             f["results"].append({"id": r["id"], "changed": changed, "what": change_text(r["change"], before),
                                  "keys": [str(k) for k in r["change"]["keys"]],
-                                 "to": [str(k) for k in r["change"].get("to") or []] or None})
+                                 "to": [str(k) for k in r["change"].get("to") or []] or None,
+                                 "item": trim.item_key(r["change"]) if r["change"]["op"] == "append" else None})
         f["new"] = dumps_like(doc, raw.decode()).encode() if any(x["changed"] for x in f["results"]) else None
     writes = [n for n, f in files.items() if f["new"] is not None]
     record = {"plan": {"id": plan_id, "path": str(plan_dir / "plan.json")}, "files": files, "writes": writes,
@@ -434,7 +455,8 @@ def apply(out: Path, plan_dir: Path, ids: list[str], *, app_closed: bool = False
     undo = {"version": 1, "id": apply_id, "created": datetime.now().isoformat(timespec="seconds"),
             "walle_version": __version__, "plan": record["plan"],
             "rows": [{"id": x["id"], "file": name, "changed": x["changed"], "what": x["what"], "keys": x["keys"],
-                      "to": x["to"]} for name, f in files.items() for x in f["results"]],
+                      "to": x["to"], **({"item": x["item"]} if x["item"] else {})}
+                     for name, f in files.items() for x in f["results"]],
             "files": entries, "status": "writing", "lost": [], "undone": None}
     _save_undo(backup, undo)
     done: list[dict] = []

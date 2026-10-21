@@ -70,6 +70,15 @@ DOC_PLUGIN_DISABLE = "https://code.claude.com/docs/en/plugins/loading#control-wh
 DOC_SKILL_OVERRIDES = "https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings"
 DOC_ORG_PLUGINS = "https://claude.com/docs/plugins/admin"
 DOC_INLINE = "https://code.claude.com/docs/en/plugins/loading#keep-a-session-only-plugin-from-loading"
+DOC_DENY_CONNECTOR = "https://code.claude.com/docs/en/mcp#disable-claude-ai-connectors"
+CONNECTORS_URL = "https://claude.ai/customize/connectors"
+# A claude.ai connector reaches a session in one of two ways (code.claude.com/docs/en/mcp, read 2026-10-21): Claude
+# Code fetches it itself (cli, IDE, sdk-cli), where a deniedMcpServers entry in the user's settings blocks it; or the
+# desktop app registers it in-process, where no MCP setting reaches it and only disconnecting it at claude.ai does.
+DENIED_KEY = "deniedMcpServers"
+CONNECTOR_PREFIX = "claude.ai "
+CONNECTOR_DESKTOP = ("claude-desktop registers claude.ai connectors in-process: no MCP setting reaches them "
+                     "(code.claude.com/docs/en/mcp). Disconnecting it at claude.ai is the only way there.")
 SYNCED_KEY = "synced"  # enabledPlugins key of a claude.ai plugin in Claude Code: "<name>@synced"
 # enabledPlugins key of a plugin that a parent process passes with --plugin-dir: "<manifest name>@inline". The
 # desktop host passes each claude.ai plugin of a claude-desktop session this way.
@@ -165,6 +174,11 @@ def _at(doc, keys: list[str]):
     return doc
 
 
+def item_key(c: dict) -> str:
+    """The text that names the item of an append change, so two appends to one list are told apart."""
+    return json.dumps(c.get("value"), sort_keys=True, ensure_ascii=False)
+
+
 def already_set(c: dict, doc: dict) -> bool:
     """The file already has the state that the change makes: walle apply will report it as "already"."""
     now = _at(doc, [str(k) for k in c["keys"]])
@@ -172,6 +186,8 @@ def already_set(c: dict, doc: dict) -> bool:
         return now is not _ABSENT and now == c["value"] and type(now) is type(c["value"])
     if c["op"] == "remove":
         return now is _ABSENT
+    if c["op"] == "append":
+        return isinstance(now, list) and c["value"] in now
     return now is _ABSENT and _at(doc, [str(k) for k in c["to"]]) is not _ABSENT
 
 
@@ -457,7 +473,45 @@ def _usage_text(loaded: int, used: int, calls: int, n: int, what: str = "session
     return f"loaded in {loaded:,} of {n:,} {what}, used in {used:,} ({calls:,} calls)"
 
 
-def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[str, dict]) -> tuple[list, list]:
+def _server_counts(by_ep: dict[str, dict] | None, key: str) -> dict[str, tuple[int, int]]:
+    """entrypoint -> (sessions that loaded the MCP server key, sessions that loaded and used it)."""
+    out = {}
+    for ep, ub in (by_ep or {}).items():
+        s = next((x for x in ub.get("servers") or [] if x["key"] == key), None)
+        if s:
+            out[ep] = (s["sessions_loaded"], s["sessions_loaded_and_used"])
+    return out
+
+
+def deny_row(key: str, name: str, per: int, sess: dict, counts: dict[str, tuple[int, int]], calls: int,
+             check: str) -> dict | None:
+    """The row that blocks a claude.ai connector in the sessions where Claude Code fetches it itself: a
+    deniedMcpServers entry with its display name in ~/.claude/settings.json. Its saving counts every surface but
+    claude-desktop, which the connector's manual row counts. None when the display name is not known (a connector
+    id) or no such session left it unused."""
+    if not name.startswith(CONNECTOR_PREFIX) or name.endswith("(connector id)"):
+        return None
+    if not any(n - k > 0 for ep, (n, k) in counts.items() if ep != DESKTOP):
+        return None
+    entry = {"serverName": name}
+    change = {"kind": "settings_key", "file": SETTINGS, "op": "append", "keys": [DENIED_KEY], "value": entry}
+    where = (f'{SETTINGS} {DENIED_KEY} += {{"serverName": "{name}"}} ({DOC_DENY_CONNECTOR}). It acts on cli, IDE '
+             "and sdk-cli sessions, not on claude-desktop and not on claude.ai on the web or phone.")
+    risk = ("medium" if calls else "low",
+            f"terminal, IDE and SDK sessions cannot call {name} until the entry is gone. {CONNECTOR_DESKTOP}")
+    row = _row("connector-cli", key, name, "T1", f"Block the claude.ai connector {name[len(CONNECTOR_PREFIX):]} in "
+               "terminal, IDE and SDK sessions", change, "walle", where, per, dict(sess), 0, risk,
+               f'Remove {{"serverName": "{name}"}} from {DENIED_KEY}, or walle undo.',
+               check + " Only a cli, IDE or sdk-cli session shows it; a claude-desktop session still lists it.", None,
+               {"connector": key, "surfaces": "cli, IDE, sdk-cli"})
+    row["_listed"] = ("server", key)
+    split_saving(row, per, counts, OTHER_SURFACES, confirmed=tuple(ep for ep in counts if ep != DESKTOP),
+                 skip=(DESKTOP,))
+    return row
+
+
+def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[str, dict],
+                by_ep: dict[str, dict] | None = None) -> tuple[list, list]:
     rows, report_only = [], []
     n = u["sessions"]
     for s in u["servers"]:
@@ -526,10 +580,25 @@ def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[
                      "every surface signed in to the account; the Claude desktop app also has a per-session connector toggle.")
             undo = "Connect it again in the same place and sign in to the service again."
             risk = ("medium" if calls else "low",
-                    f"tasks that need {name} fail until it is connected again; {used:,} sessions used it.")
+                    f"tasks that need {name} fail until it is connected again; {used:,} sessions used it. "
+                    "Disconnecting it removes it from claude.ai on the web and phone and from every Claude Code "
+                    "surface, not only from these sessions.")
             need["source"] = "claude.ai connector"
-            rows.append(_row("server", key, name, "T1", title, change, "manual", where, per, sess, unused,
-                             risk, undo, check, need))
+            counts = _server_counts(by_ep, key)
+            deny = deny_row(key, name, per, sess, counts, calls, check) if counts else None
+            row = _row("server", key, name, "T1", title, change, "manual", where, per, sess, unused,
+                       risk, undo, check.replace("`walle context --last`",
+                                                 "`walle context --last` of a claude-desktop session"),
+                       need, {"connector": key, "url": CONNECTORS_URL, "surfaces": "every surface"})
+            if deny:
+                # Each surface counts once: this row counts claude-desktop, the deny row the rest.
+                split_saving(row, per, counts, OTHER_SURFACES, confirmed=(DESKTOP,),
+                             skip=tuple(ep for ep in counts if ep != DESKTOP))
+                row["note"] = (f"{CONNECTOR_DESKTOP} Row {deny['id']} blocks it in terminal, IDE and SDK sessions "
+                               "and counts their saving; this row counts claude-desktop sessions.")
+            rows.append(row)
+            if deny:
+                rows.append(deny)
         elif key in HOST_SWITCHES:
             title = f"Turn off {name} in the host app"
             change = {"kind": "app", "app": "Claude desktop app", "what": f"turn off {name}"}
@@ -951,7 +1020,7 @@ def apply_set_times(out: Path) -> dict[tuple, tuple[str, str]]:
             continue
         for x in rec.get("rows") or []:
             if isinstance(x, dict) and x.get("changed"):
-                k = (x.get("file"), tuple(str(y) for y in x.get("keys") or []))
+                k = (x.get("file"), tuple(str(y) for y in x.get("keys") or []) + ((x["item"],) if x.get("item") else ()))
                 if k not in found or when < found[k][0]:
                     found[k] = (when, str(line.get("id")))
     return found
@@ -1022,7 +1091,7 @@ def mark_set_keys(rows: list[dict], rows_u: dict[str, dict], out: Path) -> None:
         c = r["change"]
         if spec is None or not c.get("already"):
             continue
-        hit = times.get((c["file"], tuple(str(k) for k in c["keys"])))
+        hit = times.get((c["file"], tuple(str(k) for k in c["keys"]) + ((item_key(c),) if c["op"] == "append" else ())))
         if hit:
             at = {"time": hit[0], "from": f"walle apply {hit[1]}", "exact": True}
         else:
@@ -1202,8 +1271,9 @@ def attach_verdicts(rows: list[dict], cache: dict, now: set | None = None) -> No
 def is_kept(row: dict, kept_ids: set[str]) -> bool:
     """A kept row leaves the plan. A keep of a plugin holds on every surface: a keep of its @synced (or installed)
     row also keeps its @inline row, and the other way round."""
-    name = row.get("plugin")
+    name, conn = row.get("plugin"), row.get("connector")
     ids = {row["id"]} | ({row_id("plugin", name), row_id("plugin", f"{name}@{INLINE_KEY}")} if name else set())
+    ids |= {row_id("server", conn), row_id("connector-cli", conn)} if conn else set()
     return bool(ids & kept_ids)
 
 
@@ -1219,7 +1289,7 @@ def build(args, run_dir: Path) -> dict:
     configured = configured_servers(home, folders)
     plugins = plugin_catalog(home)
     by_ep = usage_by_surface(rows_u, args.since, args.before)
-    srv, report_only = server_rows(u, home, configured, plugins)
+    srv, report_only = server_rows(u, home, configured, plugins, by_ep)
     loads = desktop_loads(rows_u, args.since, args.before)
     rows = srv + plugin_rows(u, plugins, by_ep, home, loads) + skill_rows(u, plugins, home, folders, by_ep) + hook_rows(u)
 
@@ -1559,6 +1629,8 @@ def _change_text(r: dict) -> str:
             return f"set {_keys(c['keys'])} to {json.dumps(c['value'])} in {c['file']}"
         if c["op"] == "remove":
             return f"remove {_keys(c['keys'])} from {c['file']}"
+        if c["op"] == "append":
+            return f"add {json.dumps(c['value'])} to {_keys(c['keys'])} in {c['file']}"
         return f"move {_keys(c['keys'])} to {_keys(c['to'])} in {c['file']}"
     if c["kind"] == "app":
         return f"{c['what']} ({c['app']})"
