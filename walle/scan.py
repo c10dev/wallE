@@ -35,9 +35,10 @@ def is_copy(a: Artifact) -> bool:
 
 
 def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
-         estimator: str = estimate.DEFAULT) -> dict:
+         estimator: str = estimate.DEFAULT, keep: dict | None = None) -> dict:
     """The scan of roots. Token counts use the estimator (default bytes-v2) for every stack, file, section
-    and item. The budget is in the same tokens; None is the estimator's default budget."""
+    and item. The budget is in the same tokens; None is the estimator's default budget.
+    keep holds the user's kept items (keep.for_scan); kept items leave the verdict and Start here."""
     estimator = estimate.name(estimator)
     if budget is None:
         budget = estimate.budget(estimator)
@@ -140,7 +141,7 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
 
     copies = [g.to_dict() for g in copy_groups(artifacts)]
     tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget,
-                 estimator)
+                 estimator, keep)
     for f in files:
         f["ownership"] = tri["ownership"][f["path"]]
     return {

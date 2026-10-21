@@ -261,6 +261,12 @@ def largest(data: dict, e: dict) -> dict | None:
     return max(layers, key=lambda l: l["tokens_est"], default=None)
 
 
+def all_kept(e: dict, lang: str) -> list[str]:
+    """The kept-lines sentence of a stack with nothing open (brief 3.14), or nothing."""
+    n = (e.get("counts") or {}).get("kept", 0)
+    return [t("empty.all_kept", lang, n=n)] if n and not e.get("to_read") else []
+
+
 def split_line(e: dict, lang: str) -> str:
     s = e["split"]
     return t("sentence.split", lang, yours=round_tokens(s["your_files"]), shared=round_tokens(s["shared"]),
@@ -409,7 +415,7 @@ def _render_one(data, lang, limit, paint, home, report_line, cwd, show_all) -> s
     if lead["verdict"] == LEAN and not start:
         body = t("empty.lean", lang, tokens=round_tokens(lead["tokens_est"], lead["budget"]),
                  budget=f"{lead['budget']:,}").partition(" · ")[2]
-        sentences = [body]
+        sentences = [body] + all_kept(lead, lang)
     block = wrap(sentences[0], limit, pad(vword, width(vword) + 2), indent)
     block[0] = paint.verdict(vword, lead["verdict"]) + block[0][len(vword):]
     for s in sentences[1:]:
@@ -705,7 +711,7 @@ def _brief_md(data: dict, lang: str, home: Path, report: str | None, cwd: Path |
                          lead["budget"]), budget=f"{lead['budget']:,}")
         if lead["verdict"] == LEAN and not start:
             sentences = [t("empty.lean", lang, tokens=round_tokens(lead["tokens_est"], lead["budget"]),
-                           budget=f"{lead['budget']:,}").partition(" · ")[2]]
+                           budget=f"{lead['budget']:,}").partition(" · ")[2]] + all_kept(lead, lang)
         out.append(f"walle: {vword} · " + " ".join(sentences))
         out.append(split_line(lead, lang).replace(" | ", " · "))
         out.append(t("brief_md.folder", lang, folder=folder, agent=lead["agent"]))

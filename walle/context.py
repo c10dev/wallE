@@ -311,7 +311,7 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
 
     srv = defaultdict(lambda: {"loaded": 0, "used": 0, "loaded_used": 0, "calls": 0, "names": [], "name_bytes": [],
                                "schema_bytes": [], "instr_bytes": [], "offered": set(), "called": Counter(),
-                               "failed": 0, "needs_auth": 0})
+                               "failed": 0, "needs_auth": 0, "cwds": Counter()})
     tool = defaultdict(lambda: {"loaded": 0, "used": 0, "calls": 0})
     builtin = defaultdict(lambda: {"loaded": 0, "used": 0, "calls": 0, "schema_bytes": []})
     skill = defaultdict(lambda: {"listed": 0, "used": 0, "calls": 0, "line_bytes": []})
@@ -364,6 +364,7 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
         for k, c in used.items():
             srv[k]["used"] += 1
             srv[k]["calls"] += c
+            srv[k]["cwds"][m.get("cwd") or ""] += 1
         for (k, t), c in used_tools.items():
             tool[(k, t)]["used"] += 1
             tool[(k, t)]["calls"] += c
@@ -436,6 +437,7 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
                                             + ib * v2["mcp_instructions"]["tok_per_byte"]),
             "tools_offered": len(s["offered"]), "tools_called": len([t for t in s["offered"] if s["called"].get(t)]),
             "top_called": s["called"].most_common(5),
+            "used_in": s["cwds"].most_common(5),
         })
     for s in servers:
         s["tokens_unused_est"] = s["tokens_per_session_est"] * (s["sessions_loaded"] - s["sessions_loaded_and_used"])

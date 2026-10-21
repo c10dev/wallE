@@ -25,6 +25,10 @@ findings of the engine ("flags", "pairs"), which keep their old form.
 - topic and protocol pairs in one stack are term clashes: CHECK candidates outside Start
   here and the verdict, until `walle judge` reads them.
 - Start here: at most START_HERE items in the user's own files, by SEVERITY.
+- keep: an item that the user kept (~/.walle/keep.json, by id and hash) or that a team kept
+  (.wallekeep at a checkout root, by team key) has state "kept". It leaves the verdict, Start
+  here and every other group, and goes to the kept group. A kept item whose lines changed is open
+  again; triage lists it once in keep_released (keep.py removes the entry).
 
 Labels and verbs are keys, not display text. walle/strings.py gives the text in English and Korean.
 """
@@ -39,7 +43,8 @@ from pathlib import Path
 
 from . import estimate
 from .classify import Flag
-from .collect import Artifact, find_checkout
+from .collect import Artifact, find_checkout, remote_url
+from .keep import keep_hash, read_wallekeep
 from .compact import DUP, MIN_LEN, Pair
 from .segment import Unit
 from .stack import Stack
@@ -195,8 +200,13 @@ def chain_runs(rows: list, ix, iy, gap: int = GROUP_GAP) -> list[list]:
 
 
 class _Triage:
-    def __init__(self, roots, home, artifacts, stacks, units, budget, copies, estimator=estimate.DEFAULT):
+    def __init__(self, roots, home, artifacts, stacks, units, budget, copies, estimator=estimate.DEFAULT,
+                 keep: dict | None = None):
         self.roots, self.home, self.budget, self.copies = roots, home, budget, copies
+        self.keep = keep or {}
+        self.team_loc: dict[str, str | None] = {}
+        self.remotes: dict[str, str | None] = {}
+        self.released: list[dict] = []
         self.estimator = estimate.name(estimator)
         self.by_path = {str(a.path): a for a in artifacts}
         self.units = units
@@ -283,6 +293,25 @@ class _Triage:
         h = str(self.home).rstrip("/")
         return "~" + path[len(h):] if path.startswith(h + "/") else path
 
+    def team_locator(self, path: str) -> str | None:
+        """The path part of a team key: the remote URL of the repository and the path inside the checkout.
+
+        It is the same in every clone of the repository, wherever the clone is. None when the file is
+        not in a checkout or the repository has no remote.
+        """
+        if path not in self.team_loc:
+            a = self.by_path.get(path)
+            checkout, repo = (a.checkout, a.repo) if a else find_checkout(Path(path).parent)[:2]
+            out = None
+            if checkout and repo:
+                if str(repo) not in self.remotes:
+                    self.remotes[str(repo)] = remote_url(repo)
+                url = self.remotes[str(repo)]
+                if url and _under(path, checkout):
+                    out = f"{url}:{path[len(str(checkout).rstrip('/')) + 1:]}"
+            self.team_loc[path] = out
+        return self.team_loc[path]
+
     def file_scope(self, path: str) -> str:
         if self.loads.get(path):
             return "session_start"
@@ -352,6 +381,10 @@ class _Triage:
             it["id"] = _id(parts + [str(n)])  # a 6-hex collision: rare, so the next id is good enough
             n += 1
         it["_key"] = key
+        # The team key: the same parts with each file named by its remote and in-repo path (.wallekeep).
+        subs = {self.locator(f): self.team_locator(f) for f in {l["file"] for l in it["locations"]}}
+        team = [subs.get(x) or x for x in parts]
+        it["team_key"] = _id(team) if team != parts else None
         self.items[it["id"]] = it
 
     # ------------------------------------------------------------------ flags
@@ -643,6 +676,46 @@ class _Triage:
             it["move"] = best
             self.put(it, ["large_layer", self.locator(p)])
 
+    # ------------------------------------------------------------------ keep
+    def apply_keep(self) -> None:
+        """Mark kept items before any verdict. A personal keep holds while the item's lines are the same."""
+        personal = self.keep.get("items") or {}
+        team = dict(self.keep.get("team") or {})
+        for checkout in sorted({str(a.checkout) for a in self.by_path.values() if a.checkout}
+                               | {str(c) for c in self.checkout.values()}):
+            for key, e in read_wallekeep(Path(checkout) / ".wallekeep").items():
+                team.setdefault(key, e)
+        for it in self.items.values():
+            e = personal.get(it["id"])
+            if e is not None:
+                if e.get("hash") and e["hash"] != keep_hash(it):
+                    self.release(e, it)
+                    continue
+                it["state"] = "kept"
+                it["keep"] = {"by": "personal", "note": e.get("note"), "date": e.get("date")}
+                continue
+            e = team.get(it.get("team_key") or "")
+            if e is not None:
+                it["state"] = "kept"
+                it["keep"] = {"by": "team", "note": e.get("note"), "file": e.get("file")}
+        # An edited line gets a new id (the id holds the text). Its keep is released when an item of the
+        # same rule now starts at the kept line. A line that is gone keeps its entry: walle unkeep removes it.
+        for kid, e in personal.items():
+            if kid in self.items or not e.get("file") or not e.get("line"):
+                continue
+            for it in self.items.values():
+                if (it["state"] == "open" and not it.get("keep") and it["rule"] == e.get("rule")
+                        and it["locations"] and it["locations"][0]["file"] == e["file"]
+                        and it["locations"][0]["line"] == e["line"]):
+                    self.release(e, it)
+                    break
+
+    def release(self, e: dict, it: dict) -> None:
+        it["keep"] = {"by": "personal", "released": "line_changed", "note": e.get("note"), "date": e.get("date")}
+        first = it["locations"][0] if it["locations"] else {}
+        self.released.append({"id": e.get("id"), "item": it["id"], "rule": it["rule"],
+                              "file": first.get("file"), "line": first.get("line")})
+
     # ------------------------------------------------------------------ verdicts
     def files_of(self, it: dict) -> list[str]:
         return [l["file"] for l in it["locations"]]
@@ -737,9 +810,10 @@ class _Triage:
         start = self.pick(pool)
         start_ids = {it["id"] for it in start}
 
-        notes = [it for it in here if it["relation"] == "file_copy" and self.yours(it, k)]
-        mirrors = [it for it in here if it["label"] == "different_agents" and self.yours(it, k)]
-        clashes = [it for it in here if it["label"] == "term_clash" and self.yours(it, k)]
+        live = [it for it in here if it["state"] != "kept"]
+        notes = [it for it in live if it["relation"] == "file_copy" and self.yours(it, k)]
+        mirrors = [it for it in live if it["label"] == "different_agents" and self.yours(it, k)]
+        clashes = [it for it in live if it["label"] == "term_clash" and self.yours(it, k)]
         rest = (notes + [it for it in pool if it["id"] not in start_ids]
                 + sorted(mirrors, key=key) + sorted(clashes, key=key))
 
@@ -748,7 +822,7 @@ class _Triage:
             p = self.layer_path(l)
             if not p or own.get(p) != "shared" or any(r["file"] == p for r in shared_rows):
                 continue
-            ids = [it["id"] for it in here
+            ids = [it["id"] for it in live
                    if not self.yours(it, k) and next((f for f in self.files_of(it) if own.get(f) == "shared"), None) == p]
             loads = len(self.loads[p])
             shared_rows.append({"file": p, "items": ids, "loads_in": loads, "tokens_est": l.tokens,
@@ -756,7 +830,7 @@ class _Triage:
 
         copy_rows: dict[tuple[str, str], dict] = {}
         for it in items:
-            if it["scope"] != "not_together":
+            if it["scope"] != "not_together" or it["state"] == "kept":
                 continue
             files = self.files_of(it)
             mine = [f for f in files if own.get(f) in YOURS]
@@ -778,6 +852,12 @@ class _Triage:
                      and any(self.visible(f, st) for f in self.files_of(it) if self.kind(f) in ON_DEMAND)]
         other_agents = [it["id"] for it in items if it["scope"] == "other_agent"
                         and any(self.visible(f, st) for f in self.files_of(it) if self.kind(f) == "other_agent")]
+        kept_ids = {it["id"] for it in items if it["state"] == "kept"}
+        kept = [i for i in on_demand + other_agents if i in kept_ids]
+        kept += [it["id"] for it in items if it["state"] == "kept" and it["id"] not in kept
+                 and (k in it["stacks"] or any(own.get(f) in YOURS for f in self.files_of(it)))]
+        on_demand = [i for i in on_demand if i not in kept_ids]
+        other_agents = [i for i in other_agents if i not in kept_ids]
         repo = find_checkout(st.folder)[1]
         worktrees = [{"file": c["file"], "versions": c["variants"], "copies": c["copies"], "main_sha": c["main_sha"]}
                      for c in self.copies
@@ -796,13 +876,13 @@ class _Triage:
             "on_demand": on_demand,
             "other_agents": other_agents,
             "worktree_copies": worktrees,
-            "kept": [],
+            "kept": kept,
         }
         counts = {"everything_else": len(groups["everything_else"]),
                   "shared": sum(len(r["items"]) for r in shared_rows),
                   "copies": sum(len(r["items"]) for r in groups["copies"]),
                   "on_demand": len(on_demand), "other_agents": len(other_agents),
-                  "worktree_copies": len(worktrees), "kept": 0}
+                  "worktree_copies": len(worktrees), "kept": len(kept)}
         return {
             "folder": str(st.folder), "agent": st.agent, "verdict": verdict, "tokens_est": st.tokens,
             "budget": self.budget, "split": {x: split.get(x, 0) for x in ("your_files", "shared", "skills")},
@@ -829,6 +909,7 @@ class _Triage:
         self.flag_items(flags)
         self.pair_items(pairs)
         self.large_layers(file_sections)
+        self.apply_keep()
         entries = {k: self.stack_entry(st, k) for st, k in zip(self.stacks, self.keys)}
         folders = {str(st.folder) for st in self.stacks}
         scope_rank = {"session_start": 0, "on_demand": 1, "not_together": 2, "other_agent": 3, "elsewhere": 4}
@@ -844,6 +925,7 @@ class _Triage:
                 "stacks": entries,
                 "start_here_by_reach": self.by_reach(entries) if len(folders) > 1 else [],
                 "hidden": {"elsewhere": sum(1 for it in items if it["scope"] == "elsewhere")},
+                "keep_released": self.released,
             },
             "ownership": dict(self.file_own),
         }
@@ -852,11 +934,13 @@ class _Triage:
 def triage(roots: list[Path], home: Path, artifacts: list[Artifact], stacks: list[Stack],
            units: dict[str, list[Unit]], flags: list[Flag], pairs: list[Pair], copies: list[dict],
            file_sections: dict[str, list[dict]], budget: int | None = None,
-           estimator: str = estimate.DEFAULT) -> dict:
+           estimator: str = estimate.DEFAULT, keep: dict | None = None) -> dict:
     """Items, the triage block of scan.json schema 2, and the ownership of each collected file.
 
     The budget is in the tokens of the estimator. None is the estimator's default budget.
+    keep is {"items": {id: entry}, "team": {team key: entry}} (keep.py); .wallekeep files are read here.
     """
     if budget is None:
         budget = estimate.budget(estimator)
-    return _Triage(roots, home, artifacts, stacks, units, budget, copies, estimator).run(flags, pairs, file_sections)
+    return _Triage(roots, home, artifacts, stacks, units, budget, copies, estimator, keep).run(
+        flags, pairs, file_sections)

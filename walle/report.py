@@ -156,7 +156,7 @@ def render_scan(r: dict, top: int = 15, lang: str = "en", history: list[dict] | 
         sentences = brief._verdict_sentences(lead, lang, lead["folder"], home, r)
         if lead["verdict"] == LEAN and not start:
             sentences = [t("empty.lean", lang, tokens=round_tokens(lead["tokens_est"], lead["budget"]),
-                           budget=f"{lead['budget']:,}").partition(" · ")[2]]
+                           budget=f"{lead['budget']:,}").partition(" · ")[2]] + brief.all_kept(lead, lang)
         md = [f"# {t('md.title', lang, root=short(lead['folder']), agent=lead['agent'])}", "",
               f"**{vword}** · " + " ".join(sentences),
               brief.split_line(lead, lang).replace(" | ", " · ") + " · " + meta, ""]

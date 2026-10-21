@@ -91,6 +91,47 @@ def find_checkout(start: Path) -> tuple[Path | None, Path | None, bool]:
     return None, None, False
 
 
+def remote_url(repo: Path | None) -> str | None:
+    """The fetch URL of the repository's origin remote (else its first remote), read from .git/config.
+
+    The URL is normalized, so every clone of one repository gives the same string: no scheme, no user
+    name or token, host in lower case, no trailing .git. walle does not run git.
+    """
+    if not repo:
+        return None
+    try:
+        text = (repo / ".git" / "config").read_text(errors="replace")
+    except OSError:
+        return None
+    urls: dict[str, str] = {}
+    name = None
+    for line in text.splitlines():
+        s = line.strip()
+        m = re.match(r'^\[remote\s+"([^"]+)"\]$', s)
+        if m:
+            name = m.group(1)
+            continue
+        if s.startswith("["):
+            name = None
+            continue
+        m = re.match(r"^url\s*=\s*(\S+)", s)
+        if name and m:
+            urls.setdefault(name, m.group(1))
+    url = urls.get("origin") or next(iter(urls.values()), None)
+    if not url:
+        return None
+    scp = re.match(r"^(?:[^@/:]+@)?([^/:]+):(?!/)(.+)$", url)  # git@host:owner/repo
+    if scp and "://" not in url:
+        host, path = scp.group(1), scp.group(2)
+    else:
+        rest = re.sub(r"^[A-Za-z][\w+.-]*://", "", url)
+        rest = re.sub(r"^[^@/]*@", "", rest)  # a user name or a token never reaches the key
+        host, _, path = rest.partition("/")
+        host = host.split(":", 1)[0] if host.count(":") == 1 and host.split(":", 1)[1].isdigit() else host
+    path = re.sub(r"\.git$", "", path.strip("/"))
+    return f"{host.lower()}/{path}" if path else host.lower()
+
+
 def walk_roots(roots: list[Path]):
     for root in roots:
         for dirpath, dirnames, filenames in os.walk(root):

@@ -315,6 +315,29 @@ STRINGS: dict[str, tuple[str, str]] = {
                         "{n}줄을 남겼다. 다음 실행부터 세지 않는다. 줄이 바뀌면 다시 센다."),
     "keep.released": ("Keep released: line changed. The item is open again.",
                       "남김 풀림: 줄이 바뀌었다. 항목이 다시 열렸다."),
+    "keep.released.at": ("{id} {where}: keep released: line changed. The item is open again.",
+                         "{id} {where}: 남김 풀림: 줄이 바뀌었다. 항목이 다시 열렸다."),
+    "keep.kept": ("kept {id} ({where}). walle skips it from the next run. If the line changes, walle counts it again.",
+                  "남김 {id} ({where}). 다음 실행부터 세지 않는다. 줄이 바뀌면 다시 센다."),
+    "keep.kept_source": ("kept {id} ({where}). walle trim --plan leaves it out from the next plan.",
+                         "남김 {id} ({where}). 다음 walle trim --plan부터 빠진다."),
+    "keep.already": ("{id} is kept already ({where}).", "{id}는 이미 남겼다({where})."),
+    "keep.unkept": ("unkept {id} ({where}). walle counts it again from the next run.",
+                    "남김 해제 {id} ({where}). 다음 실행부터 다시 센다."),
+    "keep.not_kept": ("{id} is not kept. List: walle keep --list", "{id}는 남긴 목록에 없다. 목록: walle keep --list"),
+    "keep.no_ref": ("no item or plan row {ref} in recent runs; run walle scan or walle trim --plan",
+                    "최근 실행에 항목이나 계획 행 {ref}가 없다. walle scan이나 walle trim --plan을 돌린다."),
+    "keep.need_ref": ("walle keep: give an item id, its number, or a plan row id. List: walle keep --list",
+                      "walle keep: 항목 id, 번호, 계획 행 id 중 하나를 준다. 목록: walle keep --list"),
+    "keep.list_empty": ("Nothing kept. Keep a line or a source: walle keep <id>",
+                        "남긴 것이 없다. 줄이나 원천을 남긴다: walle keep <id>"),
+    "keep.list_count": ("{n} kept. File: {path}", "남긴 것 {n}개. 파일: {path}"),
+    "keep.no_team_key": ("{id} has no team key: its file is not in a repository with a remote. "
+                         "A personal keep works: walle keep {id}",
+                         "{id}에는 팀 키가 없다. 파일이 원격이 있는 저장소에 있지 않다. 개인 남기기는 된다: walle keep {id}"),
+    "keep.source_no_team": ("{id} is a source, not a line. .wallekeep holds lines only. "
+                            "A personal keep works: walle keep {id}",
+                            "{id}는 줄이 아니라 원천이다. .wallekeep에는 줄만 둔다. 개인 남기기는 된다: walle keep {id}"),
 }
 
 

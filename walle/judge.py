@@ -242,8 +242,8 @@ def select_items(scan: dict, home: Path = HOME) -> list[dict]:
     return items
 
 
-def item_key(ask: dict) -> str:
-    raw = json.dumps([RUBRIC_VERSION, ask], ensure_ascii=False, sort_keys=True)
+def item_key(ask: dict, version: int = RUBRIC_VERSION) -> str:
+    raw = json.dumps([version, ask], ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
@@ -261,14 +261,15 @@ def _needs_judging(cache: dict, key: str, depth: str) -> bool:
     return v is None or (depth == "deep" and v.get("depth") != "deep")
 
 
-def _batch_doc(batch: list[dict], answer_file: Path, depth: str) -> dict:
-    # "where" has line numbers; it is outside "ask", so it does not change the cache key.
+def _batch_doc(batch: list[dict], answer_file: Path, depth: str, rubric: str = RUBRIC) -> dict:
+    # "where" has line numbers and "context" has counts; both are outside "ask", so they do not change
+    # the cache key.
     return {
-        "rubric": RUBRIC,
+        "rubric": rubric,
         "schema": SCHEMA,
         "depth": depth,
         "answer_file": str(answer_file),
-        "items": [{"id": str(i), "where": [short(r) for r in it["refs"]], **it["ask"]}
+        "items": [{"id": str(i), "where": [short(r) for r in it["refs"]], **it.get("context", {}), **it["ask"]}
                   for i, it in enumerate(batch, 1)],
     }
 
@@ -354,21 +355,31 @@ def export(scan_path: Path, batch_size: int = BATCH, cache_file: Path | None = N
     the export it belongs to. judge/manifest.json names the current export.
     """
     _scan, items, cache, batches, head = _prepare(scan_path, batch_size, cache_file or CACHE_FILE, depth)
-    root = scan_path.parent / JUDGE_DIR
-    files = []
-    if batches:
-        folder = _new_export_dir(root)
-        folder.mkdir(parents=True)
-        for n, batch in enumerate(batches, 1):
-            doc = _batch_doc(batch, folder / f"batch-{n:03d}.answer.json", depth)
-            path = folder / f"batch-{n:03d}.json"
-            path.write_text(json.dumps(doc, ensure_ascii=False, indent=1))
-            files.append({"batch": str(path), "answer": doc["answer_file"],
-                          "keys": {str(i): it["key"] for i, it in enumerate(batch, 1)}})
-        manifest = {**head, "export": folder.name, "depth": depth, "files": files}
-        (folder / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
-        (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+    files = write_export(scan_path.parent / JUDGE_DIR, batches, depth, head)
     return {**head, "files": files, "errors": [], "items": _rows(items, cache, set())}
+
+
+def write_export(root: Path, batches: list[list[dict]], depth: str, head: dict, rubric: str = RUBRIC) -> list[dict]:
+    """Write one batch file per batch into a new export folder under root and name it in root/manifest.json.
+
+    Each item of a batch has "ask" (what the judge reads and the cache key hashes), "key", "refs" and,
+    optionally, "context" (more for the judge to read, outside the cache key).
+    """
+    files: list[dict] = []
+    if not batches:
+        return files
+    folder = _new_export_dir(root)
+    folder.mkdir(parents=True)
+    for n, batch in enumerate(batches, 1):
+        doc = _batch_doc(batch, folder / f"batch-{n:03d}.answer.json", depth, rubric)
+        path = folder / f"batch-{n:03d}.json"
+        path.write_text(json.dumps(doc, ensure_ascii=False, indent=1))
+        files.append({"batch": str(path), "answer": doc["answer_file"],
+                      "keys": {str(i): it["key"] for i, it in enumerate(batch, 1)}})
+    manifest = {**head, "export": folder.name, "depth": depth, "files": files}
+    (folder / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+    (root / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1))
+    return files
 
 
 def parse_answer(text: str) -> dict[str, dict]:
@@ -404,10 +415,21 @@ def import_answers(scan_path: Path, cache_file: Path | None = None, judge_name: 
     cache_file = cache_file or CACHE_FILE
     _scan, items, cache, _b, head = _prepare(scan_path, BATCH, cache_file)
     root = scan_path.parent / JUDGE_DIR
-    current_path = root / "manifest.json"
-    if not current_path.is_file():
+    if not (root / "manifest.json").is_file():
         raise JudgeError(f"no export for {scan_path}. Run `walle judge` first.")
-    current = json.loads(current_path.read_text())
+    current, judged_now, answered, errors = read_answers(root, cache, cache_file, judge_name)
+    rows = _rows(items, cache, judged_now)
+    head["plan"] = {**head["plan"], "answered_files": answered, **_counts(rows, items, judged_now)}
+    return {**head, "files": current.get("files", []), "errors": errors, "items": rows}
+
+
+def read_answers(root: Path, cache: dict, cache_file: Path, judge_name: str = "agent") -> tuple[dict, set, int, list]:
+    """Read the answer files of every export under root into cache, and save the cache when it grew.
+
+    Returns (current manifest, keys judged now, answer files read, errors). Errors list only what the
+    current export still lacks: a re-answered batch may cover only its missing ids.
+    """
+    current = json.loads((root / "manifest.json").read_text())
     exports = sorted(root.glob("*/manifest.json"))
     judged_now: set[str] = set()
     answered = 0
@@ -434,7 +456,6 @@ def import_answers(scan_path: Path, cache_file: Path | None = None, judge_name: 
     if judged_now:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         cache_file.write_text(json.dumps(cache, ensure_ascii=False))
-    # Report only what the current export still lacks: a re-answered batch may cover only its missing ids.
     for f in current.get("files", []):
         open_ids = [i for i, key in f["keys"].items() if key not in cache]
         if not open_ids:
@@ -442,9 +463,7 @@ def import_answers(scan_path: Path, cache_file: Path | None = None, judge_name: 
         name = Path(f["answer"]).name
         errors.append(f"no answer yet: {name}" if not Path(f["answer"]).is_file()
                       else f"{name}: no valid verdict for id {', '.join(open_ids)}")
-    rows = _rows(items, cache, judged_now)
-    head["plan"] = {**head["plan"], "answered_files": answered, **_counts(rows, items, judged_now)}
-    return {**head, "files": current.get("files", []), "errors": errors, "items": rows}
+    return current, judged_now, answered, errors
 
 
 def describe_plan(data: dict) -> str:

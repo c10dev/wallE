@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import brief, context, estimate, eve, judge, report, report_html, runs
+from . import brief, context, estimate, eve, judge, keep, report, report_html, runs
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -42,13 +42,15 @@ def _budget(args) -> int:
     return args.max_tokens if args.max_tokens is not None else estimate.budget(args.estimator)
 
 
-def _scan(roots: list[Path], budget: int, estimator: str = estimate.DEFAULT) -> dict:
-    # scan(roots) stays the call for the default budget and estimator: callers and tests replace scan()
-    # with a one-argument function.
+def _scan(roots: list[Path], budget: int, estimator: str = estimate.DEFAULT, kept: dict | None = None) -> dict:
+    # scan(roots) stays the call for the default budget and estimator with nothing kept: callers and tests
+    # replace scan() with a one-argument function.
     estimator = estimate.name(estimator)
-    if budget == BUDGET and estimator == estimate.DEFAULT:
+    if budget == BUDGET and estimator == estimate.DEFAULT and not (kept or {}).get("items"):
         return scan(roots)
-    return scan(roots, budget=budget, estimator=estimator)
+    if not (kept or {}).get("items"):
+        return scan(roots, budget=budget, estimator=estimator)
+    return scan(roots, budget=budget, estimator=estimator, keep=kept)
 
 
 def _inside(path: Path, folder: Path) -> bool:
@@ -83,7 +85,10 @@ def check(data: dict, max_tokens: int, agent: str) -> int:
             if s["tokens_est"] > max_tokens and agent in ("all", s["agent"])]
     for s in over:
         print(f"over budget: {s['folder']} ({s['agent']}) ~{s['tokens_est']} tokens > {max_tokens}")
-    drift = [p for p in data["pairs"] if p["kind"] == "drift"]
+    # A drift pair whose lines are all in kept items is not listed.
+    kept = {(l["file"], l["line"]) for it in data.get("items", []) if it.get("state") == "kept" for l in it["locations"]}
+    drift = [p for p in data["pairs"] if p["kind"] == "drift"
+             and not {(p["a"]["file"], p["a"]["line"]), (p["b"]["file"], p["b"]["line"])} <= kept]
     for p in drift[:10]:
         print(f"drift {p['score']}: {p['a']['file']}:{p['a']['line']} <> {p['b']['file']}:{p['b']['line']}")
     if not over:
@@ -113,6 +118,10 @@ def alarm() -> int:
         if st.tokens <= budget:  # TRIM and LEAN: nothing
             return 0
         biggest = max((l for l in st.layers if l.path), key=lambda l: l.tokens, default=None)
+        # A large layer the user kept is not named: the alarm gives the total only.
+        kept = {e.get("file") for e in keep.load(keep.path_for(DEFAULT_OUT))["entries"] if e.get("rule") == "large_layer"}
+        if biggest and ({str(biggest.path), str(biggest.path.resolve())} & kept):
+            biggest = None
         msg = brief.alarm_text(st.tokens, budget, brief.relative_to(biggest.path, folder, HOME) if biggest else None,
                                biggest.tokens if biggest else 0, resolve_lang())
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": msg}}))
@@ -215,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--lang", choices=LANGS)
 
     context.add_parser(sub, HOME / ".claude" / "projects")
+    keep.add_parser(sub)
 
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
@@ -229,6 +239,8 @@ def main(argv: list[str] | None = None) -> int:
         return brief.show_command(args, HOME)
     if args.cmd == "context":
         return context.run_cli(args)
+    if args.cmd in ("keep", "unkeep"):
+        return keep.run_cli(args, HOME)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
         started = time.monotonic()
@@ -236,7 +248,12 @@ def main(argv: list[str] | None = None) -> int:
         roots = [r.expanduser().resolve() for r in args.roots]
         if _refuse_out(args, roots):
             return 2
-        data = _scan(roots, _budget(args), args.estimator)
+        keep_file = keep.path_for(args.out)
+        data = _scan(roots, _budget(args), args.estimator, keep.for_scan(keep_file))
+        # A kept line that changed is open again: say so once, then the entry is gone.
+        lang = resolve_lang(args.lang)
+        for e in keep.release(keep_file, data.get("triage", {}).get("keep_released") or []):
+            print(t("keep.released.at", lang, id=e["id"], where=keep.where(e, HOME)), file=sys.stderr)
         run_dir = runs.new_run_dir(args.out)
         data.setdefault("run", runs.run_block(roots, [], args.estimator))
         data["run"].update(id=run_dir.name, label=args.label,
@@ -250,7 +267,8 @@ def main(argv: list[str] | None = None) -> int:
         if _refuse_out(args, roots):
             return 2
         budget = _budget(args)
-        return check(_scan(roots, budget, args.estimator), budget, args.agent)
+        # check reads kept items but never writes keep.json: it may run in CI.
+        return check(_scan(roots, budget, args.estimator, keep.for_scan(keep.path_for(args.out))), budget, args.agent)
     elif args.cmd == "alarm":
         return alarm()
     elif args.cmd in ("eve", "measure"):
