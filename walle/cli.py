@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import brief, context, estimate, eve, judge, keep, report, report_html, runs
+from . import brief, context, estimate, eve, judge, keep, report, report_html, runs, trim
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -224,6 +224,7 @@ def main(argv: list[str] | None = None) -> int:
     w.add_argument("--lang", choices=LANGS)
 
     context.add_parser(sub, HOME / ".claude" / "projects")
+    trim.add_parser(sub, HOME / ".claude" / "projects")
     keep.add_parser(sub)
 
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -239,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
         return brief.show_command(args, HOME)
     if args.cmd == "context":
         return context.run_cli(args)
+    if args.cmd == "trim":
+        return trim.run_cli(args)
     if args.cmd in ("keep", "unkeep"):
         return keep.run_cli(args, HOME)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
