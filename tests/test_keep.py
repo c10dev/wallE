@@ -90,6 +90,17 @@ class KeepCliTest(unittest.TestCase):
         self.cli("keep", "nope42", code=2)
         self.cli("keep", code=2)
 
+    def test_a_row_id_of_six_digits_is_a_plan_row(self):
+        run = self.out / "20261021-071729"
+        run.mkdir(parents=True)
+        (run / "plan.json").write_text(json.dumps({"rows": [
+            {"id": "557199", "group": "source", "source": {"type": "claude.ai plugin", "key": "design", "name": "design"}}]}))
+        out, _ = self.cli("keep", "557199", "--why", "design work")
+        self.assertIn("kept 557199", out)
+        e = keep.load(keep.path_for(self.out))["entries"][0]
+        self.assertEqual((e["id"], e["kind"], e["name"]), ("557199", "source", "design"))
+        self.cli("keep", "999999", code=2)  # neither a scan item nor a row
+
     def test_a_changed_line_releases_its_keep_once(self):
         it = self.step_item(self.scan()[0])
         self.cli("keep", it["id"])

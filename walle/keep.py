@@ -154,17 +154,18 @@ def find_row(out: Path, ref: str) -> dict | None:
 
 
 def resolve(out: Path, ref: str, cwd: Path) -> tuple[dict | None, dict | None, str | None]:
-    """(scan item, plan row, error key). A number or an id of a recent scan item, else a plan row id."""
+    """(scan item, plan row, error key). A number or an id of a recent scan item, else a plan row id.
+
+    A row id can be six digits ("557199"): a number that is not a scan item is looked up as a row id too.
+    """
     from .brief import find_item
     it, _data, err = find_item(out, ref, cwd)
     if it:
         return it, None, None
-    if ref.isdigit():
-        return None, None, err
     row = find_row(out, ref)
     if row:
         return None, row, None
-    return None, None, "keep.no_ref"
+    return None, None, err if ref.isdigit() else "keep.no_ref"
 
 
 # ---------------------------------------------------------------------- commands
