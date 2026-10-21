@@ -6,7 +6,9 @@ Inputs (read only):
 - the newest scan in the runs folder: DELETE items (a line loaded twice) and MOVE items (a large layer).
 - keep.json: kept items and kept sources leave the plan.
 - the keys of ~/.claude.json, ~/.claude/settings.json and installed_plugins.json (key names only;
-  values can hold secrets), and the claude.ai plugins synced to ~/.claude/plugins/synced/ (manifest.json).
+  values can hold secrets), the claude.ai plugins synced to ~/.claude/plugins/synced/ (manifest.json), and
+  the desktop host's plugin copies in ~/.claude/remote/plugins/ (the name in .claude-plugin/plugin.json and
+  the time of the .synced file).
 
 Output: runs/<id>/plan.json and plan.md with one row per action. Each row has the change (a settings key,
 a patch or a place in an app), who can make it (walle, a patch, or the user in an app), the expected
@@ -67,7 +69,14 @@ CLAUDE_JSON = "~/.claude.json"
 DOC_PLUGIN_DISABLE = "https://code.claude.com/docs/en/plugins/loading#control-which-synced-plugins-load"
 DOC_SKILL_OVERRIDES = "https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings"
 DOC_ORG_PLUGINS = "https://claude.com/docs/plugins/admin"
+DOC_INLINE = "https://code.claude.com/docs/en/plugins/loading#keep-a-session-only-plugin-from-loading"
 SYNCED_KEY = "synced"  # enabledPlugins key of a claude.ai plugin in Claude Code: "<name>@synced"
+# enabledPlugins key of a plugin that a parent process passes with --plugin-dir: "<manifest name>@inline". The
+# desktop host passes each claude.ai plugin of a claude-desktop session this way.
+INLINE_KEY = "inline"
+# The desktop host touches the .synced file of each copy that it passes, just before it starts a session. The
+# copies whose .synced time is this close to the newest one are the set that the host passes now.
+SET_SECONDS = 5
 # Surfaces are the "entrypoint" of a session's transcript. For synced claude.ai skills and synced plugins, the
 # saving floor counts only CONFIRMED surfaces; the other surfaces are a separate, unconfirmed number.
 CONFIRMED = ("cli", "sdk-cli")
@@ -79,8 +88,14 @@ SKILL_DESKTOP = ("claude-desktop loads the synced claude.ai skills as a plugin. 
 SYNCED_SKILL_NOTE = ("cli and sdk-cli load the synced claude.ai skills as user skills, where skillOverrides applies. "
                      "This comes from reading the Claude Code 2.1.303 code; no cli or sdk-cli session has confirmed it "
                      "yet. " + SKILL_DESKTOP + " The saving counts only cli and sdk-cli sessions.")
-PLUGIN_DESKTOP = ("the docs and the Claude Code code confirm enabledPlugins[\"<name>@synced\"] for cli and sdk-cli; "
-                  "its effect on claude-desktop is not confirmed.")
+PLUGIN_DESKTOP = ("claude-desktop loads a claude.ai plugin from the desktop host's copy with --plugin-dir, as "
+                  "\"<name>@inline\": the @synced key does not reach that copy. Measured with `claude plugin list` on "
+                  "Claude Code 2.1.299 and the real desktop copy, 2026-10-21: \"<name>@inline\": false turned it off, "
+                  "\"<name>@synced\": false did not.")
+OTHER_SURFACES = ("walle has not confirmed the key on these surfaces: an entrypoint that is not cli, sdk-cli or "
+                  "claude-desktop, or none.")
+INLINE_OTHER = ("these are not claude-desktop sessions: walle cannot tell how they loaded the plugin, so their "
+                "saving is not counted.")
 JUDGE_CACHE = "trim-judge.json"
 RUBRIC_VERSION = 1
 RUBRIC = """You decide, for one user, whether a source that loads into their coding agent's sessions is worth what it costs.
@@ -247,22 +262,89 @@ def synced_plugins(home: Path) -> dict[str, dict]:
     return out
 
 
+def desktop_plugins(home: Path) -> tuple[dict[str, dict], str | None]:
+    """The plugins of the desktop host's copies: (plugin name -> its newest copy, UTC time of the newest set).
+
+    The host keeps one folder per plugin version that it fetched (~/.claude/remote/plugins/<host>/<hash>). Each
+    copy that it passes to a session with --plugin-dir gets a new .synced time just before the session starts.
+    The copies whose .synced time is within SET_SECONDS of the newest one are the set that the host passes now.
+    The name is the "name" in the copy's .claude-plugin/plugin.json, the name part of the key "<name>@inline".
+    A copy without that name is left out: a folder hash must never become a key. A copy entry is {path, synced
+    (UTC), current (in the newest set), skills (the skill folders of the copy)}.
+    """
+    base = home / ".claude" / "remote" / "plugins"
+    copies = []
+    try:
+        hosts = sorted(h for h in base.iterdir() if h.is_dir())
+    except OSError:
+        return {}, None
+    for host in hosts:
+        for d in sorted(host.iterdir()):
+            name = _json(d / ".claude-plugin" / "plugin.json").get("name") if d.is_dir() else None
+            if not isinstance(name, str) or not name:
+                continue
+            try:
+                when = (d / ".synced").stat().st_mtime
+            except OSError:
+                when = None
+            copies.append((when, d, name))
+    newest = max((c[0] for c in copies if c[0] is not None), default=None)
+    out: dict[str, dict] = {}
+    for when, d, name in sorted(copies, key=lambda c: (c[0] is not None, c[0] or 0), reverse=True):
+        if name in out:
+            continue  # the newest copy of the name comes first
+        out[name] = {"path": str(d), "synced": _stamp(when),
+                     "current": newest is not None and when is not None and when >= newest - SET_SECONDS,
+                     "skills": sorted(p.parent.name for p in skills._skill_dirs(d / "skills"))}
+    return out, _stamp(newest)
+
+
+def _synced_text(when: str | None) -> str:
+    return f".synced {when} UTC" if when else "no .synced file"
+
+
+def _stamp(t: float | None) -> str | None:
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S") if t is not None else None
+
+
+def org_preferences(home: Path) -> dict[str, list]:
+    """Plugin name -> the installationPreference values in the manifest.json of every claude.ai sync bucket.
+
+    synced_plugins reads only the bucket in use. A desktop copy can come from another account or organization,
+    so the check for "required" reads them all.
+    """
+    out: dict[str, list] = defaultdict(list)
+    base = home / ".claude" / "plugins" / "synced"
+    try:
+        buckets = sorted(d for d in base.iterdir() if d.is_dir() and not d.name.startswith("."))
+    except OSError:
+        return {}
+    for bucket in buckets:
+        listed = _json(bucket / "manifest.json").get("plugins")
+        for x in listed if isinstance(listed, list) else []:
+            if isinstance(x, dict) and x.get("name") and x.get("installationPreference"):
+                out[str(x["name"])].append(x["installationPreference"])
+    return dict(out)
+
+
 def required(pref) -> bool:
     """The organization requires the plugin: members cannot turn it off (the admin doc's "Required")."""
     return isinstance(pref, str) and "required" in pref.lower()
 
 
 def plugin_catalog(home: Path) -> dict[str, dict]:
-    """Plugin name -> {sources, key (the enabledPlugins key), synced, preference}.
+    """Plugin name -> {sources, key (the enabledPlugins key), synced, preference, inline, required}.
 
     key is name@marketplace for an installed plugin, and name@synced for a claude.ai plugin that is synced
-    to Claude Code (not to an installed plugin of the same name). A plugin that only the desktop host keeps
-    (~/.claude/remote/plugins) has no key.
+    to Claude Code (not to an installed plugin of the same name). inline is the newest copy that the desktop
+    host keeps (desktop_plugins), or None: claude-desktop loads that copy as "<name>@inline", whatever key the
+    plugin has. required is true when any sync bucket says that the organization requires the plugin.
     """
     cat: dict[str, dict] = {}
 
     def entry(name: str) -> dict:
-        return cat.setdefault(name, {"sources": set(), "key": None, "synced": False, "preference": None})
+        return cat.setdefault(name, {"sources": set(), "key": None, "synced": False, "preference": None,
+                                     "inline": None, "required": False})
 
     for _root, source, name in skills.plugin_roots(home):
         entry(name)["sources"].add(source)
@@ -277,6 +359,17 @@ def plugin_catalog(home: Path) -> dict[str, dict]:
         e["preference"] = info["preference"]
         if e["key"] is None:
             e["key"], e["synced"] = f"{name}@{SYNCED_KEY}", True
+    copies, _newest = desktop_plugins(home)
+    for name, copy in copies.items():
+        e = entry(name)
+        e["sources"].add("remote_plugin")
+        e["inline"] = copy
+    for name, prefs in org_preferences(home).items():
+        if name in cat:
+            cat[name]["required"] = any(required(x) for x in prefs)
+            cat[name]["preference"] = cat[name]["preference"] or prefs[0]
+    for e in cat.values():
+        e["required"] = e["required"] or required(e["preference"])
     return cat
 
 
@@ -399,7 +492,8 @@ def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[
         elif kind == "connector":
             title = f"Disconnect the claude.ai connector {name}"
             change = {"kind": "app", "app": "claude.ai", "what": f"disconnect {name}"}
-            where = (f"claude.ai Settings > Connectors > {name.replace('claude.ai ', '')} ({UNCONFIRMED}). It loads in "
+            where = (f"claude.ai Customize > Connectors > {name.replace('claude.ai ', '')} "
+                     f"(claude.ai/customize/connectors; {UNCONFIRMED}). It loads in "
                      "every surface signed in to the account; the Claude desktop app also has a per-session connector toggle.")
             undo = "Connect it again in the same place and sign in to the service again."
             risk = ("medium" if calls else "low",
@@ -459,34 +553,56 @@ def _plugin_counts(parts: dict | None) -> tuple[int, int, int]:
     return sessions, used, calls
 
 
-def split_saving(row: dict, per: int, counts: dict[str, tuple[int, int]], why: str) -> None:
-    """Count the saving floor only on the confirmed surfaces (cli, sdk-cli).
+def split_saving(row: dict, per: int, counts: dict[str, tuple[int, int]], why: str,
+                 confirmed: tuple[str, ...] = CONFIRMED, skip: tuple[str, ...] = ()) -> None:
+    """Count the saving floor only on the confirmed surfaces (cli and sdk-cli by default).
 
     counts is entrypoint -> (sessions that loaded the source, sessions that used it). The sessions of the other
-    surfaces (claude-desktop and any other entrypoint) are a separate, unconfirmed number with its reason.
+    surfaces are a separate, unconfirmed number with its reason, except the surfaces in skip: another row of
+    the same source counts them.
     """
-    conf = sum(max(0, n - k) for ep, (n, k) in counts.items() if ep in CONFIRMED)
-    other = {ep: n - k for ep, (n, k) in sorted(counts.items()) if ep not in CONFIRMED and n - k > 0}
+    conf = sum(max(0, n - k) for ep, (n, k) in counts.items() if ep in confirmed)
+    other = {ep: n - k for ep, (n, k) in sorted(counts.items())
+             if ep not in confirmed and ep not in skip and n - k > 0}
     sv = row["saving"]
     sv["unused_sessions"], sv["unused_tokens_min"] = conf, per * conf
-    sv["confirmed_surfaces"] = list(CONFIRMED)
+    sv["confirmed_surfaces"] = list(confirmed)
     total = sum(other.values())
     sv["unconfirmed"] = {"sessions": other, "unused_sessions": total, "unused_tokens_min": per * total, "why": why}
     row["sessions"]["by_entrypoint"] = {ep: {"loaded": n, "used": k} for ep, (n, k) in sorted(counts.items())}
 
 
-def plugin_rows(u: dict, plugins: dict[str, dict], by_ep: dict[str, dict] | None = None) -> list[dict]:
-    """One row per plugin: its skills and MCP servers go together.
+def _plugin_per(parts: dict, keep: list[str] | None = None) -> tuple[int, list]:
+    """(lower bound of the tokens per session that loads the plugin, its skills) from one usage block.
+
+    keep is the skill list of the copy that the host passes now: a skill of an older version is left out of the
+    per-session number, because a new session does not list it. Without a match, every skill counts.
+    """
+    sks, svs = parts["skills"], parts["servers"]
+    if keep:
+        sks = [s for s in sks if s["skill"].split(":", 1)[1] in keep] or sks
+    sessions = _plugin_counts(parts)[0]
+    skill_tok = sum(s["line_bytes_median"] * LOW["prose_ascii"] * s["sessions_listed"] for s in sks)
+    server_tok = sum(server_min(s) * s["sessions_loaded"] for s in svs)
+    return (round((skill_tok + server_tok) / sessions) if sessions else 0), sks
+
+
+def plugin_rows(u: dict, plugins: dict[str, dict], by_ep: dict[str, dict] | None = None,
+                home: Path | None = None) -> list[dict]:
+    """One row per plugin key: its skills and MCP servers go together.
 
     An installed plugin and a claude.ai plugin synced to Claude Code are one enabledPlugins key (walle).
-    A plugin that only the desktop app keeps and a plugin that the organization requires are manual.
-    walle never offers skillOverrides for a plugin skill: Claude Code does not apply it to plugin skills
-    (DOC_SKILL_OVERRIDES). The synced claude.ai skills (anthropic-skills:*) are not a plugin here: each one
-    has its own skill row (skill_rows).
+    A plugin that the desktop host passes now with --plugin-dir also gets the key "<name>@inline" (walle,
+    inline_row): its saving counts the claude-desktop sessions, and the @synced row counts cli and sdk-cli.
+    A plugin that the organization requires, a desktop copy that the host does not pass now, and a plugin that
+    walle does not find are manual. walle never offers skillOverrides for a plugin skill: Claude Code does not
+    apply it to plugin skills (DOC_SKILL_OVERRIDES). The synced claude.ai skills (anthropic-skills:*) are not a
+    plugin here: each one has its own skill row (skill_rows), and "anthropic-skills@inline" is never a row.
     """
     n = u["sessions"]
     by_name = _plugin_parts(u)
     ep_parts = {ep: _plugin_parts(ub) for ep, ub in (by_ep or {}).items()}
+    newest = desktop_plugins(home)[1] if home is not None else None
     rows = []
     for name, parts in sorted(by_name.items()):
         if name == skills.SYNCED_SKILL_PREFIX or name in PROTECTED_PLUGINS:
@@ -497,12 +613,12 @@ def plugin_rows(u: dict, plugins: dict[str, dict], by_ep: dict[str, dict] | None
         sessions, used, calls = _plugin_counts(parts)
         if not gate(sessions, used, calls):
             continue
-        skill_tok = sum(s["line_bytes_median"] * LOW["prose_ascii"] * s["sessions_listed"] for s in sks)
-        server_tok = sum(server_min(s) * s["sessions_loaded"] for s in svs)
-        per = round((skill_tok + server_tok) / sessions) if sessions else 0
+        per = _plugin_per(parts)[0]
         if per < MIN_TOKENS:
             continue
-        cat = plugins.get(name) or {"sources": set(), "key": None, "synced": False, "preference": None}
+        cat = plugins.get(name) or {"sources": set(), "key": None, "synced": False, "preference": None,
+                                    "inline": None, "required": False}
+        copy, req = cat.get("inline"), cat.get("required") or required(cat["preference"])
         sess = {"period": n, "loaded": sessions, "used": used, "calls": calls, "skills": len(sks),
                 "mcp_servers": len(svs), "sessions_failed": max([s["sessions_failed"] for s in svs] + [0])}
         check = (f"In a session started after the change, `walle context --last` lists no skill named {name}:... "
@@ -514,50 +630,137 @@ def plugin_rows(u: dict, plugins: dict[str, dict], by_ep: dict[str, dict] | None
                             "skills": [s["skill"].split(":", 1)[1] for s in sks][:40],
                             "skills_used": used_skills[:10],
                             "mcp_servers": [s["server"] for s in svs]}}
-        with_used = f", with the skills that sessions used ({', '.join(used_skills[:5])})" if used_skills else ""
-        whole = (f"the whole plugin goes: its {_count(len(sks), 'skill')}, {_count(len(svs), 'MCP server')} and any "
-                 f"hooks{with_used}. walle cannot turn off one skill of a plugin: Claude Code does not apply "
-                 f"skillOverrides to plugin skills ({DOC_SKILL_OVERRIDES}).")
+        whole = _whole(sks, svs, used_skills)
         level = "high" if used_skills and calls >= 10 else "medium"
+        inline = None
+        if copy and copy["current"] and not req:
+            inline = inline_row(name, copy, ep_parts, n, level, used_skills, has_key=bool(cat["key"]),
+                                known=cat["preference"] is not None)
         key = cat["key"]
-        if key and ("plugin" in cat["sources"] or (cat["synced"] and not required(cat["preference"]))):
+        if key and ("plugin" in cat["sources"] or (cat["synced"] and not req)):
             change = {"kind": "settings_key", "file": SETTINGS, "op": "set", "keys": ["enabledPlugins", key],
                       "value": False}
             where = f'{SETTINGS} enabledPlugins["{key}"] = false'
             title = f"Turn off the plugin {name}"
+            note = None
             if cat["synced"]:
                 title = f"Turn off the claude.ai plugin {name} in Claude Code"
                 need["source"] = "claude.ai plugin"
                 where += (f": the key that `claude plugin disable {key}` and the /plugin Installed tab write "
                           f"({DOC_PLUGIN_DISABLE}).")
                 whole += (" An organization-required plugin ignores the key. The docs do not confirm that the key "
-                          "survives the next sync. The docs and the Claude Code code confirm the key for cli and "
-                          "sdk-cli; its effect on claude-desktop is not confirmed: check with walle context --last.")
-                check += " Check a claude-desktop session too: its effect there is not confirmed."
+                          "survives the next sync. The key acts on cli and sdk-cli.")
+            if cat["synced"] or inline:
+                whole += (f" It does not reach claude-desktop, which loads the host's copy as \"{name}@{INLINE_KEY}\""
+                          + (f": row {inline['id']} turns that copy off." if inline else "."))
+                check += (" A claude-desktop session can still list it: the key does not reach the desktop copy"
+                          + (f" (row {inline['id']} does)." if inline else "."))
+                note = (f"claude-desktop sessions load {name} as \"{name}@{INLINE_KEY}\""
+                        + (f": row {inline['id']} turns it off there and counts their saving. " if inline else
+                           ": walle offers no @inline row for it, so their saving is not counted here. ")
+                        + PLUGIN_DESKTOP)
             row = _row("plugin", name, name, "T4", title, change, "walle", where, per, sess, sessions - used,
-                       (level, whole), f'Set enabledPlugins["{key}"] back to true, or walle undo.', check, need)
+                       (level, whole), f'Set enabledPlugins["{key}"] back to true, or walle undo.', check, need,
+                       {"note": note} if note else None)
             row["_listed"] = ("plugin", name)
-            if cat["synced"]:
+            if cat["synced"] or inline:
                 counts = {ep: _plugin_counts(p.get(name))[:2] for ep, p in ep_parts.items()}
-                split_saving(row, per, counts, PLUGIN_DESKTOP)
+                conf = CONFIRMED if cat["synced"] else tuple(ep for ep in counts if ep != DESKTOP)
+                split_saving(row, per, counts, OTHER_SURFACES, confirmed=conf, skip=(DESKTOP,))
             rows.append(row)
-        else:
-            if cat["synced"]:  # required by the organization
-                where = (f"Your organization requires {name}: Claude Code refuses to turn it off, and only the "
-                         f"organization Owner can change it on claude.ai ({DOC_ORG_PLUGINS}).")
-            elif cat["sources"]:
-                where = (f"walle finds {name} only in the desktop app's copies (~/.claude/remote/plugins), not among "
-                         "the plugins that claude.ai syncs to Claude Code, so no settings key turns it off. On claude.ai "
-                         "a member can turn off a plugin that the Owner set to \"Installed by default\" and remove one "
-                         "that is \"Available to install\"; a \"Required\" plugin needs the organization Owner "
-                         f"({DOC_ORG_PLUGINS}).")
-            else:
-                where = "walle did not find this plugin on disk. Find where it is installed: /plugin in Claude Code."
-            change = {"kind": "app", "app": "claude.ai", "what": f"turn off the plugin {name}"}
-            rows.append(_row("plugin", name, name, "T3", f"Turn off the plugin {name}", change, "manual", where,
-                             per, sess, sessions - used, (level, whole), "Turn it on again in the same place.", check,
-                             need))
+        elif not inline:
+            rows.append(_manual_plugin_row(name, cat, copy, req, newest, per, sess, sessions - used, level, whole,
+                                           check, need))
+        if inline:
+            rows.append(inline)
     return rows
+
+
+def _whole(sks: list, svs: list, used_skills: list[str]) -> str:
+    with_used = f", with the skills that sessions used ({', '.join(used_skills[:5])})" if used_skills else ""
+    return (f"the whole plugin goes: its {_count(len(sks), 'skill')}, {_count(len(svs), 'MCP server')} and any "
+            f"hooks{with_used}. walle cannot turn off one skill of a plugin: Claude Code does not apply "
+            f"skillOverrides to plugin skills ({DOC_SKILL_OVERRIDES}).")
+
+
+def inline_row(name: str, copy: dict, ep_parts: dict[str, dict], n: int, level: str, used_skills: list[str],
+               has_key: bool, known: bool) -> dict | None:
+    """The row that sets enabledPlugins["<name>@inline"] = false: claude-desktop stops loading the host's copy.
+
+    The name is the copy's manifest name. The saving counts the claude-desktop sessions, with the skills of the
+    copy that the host passes now. When the plugin has its own key (has_key), that row counts the other
+    surfaces; else they are an unconfirmed number. None when no claude-desktop session saves MIN_TOKENS.
+    """
+    key = f"{name}@{INLINE_KEY}"
+    desk = ep_parts.get(DESKTOP, {}).get(name)
+    if not desk:
+        return None
+    per, sks = _plugin_per(desk, copy["skills"])
+    if per < MIN_TOKENS:
+        return None
+    svs = desk["servers"]
+    loaded, used, calls = _plugin_counts(desk)
+    change = {"kind": "settings_key", "file": SETTINGS, "op": "set", "keys": ["enabledPlugins", key], "value": False}
+    where = (f'{SETTINGS} enabledPlugins["{key}"] = false: the key that turns off a plugin that a parent process '
+             f"passes with --plugin-dir, as the desktop host does ({DOC_INLINE}). {name} is the manifest name of the "
+             f"desktop copy {_short(copy['path'], HOME)} ({_synced_text(copy['synced'])}).")
+    risk = (_whole(sks, svs, used_skills) + f" Every session on this machine that loads a plugin named {name} with "
+            "--plugin-dir loses it, not only claude-desktop sessions. Sessions that are open keep it; the next session "
+            "drops it. A disabled --plugin-dir copy no longer shadows a copy of the same name, so an installed or "
+            f"synced copy can load in its place ({DOC_INLINE})" + (": apply that row too." if has_key else "."))
+    if not known:
+        risk += (f" walle found no installationPreference for {name} in the claude.ai sync. The key also turns off a "
+                 "plugin that the organization requires: do not apply it if yours does.")
+    check = (f"Open a new claude-desktop session, then run `walle context --compare <apply-id>` (or give the apply id "
+             f"to the eve subagent, agents/eve.md). The skills {name}:... and the MCP servers plugin:{name}:... "
+             "should be \"only in before\".")
+    undo = (f"walle undo <apply-id>: it restores the file from the backup. Do not use `claude plugin enable {key}`: "
+            f"it writes \"{name}@{SYNCED_KEY}\": false and does not remove the key.")
+    sess = {"period": n, "loaded": loaded, "used": used, "calls": calls, "skills": len(sks), "mcp_servers": len(svs),
+            "sessions_failed": max([s["sessions_failed"] for s in svs] + [0])}
+    need = {"source": "desktop plugin", "name": key, "used": bool(calls),
+            "context": {"usage": _usage_text(loaded, used, calls, n, "sessions (claude-desktop)"),
+                        "skills": copy["skills"][:40] or [s["skill"].split(":", 1)[1] for s in sks][:40],
+                        "skills_used": used_skills[:10], "mcp_servers": [s["server"] for s in svs]}}
+    row = _row("plugin", key, key, "T4", f"Turn off the plugin {name} in claude-desktop", change, "walle", where,
+               per, sess, loaded - used, (level, risk), undo, check, need,
+               {"copy": {k: copy[k] for k in ("path", "synced", "current")} | {"skills": len(copy["skills"])},
+                "surface": DESKTOP})
+    row["_listed"] = ("plugin", name)
+    counts = {ep: _plugin_counts(p.get(name))[:2] for ep, p in ep_parts.items()}
+    split_saving(row, per, counts, INLINE_OTHER, confirmed=(DESKTOP,),
+                 skip=tuple(ep for ep in counts if ep != DESKTOP) if has_key else ())
+    return row
+
+
+def _manual_plugin_row(name: str, cat: dict, copy: dict | None, req: bool, newest: str | None, per: int, sess: dict,
+                       unused: int, level: str, whole: str, check: str, need: dict) -> dict:
+    """A plugin row that walle cannot apply: required by the organization, not passed now, or not found."""
+    past = False
+    inline_key = f'enabledPlugins["{name}@{INLINE_KEY}"]'
+    if req:
+        where = (f"Your organization requires {name}: Claude Code refuses to turn it off, and only the "
+                 f"organization Owner can change it on claude.ai ({DOC_ORG_PLUGINS}).")
+        if copy:
+            where += (f" walle does not offer {inline_key} = false: that key turns off the copy that claude-desktop "
+                      "loads even when the organization requires it, so it would go around the organization's policy.")
+    elif copy:
+        past = True
+        where = (f"The desktop host does not pass {name} to its sessions now: its newest copy "
+                 f"({_synced_text(copy['synced'])}) is not in the set that the host passes ({_synced_text(newest)}), "
+                 "so the sessions "
+                 f"here are past sessions. If the host passes it again, {SETTINGS} {inline_key} = false turns it off "
+                 f"({DOC_INLINE}). On claude.ai, Customize > Plugins (claude.ai/customize/plugins): a member can turn "
+                 "off a plugin that the Owner set to \"Installed by default\" and remove one that is \"Available to "
+                 f"install\"; a \"Required\" plugin needs the organization Owner ({DOC_ORG_PLUGINS}).")
+    else:
+        where = "walle did not find this plugin on disk. Find where it is installed: /plugin in Claude Code."
+    change = {"kind": "app", "app": "claude.ai", "what": f"turn off the plugin {name}"}
+    row = _row("plugin", name, name, "T3", f"Turn off the plugin {name}", change, "manual", where, per, sess, unused,
+               (level, whole), "Turn it on again in the same place.", check, need, {"past": True} if past else None)
+    if past:
+        _not_counted(row, "the desktop host does not pass this plugin now")
+    return row
 
 
 def skill_rows(u: dict, plugins: dict[str, dict], home: Path, folders: set[str],
@@ -947,7 +1150,7 @@ def build(args, run_dir: Path) -> dict:
     plugins = plugin_catalog(home)
     by_ep = usage_by_surface(rows_u, args.since, args.before)
     srv, report_only = server_rows(u, home, configured, plugins)
-    rows = srv + plugin_rows(u, plugins, by_ep) + skill_rows(u, plugins, home, folders, by_ep) + hook_rows(u)
+    rows = srv + plugin_rows(u, plugins, by_ep, home) + skill_rows(u, plugins, home, folders, by_ep) + hook_rows(u)
 
     scan_path = args.scan.expanduser().resolve() if args.scan else judge.latest_scan(out)
     scan = None
@@ -1021,17 +1224,25 @@ NOTES = [
     "row takes the skill out with the whole plugin.",
     "A synced claude.ai skill (anthropic-skills:*) gets a skillOverrides row. " + SYNCED_SKILL_NOTE,
     "Surfaces are the entrypoint of each session (cli, sdk-cli, claude-desktop). For synced claude.ai skills and "
-    "synced plugins, the saving counts cli and sdk-cli sessions; the other surfaces are a separate, unconfirmed "
-    "number.",
+    "@synced plugin keys, the saving counts cli and sdk-cli sessions; for @inline plugin keys, claude-desktop "
+    "sessions. The other surfaces are a separate, unconfirmed number.",
     "A key that is already set gets a status per entrypoint from the sessions that started after it was set (the "
     "earliest walle apply that set it since its last undo, else the last change of the settings file, at or "
     "before which it was set): already set, still listed, gone (a synced skill that is not in the current "
     "bucket), no baseline (no session of that surface listed the source before the key was set), or not "
     "measured. Its saving is not counted. No row deletes a key.",
     "A claude.ai plugin synced to Claude Code is the key enabledPlugins[\"<name>@synced\"] = false, the key that "
-    f"`claude plugin disable` writes ({DOC_PLUGIN_DISABLE}); " + PLUGIN_DESKTOP + " A plugin that only the desktop "
-    "app keeps is manual: "
-    f"on claude.ai, members turn off \"Installed by default\" plugins; \"Required\" needs the Owner ({DOC_ORG_PLUGINS}).",
+    f"`claude plugin disable` writes ({DOC_PLUGIN_DISABLE}). It acts on cli and sdk-cli. " + PLUGIN_DESKTOP,
+    "A plugin that the desktop host passes now (its copy in ~/.claude/remote/plugins is in the newest .synced set) "
+    "gets the row enabledPlugins[\"<manifest name>@inline\"] = false, for claude-desktop sessions "
+    f"({DOC_INLINE}). The key also turns off a plugin of that name that any other session loads with --plugin-dir. "
+    "walle offers no @inline row for a safety plugin, for a plugin that the organization requires (the key would "
+    "go around that policy), or for a copy that the host does not pass now. Undo it with walle undo, not with "
+    "`claude plugin enable <name>@inline`, which writes \"<name>@synced\": false.",
+    "walle never offers \"anthropic-skills@inline\" = false: it takes every claude.ai skill out of claude-desktop "
+    "sessions at once. Set it by hand only if that is what you want. One claude.ai skill can only be turned off on "
+    "claude.ai (Customize > Skills).",
+    f"On claude.ai, members turn off \"Installed by default\" plugins; \"Required\" needs the Owner ({DOC_ORG_PLUGINS}).",
     "Rows that walle can apply change one settings key. Manual rows change a place in an app. Patch rows are "
     "patch files in patches/ (or a change the agent writes); walle never edits an instruction file.",
     "Kept rows (walle keep <id>) leave the plan; walle keep --list lists them.",
@@ -1118,8 +1329,9 @@ def render(data: dict) -> str:
     md.append("")
     conf, other = totals(rows)
     md.append(f"Saving over the period, rows not yet set (min est. tokens): {_approx(conf)} on confirmed surfaces "
-              f"({', '.join(CONFIRMED)} for synced skills and plugins; every surface for the other rows), and "
-              f"{_approx(other)} more on unconfirmed surfaces (claude-desktop and others; see each row).")
+              f"({' and '.join(CONFIRMED)} for synced skills and @synced plugin keys, {DESKTOP} for @inline plugin "
+              f"keys, every surface for the other rows), and {_approx(other)} more on unconfirmed surfaces (see each "
+              "row).")
     md.append("")
     src = [r for r in rows if r["group"] == "source"]
     ins = [r for r in rows if r["group"] == "instruction"]
@@ -1181,6 +1393,10 @@ def render(data: dict) -> str:
             else:
                 md.append(f"- Size: the section is {_approx(r['size']['tokens_est'])} est. tokens "
                           f"(the layer {_approx(r['size']['layer_tokens_est'] or 0)}). A move is not a saving.")
+            if r.get("copy"):
+                cp = r["copy"]
+                md.append(f"- Desktop copy: {_short(cp['path'], HOME)} ({_synced_text(cp['synced'])}, "
+                          f"{_count(cp['skills'], 'skill')}), in the set that the desktop host passes now.")
             s = r.get("sessions")
             if s:
                 used = "" if s.get("used") is None else f", used in {_n(s['used'])} ({_n(s['calls'])} calls)"

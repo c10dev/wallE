@@ -10,8 +10,8 @@ walle apply <run> --only <id>[,<id>]
   not confirm is marked [unconfirmed]. Patch rows print how the agent applies them. walle changes neither.
 - Rows that walle can apply change keys of two files: ~/.claude/settings.json (enabledPlugins, skillOverrides)
   and ~/.claude.json (an mcpServers entry). An enabledPlugins key is only set to false; "<name>@synced", a
-  claude.ai plugin synced to Claude Code, is one of them. A skillOverrides key is only set to
-  user-invocable-only. No row deletes a settings key: any other op, file, key or value is refused, so a changed
+  claude.ai plugin synced to Claude Code, and "<name>@inline", the copy that the desktop host passes with
+  --plugin-dir, are among them. A skillOverrides key is only set to user-invocable-only. No row deletes a settings key: any other op, file, key or value is refused, so a changed
   plan.json cannot make walle write a hook or a permission, or turn a plugin on.
 - walle refuses a target whose sha256 differs from the one the plan recorded, a target inside a scanned
   folder, and a file that is not a JSON object. Nothing is written when one target is refused.
@@ -259,7 +259,7 @@ def check_change(c: dict) -> str | None:
     keys = [str(k) for k in c.get("keys") or []]
     if c.get("op") == "set":
         ok = c["file"] in SET_KEYS and len(keys) == 2 and keys[0] in SET_KEYS[c["file"]]
-        if ok and keys[0] == "enabledPlugins":  # walle only turns plugins off, a synced one included
+        if ok and keys[0] == "enabledPlugins":  # walle only turns plugins off, @synced and @inline ones included
             ok = c.get("value") is False
         elif ok:
             ok = c.get("value") == trim.SKILL_OVERRIDE

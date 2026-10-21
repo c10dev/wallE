@@ -225,7 +225,8 @@ class ApplyUndoTest(unittest.TestCase):
         home_before = tree_hash(self.f.home)
         out, _ = self.f.cli("apply", run_dir.name, "--only", f"{rows['claude.ai Vercel']['id']},{rows['sales']['id']}")
         self.assertIn(f"[ ] {rows['claude.ai Vercel']['id']}  Disconnect the claude.ai connector claude.ai Vercel", out)
-        self.assertIn("claude.ai Settings > Connectors > Vercel (walle has not confirmed the menu path)", out)
+        self.assertIn("claude.ai Customize > Connectors > Vercel (claude.ai/customize/connectors; walle has not "
+                      "confirmed the menu path)", out)
         self.assertEqual(out.count("[unconfirmed] walle has not confirmed this menu path."), 1)
         self.assertIn('a "Required" plugin needs the organization Owner (https://claude.com/docs/plugins/admin)', out)
         self.assertEqual(out.strip().splitlines()[-1], str(run_dir / "plan.md"))
@@ -338,7 +339,8 @@ class ApplyUndoTest(unittest.TestCase):
 
 
 class PluginKeysTest(unittest.TestCase):
-    """enabledPlugins["<name>@synced"], synced claude.ai skill keys, and changes walle refuses (fake home only)."""
+    """enabledPlugins["<name>@synced"] and ["<name>@inline"], synced claude.ai skill keys, and changes walle refuses
+    (fake home only)."""
 
     def setUp(self):
         self.f = ApplyFixture()
@@ -360,6 +362,34 @@ class PluginKeysTest(unittest.TestCase):
         self.assertEqual((self.f.backups / apply_id / "before" / "1-settings.json").read_bytes(), before)
         self.f.cli("undo", apply_id)
         self.assertEqual(self.f.settings.read_bytes(), before)
+
+    def test_an_inline_plugin_key_is_applied_and_undone(self):
+        before = self.f.settings.read_bytes()
+        projects = tree_hash(self.f.home / "projects")
+        remote = tree_hash(self.f.remote)
+        data, run_dir = self.f.plan()
+        d = self.f.rows(data)["design@inline"]
+        out, err = self.f.cli("apply", run_dir.name, "--only", d["id"])
+        self.assertEqual(err, "")
+        self.assertIn(f'changed  {d["id"]}  ~/.claude/settings.json enabledPlugins["design@inline"]: (none) -> false', out)
+        doc = json.loads(self.f.settings.read_text())
+        self.assertIs(doc["enabledPlugins"]["design@inline"], False)
+        self.assertNotIn("design@synced", doc["enabledPlugins"])  # only the key of the row
+        self.assertEqual(doc["skillOverrides"], OVERRIDES)
+        self.assertEqual(doc["theme"], "dark")
+        apply_id = runs.read_index(self.f.out)[-1]["id"]
+        self.assertEqual((self.f.backups / apply_id / "before" / "1-settings.json").read_bytes(), before)
+        # The next plan finds the apply record: the key is set and its saving is not counted.
+        again, _ = self.f.plan()
+        d2 = self.f.rows(again)["design@inline"]
+        self.assertEqual((d2["change"]["already"], d2["change"]["set_at"]["from"]), (True, f"walle apply {apply_id}"))
+        self.assertEqual(d2["saving"]["counted"], False)
+        out, _ = self.f.cli("undo", apply_id)
+        self.assertIn("restored ~/.claude/settings.json", out)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+        # walle wrote nothing into the projects folder or the desktop host's copies.
+        self.assertEqual(tree_hash(self.f.home / "projects"), projects)
+        self.assertEqual(tree_hash(self.f.remote), remote)
 
     def test_a_synced_skill_key_is_set_and_undone(self):
         before = self.f.settings.read_bytes()
@@ -415,8 +445,14 @@ class PluginKeysTest(unittest.TestCase):
         for c in ({"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
                    "keys": ["enabledPlugins", "design@synced"], "value": False},
                   {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                   "keys": ["enabledPlugins", "marketing@inline"], "value": False},
+                  {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
                    "keys": ["skillOverrides", "anthropic-skills:pdf"], "value": "user-invocable-only"}):
             self.assertIsNone(apply.check_change(c))
+        for value in (True, None, "false", 0):  # an @inline key is only set to false
+            c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                 "keys": ["enabledPlugins", "marketing@inline"], "value": value}
+            self.assertEqual(apply.check_change(c), "apply.key_not_allowed", value)
         for op in ("unset", "delete", None):
             c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": op,
                  "keys": ["skillOverrides", "anthropic-skills:pdf"]}

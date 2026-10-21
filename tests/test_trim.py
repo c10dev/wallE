@@ -41,6 +41,9 @@ OVERRIDES = {"anthropic-skills:pdf-like": "user-invocable-only", "anthropic-skil
              "sales:call-prep": "user-invocable-only", "loop": "user-invocable-only"}
 # The entrypoint (surface) of each fake session: 8 cli, 2 sdk-cli, 2 claude-desktop.
 SURFACE = ["cli"] * 8 + ["sdk-cli"] * 2 + ["claude-desktop"] * 2
+# .synced times of the desktop host's copies: the set that the host passes now, and an older set.
+NOW_SET = datetime(2026, 10, 21, 7, 3, 10, tzinfo=timezone.utc).timestamp()
+OLD_SET = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
 
 
 def listing(n: int) -> tuple[str, list[str]]:
@@ -105,11 +108,16 @@ class Fixture:
             {"name": "design", "installationPreference": "available", "generation": 2},
             {"name": "legal", "installationPreference": "required"}]}))
         (self.bucket / ".last-complete-round").write_text("2")
-        sales = self.home / ".claude" / "remote" / "plugins" / "host" / "h1"
-        (sales / ".claude-plugin").mkdir(parents=True)
-        (sales / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "sales"}))
-        (sales / "skills" / "call-prep").mkdir(parents=True)
-        (sales / "skills" / "call-prep" / "SKILL.md").write_text("---\nname: call-prep\ndescription: Prepare.\n---\n")
+        # The desktop host's copies (~/.claude/remote/plugins/<host>/<hash>). The host passes the copies of the
+        # newest .synced set: design, legal, secret-redact and anthropic-skills. sales is only in an older set.
+        self.remote = self.home / ".claude" / "remote" / "plugins" / "host"
+        self.desktop_copy("h1", "sales", ["call-prep"], OLD_SET)
+        self.desktop_copy("h0", "design", ["ux-copy", "old-skill"], OLD_SET)
+        self.desktop_copy("h2", "design", ["ux-copy"], NOW_SET)
+        self.desktop_copy("h3", "legal", ["review-contract"], NOW_SET)
+        self.desktop_copy("h4", "secret-redact", [], NOW_SET)
+        self.desktop_copy("h5", "anthropic-skills", ["pdf-like"], NOW_SET)
+        self.desktop_copy("h6", None, ["x"], NOW_SET)  # no manifest name: never a key
         # The synced claude.ai skills of the current bucket: pdf-like and xlsx-like, not learn-like.
         skills_bucket = self.home / ".claude" / "skills" / "synced" / "org1_acct1"
         for name in ("pdf-like", "xlsx-like"):
@@ -124,6 +132,17 @@ class Fixture:
                         mock.patch("walle.cli.scan", lambda roots, **kw: scan(roots, self.home, **kw))]
         for p in self.patches:
             p.start()
+
+    def desktop_copy(self, folder: str, name: str | None, skill_names: list[str], synced: float) -> Path:
+        d = self.remote / folder
+        (d / ".claude-plugin").mkdir(parents=True)
+        (d / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": name} if name else {"version": "1"}))
+        for sk in skill_names:
+            (d / "skills" / sk).mkdir(parents=True)
+            (d / "skills" / sk / "SKILL.md").write_text(f"---\nname: {sk}\ndescription: {sk}.\n---\n")
+        (d / ".synced").write_text("")
+        os.utime(d / ".synced", (synced, synced))
+        return d
 
     def cli(self, *args, code=0) -> tuple[str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -161,7 +180,7 @@ class PlanRowsTest(unittest.TestCase):
         # A connector is manual, in the app; it was loaded in 12 sessions and used in 1.
         v = rows["claude.ai Vercel"]
         self.assertEqual((v["action"], v["applies"], v["change"]["kind"]), ("T1", "manual", "app"))
-        self.assertIn("claude.ai Settings > Connectors > Vercel", v["where"])
+        self.assertIn("claude.ai Customize > Connectors > Vercel (claude.ai/customize/connectors;", v["where"])
         self.assertEqual((v["sessions"]["loaded"], v["sessions"]["used"], v["sessions"]["calls"]), (12, 1, 1))
         self.assertEqual(v["id"], trim.row_id("server", "claude.ai:vercel"))
         # Lower bound: median bytes of names and instructions times the low end of each bytes-v2 rate.
@@ -178,12 +197,14 @@ class PlanRowsTest(unittest.TestCase):
         self.assertEqual((rea["action"], rea["applies"]), ("T2", "walle"))
         self.assertEqual(rea["change"]["keys"], ["projects", "/w", "mcpServers", "rea"])
         self.assertNotIn("s3cr3t-value", (run_dir / "plan.json").read_text() + (run_dir / "plan.md").read_text())
-        # A local plugin is one settings key; a synced plugin is manual; a safety plugin has no row.
+        # A local plugin is one settings key; a plugin that the desktop host no longer passes is manual; a safety
+        # plugin has no row, not even an @inline one.
         ts = rows["typesafe"]
         self.assertEqual((ts["action"], ts["applies"], ts["change"]["keys"], ts["change"]["value"]),
                          ("T4", "walle", ["enabledPlugins", "typesafe@typesafe-ai"], False))
         self.assertEqual((rows["sales"]["action"], rows["sales"]["applies"]), ("T3", "manual"))
         self.assertNotIn("secret-redact", rows)
+        self.assertNotIn("secret-redact@inline", rows)
         # A skill no session called: hidden from the model by a settings key. A called skill has no row.
         sk = rows["pptx-like"]
         self.assertEqual((sk["action"], sk["change"]["keys"], sk["change"]["value"]),
@@ -296,6 +317,20 @@ class PlanRowsTest(unittest.TestCase):
         self.assertEqual(data["period"]["sessions"], 7)
 
 
+def drop_listing(path: Path, name: str) -> None:
+    """Take one skill out of the skill listing of a fake transcript."""
+    out = []
+    for raw in path.read_text().splitlines():
+        x = json.loads(raw)
+        a = x.get("attachment") or {}
+        if a.get("type") == "skill_listing":
+            a["content"] = "\n".join(l for l in a["content"].split("\n") if not l.startswith(f"- {name}:"))
+            a["names"] = [n for n in a["names"] if n != name]
+            a["skillCount"] = len(a["names"])
+        out.append(json.dumps(x))
+    path.write_text("\n".join(out) + "\n")
+
+
 class PluginRowsTest(unittest.TestCase):
     """claude.ai plugins, plugin skills, synced claude.ai skills and keys that are already set (fake home only)."""
 
@@ -316,15 +351,20 @@ class PluginRowsTest(unittest.TestCase):
                          {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
                           "keys": ["enabledPlugins", "design@synced"], "value": False})
         self.assertIn(trim.DOC_PLUGIN_DISABLE, d["where"])
-        for text in ("organization-required plugin ignores the key", "survives the next sync",
-                     "walle context --last", "the whole plugin goes"):
+        inline_id = trim.row_id("plugin", "design@inline")
+        for text in ("organization-required plugin ignores the key", "survives the next sync", "the whole plugin goes",
+                     f'It does not reach claude-desktop, which loads the host\'s copy as "design@inline": row '
+                     f"{inline_id} turns that copy off."):
             self.assertIn(text, d["risk"]["why"])
+        self.assertIn(f"(row {inline_id} does)", d["check"])
+        self.assertIn('"<name>@synced": false did not', d["note"])
         self.assertEqual(d["change"]["sha256"], trim.file_sha256(self.f.home / ".claude" / "settings.json"))
         self.assertFalse(d["change"]["already"])
-        # The saving floor counts cli and sdk-cli sessions; claude-desktop is a separate, unconfirmed number.
+        # The saving floor counts cli and sdk-cli sessions. The @inline row counts claude-desktop, so this row
+        # leaves it out of its unconfirmed number too: the totals count each session once.
         sv = d["saving"]
-        self.assertEqual((sv["unused_sessions"], sv["unconfirmed"]["sessions"]), (10, {"claude-desktop": 2}))
-        self.assertIn("claude-desktop is not confirmed", sv["unconfirmed"]["why"])
+        self.assertEqual((sv["unused_sessions"], sv["unconfirmed"]["sessions"]), (10, {}))
+        self.assertEqual(d["sessions"]["by_entrypoint"]["claude-desktop"], {"loaded": 2, "used": 0})
         # An installed plugin keeps its own key, and a plugin of an older sync bucket is not a synced plugin.
         self.assertEqual(self.rows(data)["typesafe"]["change"]["keys"], ["enabledPlugins", "typesafe@typesafe-ai"])
         cat = trim.plugin_catalog(self.f.home)
@@ -339,17 +379,125 @@ class PluginRowsTest(unittest.TestCase):
         d = self.rows(again)["design"]
         self.assertEqual((d["applies"], d["change"]["already"]), ("walle", True))
 
-    def test_a_required_plugin_and_a_desktop_only_plugin_stay_manual(self):
+    def test_a_required_plugin_and_a_copy_the_host_no_longer_passes_stay_manual(self):
         data, run_dir = self.f.plan()
         rows = self.rows(data)
         legal, sales = rows["legal"], rows["sales"]
         self.assertEqual((legal["applies"], legal["change"]["kind"]), ("manual", "app"))
         self.assertIn("Your organization requires legal", legal["where"])
-        self.assertEqual((sales["action"], sales["applies"]), ("T3", "manual"))
-        for text in ('"Installed by default"', '"Required" plugin needs the organization Owner', trim.DOC_ORG_PLUGINS):
+        # legal has a desktop copy in the set that the host passes, but the @inline key would go around the
+        # organization's "Required": no row offers it.
+        self.assertIn('walle does not offer enabledPlugins["legal@inline"] = false', legal["where"])
+        self.assertIn("go around the organization's policy", legal["where"])
+        self.assertNotIn("legal@inline", rows)
+        # sales: its only copy is in an older .synced set, so no session loads it now. Its saving is not counted.
+        self.assertEqual((sales["action"], sales["applies"], sales["past"]), ("T3", "manual", True))
+        for text in ("The desktop host does not pass sales to its sessions now", ".synced 2026-10-01T00:00:00 UTC",
+                     ".synced 2026-10-21T07:03:10 UTC", 'enabledPlugins["sales@inline"] = false turns it off',
+                     trim.DOC_INLINE, '"Installed by default"', '"Required" plugin needs the organization Owner',
+                     trim.DOC_ORG_PLUGINS):
             self.assertIn(text, sales["where"])
+        self.assertEqual((sales["saving"]["counted"], sales["saving"]["unused_tokens_min"]), (False, 0))
+        self.assertNotIn("no settings key turns it off", (run_dir / "plan.md").read_text())
         self.assertNotIn(trim.UNCONFIRMED, sales["where"])
         self.assertNotIn("sha256", sales["change"])
+        self.assertNotIn("sales@inline", rows)
+
+    def test_a_desktop_copy_that_the_host_passes_gets_an_inline_row(self):
+        data, run_dir = self.f.plan()
+        rows = self.rows(data)
+        d = rows["design@inline"]
+        self.assertEqual((d["id"], d["action"], d["applies"], d["source"]["type"], d["surface"]),
+                         (trim.row_id("plugin", "design@inline"), "T4", "walle", "desktop plugin", "claude-desktop"))
+        self.assertEqual({k: d["change"][k] for k in ("kind", "file", "op", "keys", "value")},
+                         {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                          "keys": ["enabledPlugins", "design@inline"], "value": False})
+        self.assertEqual(d["change"]["sha256"], trim.file_sha256(self.f.home / ".claude" / "settings.json"))
+        # The newest copy of the set that the host passes, not the older copy with one more skill.
+        self.assertEqual(d["copy"], {"path": str(self.f.remote / "h2"), "synced": "2026-10-21T07:03:10",
+                                     "current": True, "skills": 1})
+        self.assertIn("design is the manifest name of the desktop copy ~/.claude/remote/plugins/host/h2", d["where"])
+        self.assertIn(trim.DOC_INLINE, d["where"])
+        for text in ("Every session on this machine that loads a plugin named design with --plugin-dir loses it",
+                     "Sessions that are open keep it; the next session drops it.",
+                     "an installed or synced copy can load in its place"):
+            self.assertIn(text, d["risk"]["why"])
+        self.assertNotIn("no installationPreference", d["risk"]["why"])  # the sync says "available"
+        for text in ("Open a new claude-desktop session", "walle context --compare <apply-id>", "agents/eve.md",
+                     "design:...", "plugin:design:...", '"only in before"'):
+            self.assertIn(text, d["check"])
+        self.assertIn("walle undo <apply-id>", d["undo"])
+        self.assertIn('Do not use `claude plugin enable design@inline`: it writes "design@synced": false', d["undo"])
+        # The saving counts the claude-desktop sessions only; the @synced row counts cli and sdk-cli.
+        sv = d["saving"]
+        self.assertEqual((sv["confirmed_surfaces"], sv["unused_sessions"], sv["unconfirmed"]["sessions"]),
+                         (["claude-desktop"], 2, {}))
+        self.assertEqual((d["sessions"]["loaded"], d["sessions"]["used"]), (2, 0))
+        synced = rows["design"]
+        conf, other = trim.totals(data["rows"])
+        both = synced["saving"]["unused_tokens_min"] + sv["unused_tokens_min"]
+        self.assertEqual(both, 10 * synced["saving"]["tokens_per_session_min"] + 2 * sv["tokens_per_session_min"])
+        self.assertGreaterEqual(conf, both)
+        # anthropic-skills@inline would take every claude.ai skill out at once: only a note names it.
+        self.assertNotIn("anthropic-skills@inline", rows)
+        self.assertNotIn("anthropic-skills", rows)
+        self.assertTrue(any('"anthropic-skills@inline" = false' in x for x in data["notes"]))
+        # A copy without a manifest name never becomes a key.
+        copies, newest = trim.desktop_plugins(self.f.home)
+        self.assertEqual(sorted(copies), ["anthropic-skills", "design", "legal", "sales", "secret-redact"])
+        self.assertEqual((newest, copies["sales"]["current"]), ("2026-10-21T07:03:10", False))
+        md = (run_dir / "plan.md").read_text()
+        self.assertIn("- Desktop copy: ~/.claude/remote/plugins/host/h2 (.synced 2026-10-21T07:03:10 UTC, 1 skill), "
+                      "in the set that the desktop host passes now.", md)
+        self.assertIn("2 sessions on claude-desktop loaded it without using it", md)
+        self.assertIn("claude-desktop for @inline plugin keys", md)
+
+    def test_a_plugin_only_on_the_desktop_gets_an_inline_row_without_its_own_key(self):
+        os.utime(self.f.remote / "h1" / ".synced", (NOW_SET, NOW_SET))  # the host passes sales now
+        data, _ = self.f.plan()
+        rows = self.rows(data)
+        self.assertNotIn("sales", rows)
+        s = rows["sales@inline"]
+        self.assertEqual((s["applies"], s["change"]["keys"]), ("walle", ["enabledPlugins", "sales@inline"]))
+        # No other key covers cli and sdk-cli: their sessions are an unconfirmed number.
+        sv = s["saving"]
+        self.assertEqual((sv["unused_sessions"], sv["unconfirmed"]["sessions"]), (2, {"cli": 8, "sdk-cli": 2}))
+        self.assertEqual(sv["unconfirmed"]["why"], trim.INLINE_OTHER)
+        # No sync bucket names sales: walle cannot tell if the organization requires it.
+        self.assertIn("walle found no installationPreference for sales", s["risk"]["why"])
+        self.assertNotIn("apply that row too", s["risk"]["why"])
+
+    def test_an_inline_key_that_is_set_gets_a_status_per_entrypoint(self):
+        settings = self.f.home / ".claude" / "settings.json"
+        doc = json.loads(settings.read_text())
+        doc["enabledPlugins"]["design@inline"] = False
+        settings.write_text(json.dumps(doc))
+        # walle apply set the key between the two claude-desktop sessions (2026-10-11 00:00 and 2026-10-12 00:00).
+        local = datetime(2026, 10, 11, 12, tzinfo=timezone.utc).astimezone().replace(tzinfo=None).isoformat()
+        rec = self.f.out / "20261011-120000"
+        rec.mkdir(parents=True)
+        (rec / "apply.json").write_text(json.dumps({"generated": local, "rows": [
+            {"id": "x", "file": "~/.claude/settings.json", "changed": True, "keys": ["enabledPlugins", "design@inline"]}]}))
+        (self.f.out / "index.jsonl").write_text(json.dumps({"id": "20261011-120000", "kind": "apply", "generated": local,
+                                                            "path": str(rec / "apply.json")}) + "\n")
+        # The claude-desktop session after the key no longer lists the design skills.
+        drop_listing(self.f.tx / "-w" / "s11.jsonl", "design:ux-copy")
+        data, run_dir = self.f.plan()
+        d = self.rows(data)["design@inline"]
+        self.assertTrue(d["change"]["already"])
+        self.assertEqual(d["change"]["set_at"],
+                         {"time": "2026-10-11T12:00:00", "from": "walle apply 20261011-120000", "exact": True})
+        st = {x["entrypoint"]: x for x in d["set_status"]}
+        self.assertEqual({ep: x["state"] for ep, x in st.items()},
+                         {"cli": "not measured", "sdk-cli": "not measured", "claude-desktop": "acts"})
+        self.assertEqual(st["claude-desktop"]["text"],
+                         "already set on claude-desktop: none of 1 sessions since 2026-10-11T12:00:00 UTC lists it")
+        self.assertEqual((d["saving"]["counted"], d["saving"]["unused_tokens_min"]), (False, 0))
+        md = (run_dir / "plan.md").read_text()
+        self.assertIn("  - already set on claude-desktop: none of 1 sessions since 2026-10-11T12:00:00 UTC lists it", md)
+        self.assertIn("(set 2026-10-11T12:00:00 UTC by walle apply 20261011-120000)", md)
+        # The @synced key is not set: its row is not "already".
+        self.assertFalse(self.rows(data)["design"]["change"]["already"])
 
     def test_plugin_skills_get_the_plugin_row_and_synced_skills_get_skill_overrides(self):
         data, run_dir = self.f.plan()
@@ -497,6 +645,16 @@ class GateTest(unittest.TestCase):
         self.assertFalse(trim.gate(582, 53, 788))  # Supabase: more calls than sessions
         self.assertFalse(trim.gate(745, 205, 3563))  # Linear: used in 28%
         self.assertFalse(trim.gate(9, 0, 0))  # too few sessions
+
+    def test_a_plugin_row_below_min_tokens_is_left_out(self):
+        u = {"sessions": 20, "servers": [], "skills": [
+            {"skill": "tiny:x", "sessions_listed": 20, "sessions_used": 0, "calls": 0, "line_bytes_median": 10}]}
+        copy = {"path": "/h/remote/plugins/a/b", "synced": "2026-10-01T00:00:00", "current": False, "skills": ["x"]}
+        plugins = {"tiny": {"sources": {"remote_plugin"}, "key": None, "synced": False, "preference": None,
+                            "inline": copy, "required": False}}
+        self.assertEqual(trim.plugin_rows(u, plugins), [])  # 10 bytes x 0.40 = 4 tokens per session
+        u["skills"][0]["line_bytes_median"] = 100
+        self.assertEqual([r["applies"] for r in trim.plugin_rows(u, plugins)], ["manual"])
 
     def test_prose_min_is_below_the_estimate(self):
         for text in ("plain ascii words here", "한국어 문장이다"):
