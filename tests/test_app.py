@@ -714,7 +714,8 @@ class DataTest(unittest.TestCase):
         return str(self.out / rid / name)
 
     def applied_runs(self) -> None:
-        """A plan, three applies (one undone by a restore, one failed) and two compares of the first apply."""
+        """A plan, an apply of an older plan, four applies of this one (one restored by walle undo, one whose undo
+        was lost, one failed) and two compares of the first apply of the plan."""
         plan = {"generated": "2026-10-21T05:27:05", "period": {"sessions": 900}, "rows": [
             {"id": "df10f5", "title": "Turn off the plugin marketing", "group": "source", "applies": "walle",
              "change": {"file": "~/.claude/settings.json"}, "saving": {"tokens_per_session_min": 800, "unused_tokens_min": 4000}},
@@ -746,6 +747,8 @@ class DataTest(unittest.TestCase):
         apply_rows = [{"id": "df10f5", "file": "~/.claude/settings.json", "changed": True, "what": "marketing@synced"}]
         self.write("20261021-052801", "apply.json", {"status": "applied", "rows": apply_rows})
         self.index(
+            # Before the plan: 557199 is unset again in the plan (the desktop app rewrote the file), so it is offered.
+            {"id": "20261021-050000", "kind": "apply", "parent_id": "20261021-040000", "rows": ["557199"], "status": "applied"},
             {"id": "20261021-052705", "kind": "trim", "path": self.write("20261021-052705", "plan.json", plan)},
             {"id": "20261021-052801", "kind": "apply", "parent_id": "20261021-052705", "generated": "2026-10-21T05:28:01",
              "rows": ["df10f5"], "files": ["~/.claude/settings.json"], "status": "applied", "path": "/gone/apply.json"},
@@ -755,6 +758,8 @@ class DataTest(unittest.TestCase):
              "path": self.write("20261021-060000", "apply.json", {"status": "applied", "rows": [{"id": "557199"}]})},
             {"id": "20261021-060100", "kind": "undo", "parent_id": "20261021-060000", "status": "restored"},
             {"id": "20261021-061000", "kind": "apply", "parent_id": "nope", "rows": ["557199"], "status": "failed"},
+            {"id": "20261021-062000", "kind": "apply", "parent_id": "20261021-052705", "rows": ["557199"], "status": "applied"},
+            {"id": "20261021-062100", "kind": "undo", "parent_id": "20261021-062000", "status": "lost"},
             {"id": "20261021-073000", "kind": "compare", "parent_id": "20261021-052801",
              "path": self.write("20261021-073000", "compare.json", new)},
         )
@@ -762,7 +767,8 @@ class DataTest(unittest.TestCase):
     def test_applies_read_the_apply_its_plan_its_undo_and_its_newest_compare(self):
         self.applied_runs()
         a = {x["id"]: x for x in appdata.applies_view(self.out, FX.home, "/p/app")}
-        self.assertEqual(list(a), ["20261021-061000", "20261021-060000", "20261021-052801"])  # newest first
+        self.assertEqual(list(a), ["20261021-062000", "20261021-061000", "20261021-060000", "20261021-052801",
+                                   "20261021-050000"])  # newest first
         first = a["20261021-052801"]
         self.assertEqual(first["rows"], [{"id": "df10f5", "title": "Turn off the plugin marketing",
                                           "what": "marketing@synced", "changed": True}])
@@ -771,6 +777,8 @@ class DataTest(unittest.TestCase):
         self.assertIsNone(a["20261021-060000"]["undo_command"])  # restored by walle undo
         self.assertTrue(a["20261021-060000"]["undone"])
         self.assertIsNone(a["20261021-061000"]["undo_command"])  # failed: nothing to put back
+        lost = a["20261021-062000"]  # walle undo ran, then another program rewrote the file: a second undo refuses
+        self.assertEqual((lost["undone"], lost["undo_status"], lost["undo_command"]), (True, "lost", None))
         self.assertEqual(a["20261021-061000"]["rows"], [{"id": "557199", "title": None, "what": None, "changed": None}])
         m = first["measured"]
         self.assertEqual(m["id"], "20261021-073000")  # the newest compare of the apply
@@ -786,7 +794,7 @@ class DataTest(unittest.TestCase):
         self.assertEqual(m["measure"]["rows"][0]["sides"]["after"]["cells"]["first_call_billed"]["text"], "7,000 [6,900-7,100]")
         # A compare from before walle counted billed tokens, and without a measure block, still reads.
         (self.out / "20261021-073000" / "compare.json").unlink()
-        m = appdata.applies_view(self.out, FX.home, "/other")[2]["measured"]
+        m = appdata.applies_view(self.out, FX.home, "/other")[3]["measured"]
         self.assertEqual((m["id"], m["measure"], m["newest"]["billed"], m["here"]), ("20261021-054000", None, None, False))
         self.assertEqual(m["applied"][0]["surfaces"], [])  # one surface: the row line says it
         self.assertIsNone(m["applied"][0]["pair"])
@@ -796,10 +804,11 @@ class DataTest(unittest.TestCase):
         plan = appdata.trim_view(self.out, FX.home, "/p/app")
         e = appdata.efficiency_view(None, None, {}, plan, appdata.applies_view(self.out, FX.home, "/p/app"))
         t = e["trim"]
-        # df10f5 stands (apply 20261021-052801); 557199 was put back by walle undo, so it is offered again.
+        # df10f5 stands (apply 20261021-052801). 557199 is offered again: walle undo put back one apply of it, the
+        # undo of another was lost, and the apply that still stands came before the plan.
         self.assertEqual([r["id"] for r in t["top"]], ["557199"])
         self.assertEqual((t["applied_since"], t["saving"]), (1, 9000))
-        self.assertEqual(e["applies"], {"n": 3, "standing": 1, "measured": 1})
+        self.assertEqual(e["applies"], {"n": 5, "standing": 2, "measured": 1})
 
     def test_the_next_step_follows_the_loop(self):
         scan, measure = {"stacks": [], "id": "s"}, {"rows": [], "sides": ["period"], "split": None}
@@ -809,7 +818,7 @@ class DataTest(unittest.TestCase):
             {"id": "r2", "title": "Edit a file", "group": "source", "applies": "manual", "already": False, "counted": True,
              "command": "walle apply p --only r2", "saving": {}}]}
         done = dict(plan, rows=[dict(r, already=True) for r in plan["rows"]])
-        open_apply = {"id": "a1", "rows": [], "undo_command": "walle undo a1", "measured": None,
+        open_apply = {"id": "a1", "plan_id": "p", "rows": [], "undo_command": "walle undo a1", "measured": None,
                       "compare_command": "walle context --compare a1"}
         steps = [(None, None, None, []), (scan, None, None, []), (scan, measure, None, []), (scan, measure, plan, []),
                  (scan, measure, done, [open_apply]), (scan, measure, done, [dict(open_apply, measured={"id": "c"})])]
@@ -819,10 +828,22 @@ class DataTest(unittest.TestCase):
             ("walle apply p --only r1", False),  # the walle row, not the manual one
             ("walle context --compare a1", True), ("walle eve .", True)])
 
+    def test_the_first_call_is_the_family_with_most_sessions_since_the_split(self):
+        cell = {"median": 41000, "p25": 40000, "p75": 42000}
+        rows = [{"family": "opus 5", "models": {}, "change": {}, "sides": {"before": {"sessions": 30, "cells": {}},
+                                                                         "after": {"sessions": 0, "cells": {}}}},
+                {"family": "opus 5.5", "models": {}, "change": {}, "sides": {"before": {"sessions": 2, "cells": {}},
+                                                                           "after": {"sessions": 13, "cells": {"first_call": cell}}}}]
+        measure = {"id": "m", "generated": "", "around": "x", "split": {}, "sides": ["before", "after"], "rows": rows}
+        f = appdata.efficiency_view(None, measure, {}, None, [])["first_call"]
+        self.assertEqual((f["family"], f["sessions"], f["first_call"]), ("opus 5.5", 13, cell))
+
     def test_a_median_has_dollars_only_for_one_priced_model(self):
         cells = {"first_call": {"median": 120000}, "first_call_billed": {"median": 20000}}
         row = {"sides": {"after": {"cells": cells}}, "models": {"after": {"claude-haiku-5-5": 3}}}
         self.assertEqual(appdata.median_usd(row, "after")["usd"], round(20000 * 0.10 * 5 / 1e6, 4))  # over 100K: 5x
+        row["models"]["after"] = {"claude-haiku-5-5": 3, "claude-haiku-5-5-20261001": 1}  # one model, two ids
+        self.assertEqual(appdata.median_usd(row, "after")["model"], "claude-haiku-5-5")
         row["models"]["after"] = {"claude-haiku-5-5": 3, "claude-opus-5-5": 1}
         self.assertIsNone(appdata.median_usd(row, "after"))
         row["models"]["after"] = {"claude-next-9": 3}

@@ -370,7 +370,8 @@
       sub: "input-equivalent tokens, median, cache reads and writes weighted by price" +
         (f.usd ? " · " + usdText(f.usd) + " at " + f.usd.model + " list prices of " + f.usd.prices_as_of : "") })
       : ss && ss.billed ? h(Tile, { key: "b", k: "Billed first call", value: num(ss.billed.input_equiv),
-        sub: "input-equivalent tokens of the newest session" + (usdText(ss.billed) ? " · " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") })
+        sub: "input-equivalent tokens of the newest session" + (ss.here ? "" : " in " + ss.cwd + ", not this folder") +
+          (usdText(ss.billed) ? " · " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") })
       : h(Tile, { key: "b", k: "Billed first call", value: "-", sub: "No billed count yet: walle eve measures it for Claude Code sessions." }));
     tiles.push(t ? h(Tile, { key: "t", k: "Trim", value: t.saving_text,
       sub: "est. tokens over " + plural(t.sessions || 0, "session") + " in rows not yet set · " + num(t.to_apply) + " walle can apply, " +
@@ -380,7 +381,8 @@
   }
 
   function AppliedCard(p) {
-    var a = p.apply, m = a.measured, st = a.undone ? ["Undone", "neutral"] : (STATUS[a.status] || [a.status || "-", "neutral"]);
+    var a = p.apply, m = a.measured;
+    var st = a.undone ? (a.undo_status === "lost" ? ["Undo lost", "walle"] : ["Undone", "neutral"]) : (STATUS[a.status] || [a.status || "-", "neutral"]);
     var firsts = m && m.measure ? m.measure.metrics.filter(function (k) { return k.indexOf("first_call") === 0; }) : [];
     return h("li", null,
       h("div", { className: "app-row" },
@@ -390,6 +392,7 @@
         return h("li", { key: r.id }, h("code", null, r.id), " " + (r.title || r.what || "-"));
       })),
       a.undo_command ? h(Copy, { text: a.undo_command }) : null,
+      a.undo_status === "lost" ? h("p", { className: "app-src" }, "walle undo put the files back, then another program rewrote one. Check the file before you apply again.") : null,
       m ? h("div", { className: "app-measured" },
         h("p", { className: "app-src" }, "Measured by walle context --compare run ", h("code", null, m.id), " · " + m.generated +
           (m.folder ? " · first call of " + m.folder + (m.here ? "" : " (another folder)") : "")),

@@ -345,12 +345,12 @@ def median_usd(row: dict, side: str) -> dict | None:
     cells = (row.get("sides", {}).get(side) or {}).get("cells") or {}
     billed = (cells.get("first_call_billed") or {}).get("median")
     raw = (cells.get("first_call") or {}).get("median") or 0
-    models = (row.get("models") or {}).get(side) or {}
+    models = {cost.model_key(m) for m in (row.get("models") or {}).get(side) or {}}
     if billed is None or len(models) != 1:
         return None
-    model = next(iter(models))
+    model = models.pop()
     usd = cost.usd(billed, model, int(raw))
-    return {"usd": usd, "model": cost.model_key(model), "prices_as_of": cost.PRICES_AS_OF} if usd is not None else None
+    return {"usd": usd, "model": model, "prices_as_of": cost.PRICES_AS_OF} if usd is not None else None
 
 
 # ---------------------------------------------------------------------- trim
@@ -506,7 +506,9 @@ def applies_view(out: Path, home: Path, folder: str) -> list[dict]:
     """The applies, newest first: what each changed, its `walle undo` command while it stands, and its newest
     `walle context --compare`. A settings key acts on every folder, so every apply is listed."""
     rows = _rows(out)
-    undone = {r.get("parent_id") for r in rows if r["kind"] == "undo" and r.get("status") == "restored"}
+    # An undo line means that walle undo ran: it put the files back ("restored") or another program rewrote one
+    # right after ("lost"). Either way a second walle undo of the apply refuses.
+    undone = {r.get("parent_id"): r.get("status") for r in rows if r["kind"] == "undo"}
     plans = {r["id"]: r for r in rows if r["kind"] == "trim"}
     result = []
     for r in reversed(rows):
@@ -523,7 +525,7 @@ def applies_view(out: Path, home: Path, folder: str) -> list[dict]:
         is_undone = r["id"] in undone
         result.append({
             "id": r["id"], "generated": when(r.get("generated")), "label": r.get("label"), "plan_id": r.get("parent_id"),
-            "status": status, "undone": is_undone, "files": [f for f in r.get("files") or [] if isinstance(f, str)],
+            "status": status, "undone": is_undone, "undo_status": undone.get(r["id"]), "files": [f for f in r.get("files") or [] if isinstance(f, str)],
             "rows": [{"id": x.get("id"), "title": titles.get(x.get("id")), "what": x.get("what"),
                       "changed": x.get("changed")} for x in changed],
             # walle undo puts back the files of an apply that stands; the page only shows the command.
@@ -573,8 +575,8 @@ def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan
                  "stacks": len(scan["stacks"]), "scan_id": scan["id"], "generated": scan["generated"]}
     first = None
     if measure and measure["rows"]:
-        row = measure["rows"][0]
         side = measure["sides"][-1]  # the period, or the side since the split
+        row = max(measure["rows"], key=lambda r: (r["sides"].get(side) or {}).get("sessions", 0))
         cells = (row["sides"].get(side) or {}).get("cells") or {}
         first = {"family": row["family"], "side": side, "sessions": (row["sides"].get(side) or {}).get("sessions", 0),
                  "first_call": cells.get("first_call"), "billed": cells.get("first_call_billed"),
@@ -599,8 +601,9 @@ def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan
     standing = [a for a in applies if a["undo_command"]]
     if plan:
         rows = plan["rows"]
-        # A row that an apply after the plan changed is not "already set" in the plan: it is not offered again.
-        applied = {x["id"] for a in standing for x in a["rows"]}
+        # A row that an apply of this plan or of a later one changed is not "already set" in the plan: it is not
+        # offered again. Run ids sort by time. An apply before the plan is in the plan's "already" state.
+        applied = {x["id"] for a in standing if a["plan_id"] == plan["id"] or a["id"] > plan["id"] for x in a["rows"]}
         open_rows = [r for r in rows if not r["already"]]
         to_apply = [r for r in open_rows if r["applies"] == "walle" and r["counted"] and r["command"]
                     and r["id"] not in applied]
