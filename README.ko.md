@@ -31,6 +31,11 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 
 `walle trim --plan`은 기간의 세션(`walle context --usage`와 같은 자료)과 runs 폴더의 최신 스캔을 읽는다. 동작마다 한 행이다: 바꿀 것(설정 키, patch, 앱 안의 자리), 누가 하는지(walle, 수동, patch), 세션당 절감 하한(bytes-v2 토큰), 실린 세션과 쓴 세션, 위험, 되돌리기, 나중 세션의 확인 방법. 지시 파일 변경은 실행 폴더의 `patches/`에 patch 파일로만 쓴다. "이 사용자에게 필요한가"를 판단할 행은 judge 배치 파일로 낸다. 아무것도 바꾸지 않는다. `walle apply`는 계획 단계 C5다.
 
+- claude.ai가 Claude Code로 동기화한 플러그인(`~/.claude/plugins/synced/`의 폴더)은 walle 행이다: `enabledPlugins["<이름>@synced"] = false`. `claude plugin disable <이름>@synced`가 쓰는 키다([문서](https://code.claude.com/docs/en/plugins/loading#control-which-synced-plugins-load)). 조직이 필수로 둔 플러그인은 이 키를 무시한다. 다음 동기화 뒤에도 남는지는 문서에 없다. `walle context --last`로 확인한다.
+- 플러그인 스킬(`anthropic-skills:*`, `<플러그인>:*`)에는 `skillOverrides`를 내지 않는다. Claude Code가 플러그인 스킬에는 적용하지 않는다([문서](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)). 대신 플러그인 행이 플러그인 전체를 뺀다. 이미 넣어 둔 키는 `set, no effect`로 표시한다. 그 행은 키를 지우고, 절감은 세지 않는다.
+- 데스크톱 앱에만 있는 플러그인(`~/.claude/remote/plugins`)은 수동 행이다. claude.ai에서 구성원은 "Installed by default" 플러그인을 끌 수 있다. "Required" 플러그인은 조직 Owner가 바꿔야 한다([문서](https://claude.com/docs/plugins/admin)).
+- `walle apply`는 `enabledPlugins` 키를 `false`로만 바꾸고, `skillOverrides` 키는 `user-invocable-only`로 넣거나 효과 없는 키를 지운다. `walle undo`가 지운 키를 백업에서 되돌린다.
+
 `walle keep`은 runs 폴더 옆 `keep.json`(기본 `~/.walle/keep.json`)에 쓴다. 남긴 줄이 바뀌면 다음 스캔이 `keep released: line changed`를 한 번 보이고 다시 센다. 팀은 저장소 루트의 `.wallekeep`에 팀 키를 한 줄씩 둔다. 팀 키는 원격 URL과 저장소 안 경로로 만들어서 모든 클론에서 같다. walle는 `.wallekeep`을 읽기만 한다. `walle keep --print <id>`가 붙일 줄을 낸다.
 
 리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`과 `walle check`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다. `~/.walle` 아래는 예외다.
