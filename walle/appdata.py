@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 
 from . import brief, cost, eve, keep, runs, strings, trim
@@ -23,6 +24,8 @@ VERDICT_RANK = {"OVER BUDGET": 2, "TRIM": 1, "LEAN": 0}
 ITEM_LIMIT = 200
 APPLY_LIMIT = 10
 TOP_ROWS = 5
+SAVING_ROWS = 12
+COMPOSITION_PARTS = 6
 TEXT_LIMIT = 600
 # The parsed run files that the views read again and again (scan.json is often over 1 MB). The cache holds at most
 # CACHE_FILES files and CACHE_BYTES bytes of file text, the least recently used goes first, and the entry of a file
@@ -562,6 +565,74 @@ def _next_step(scan, measure, plan, top, applies) -> dict:
     return {"text": "Every step has a result. Measure again after more sessions.", "command": "walle eve .", "run": True}
 
 
+def composition(session_data: dict | None) -> dict | None:
+    """What fills the measured first call of one session, largest part first, for the bar on the Efficiency page.
+    The parts are walle's estimates per source; the rest of the measured total is one "not attributed" part. The
+    smallest parts past COMPOSITION_PARTS are one "other" part, so the bar stays readable."""
+    fc = (session_data or {}).get("first_call") or {}
+    total = (fc.get("measured") or {}).get("total")
+    sources = [s for s in fc.get("sources") or [] if isinstance(s, dict) and (s.get("tokens_est") or 0) > 0]
+    if not isinstance(total, int) or total <= 0 or not sources:
+        return None
+    sources.sort(key=lambda s: -s["tokens_est"])
+    parts = [{"source": s.get("source"), "label": s.get("label") or s.get("source"), "tokens": s["tokens_est"],
+              "on_disk": (s.get("on_disk") or {}).get("mark")} for s in sources[:COMPOSITION_PARTS]]
+    rest = sum(s["tokens_est"] for s in sources[COMPOSITION_PARTS:])
+    if rest:
+        parts.append({"source": "other", "label": "Other sources", "tokens": rest, "on_disk": None})
+    residual = total - sum(s["tokens_est"] for s in sources)
+    if residual > 0:
+        parts.append({"source": "residual", "label": "Not attributed (framing, estimate error)", "tokens": residual,
+                      "on_disk": None})
+    whole = max(total, sum(x["tokens"] for x in parts))
+    for x in parts:
+        x["share"] = round(100 * x["tokens"] / whole, 1)
+    return {"total": total, "estimated": sum(s["tokens_est"] for s in sources), "parts": parts}
+
+
+def _days(period: dict | None) -> float | None:
+    """Days between the first and the last session of a plan period, None when the period has no window."""
+    try:
+        first = datetime.fromisoformat(str((period or {})["first"]).replace("Z", "+00:00"))
+        last = datetime.fromisoformat(str((period or {})["last"]).replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError):
+        return None
+    days = (last - first).total_seconds() / 86400
+    return days if days >= 1 else None
+
+
+WHO_TEXT = {"walle": "walle applies it", "manual": "You, in claude.ai or the app", "patch": "A file edit in the repository"}
+
+
+def savings(rows: list[dict], period: dict | None, model: str | None) -> dict:
+    """The open trim rows as a list of savings, largest first: tokens per session, an estimate per month from the
+    sessions of the plan period, and the month at the cache-read list price of the model (a trimmed prefix is read
+    from the cache in most calls, so this is the low end). Every row says who can do it."""
+    days = _days(period)
+    price = cost.PRICES.get(cost.model_key(model or ""))
+    out = []
+    for r in rows:
+        sv = r.get("saving") or {}
+        per, unused = sv.get("tokens_per_session_min") or 0, sv.get("unused_tokens_min") or 0
+        if r.get("already") or not r.get("counted") or not per or not unused:
+            continue
+        month = round(unused * 30 / days) if days else None
+        out.append({"id": r["id"], "title": r["title"], "applies": r["applies"],
+                    "who": WHO_TEXT.get(r["applies"], r["applies"]), "per_session": per,
+                    "sessions": sv.get("unused_sessions"), "period_tokens": unused, "month_tokens": month,
+                    "month_usd": round(month * price[1] / 1_000_000, 4) if month is not None and price else None,
+                    "where": r.get("where"), "check": r.get("check"), "undo": r.get("undo"),
+                    "risk": r.get("risk"), "command": r.get("command")})
+    out.sort(key=lambda x: (-x["period_tokens"], x["id"]))
+    total = sum(x["period_tokens"] for x in out)
+    by_who = {}
+    for x in out:
+        by_who[x["applies"]] = by_who.get(x["applies"], 0) + x["period_tokens"]
+    return {"rows": out[:SAVING_ROWS], "n": len(out), "total": total, "days": round(days, 1) if days else None,
+            "priced_as": cost.model_key(model or "") if price else None, "prices_as_of": cost.PRICES_AS_OF,
+            "share": {k: round(100 * v / total) for k, v in by_who.items()} if total else {}}
+
+
 def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan: dict | None,
                     applies: list[dict]) -> dict:
     """The Efficiency page: the instruction stack, the measured first call with its billed cost, the newest
@@ -595,7 +666,9 @@ def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan
             c = cost.claude(m, model)  # a context run from before walle recorded the cost: the same counts
         session = {"id": fc["id"], "generated": fc["generated"], "here": fc["here"], "cwd": fc["cwd"],
                    "session": (data.get("session") or {}).get("id"), "model": model, "total": m.get("total"),
-                   "billed": _billed_side(c)}
+                   "billed": _billed_side(c), "composition": composition(data)}
+    # The price of the savings: the model of the newest session, else of the measured first call.
+    model = (session or {}).get("model") or ((first or {}).get("usd") or {}).get("model")
     trim_part = None
     top = None
     standing = [a for a in applies if a["undo_command"]]
@@ -618,7 +691,8 @@ def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan
                      "unconfirmed_text": tokens_text(other), "sessions": (plan.get("period") or {}).get("sessions"),
                      "top": [r for r in to_apply[:TOP_ROWS]], "to_apply": len(to_apply),
                      "applied_since": sum(1 for r in open_rows if r["id"] in applied),
-                     "already_rows": [r for r in rows if r["already"]][:TOP_ROWS]}
+                     "already_rows": [r for r in rows if r["already"]][:TOP_ROWS],
+                     "savings": savings([r for r in rows if r["id"] not in applied], plan.get("period"), model)}
     return {"stack": stack, "first_call": first, "session": session, "trim": trim_part,
             "applies": {"n": len(applies), "standing": len(standing),
                         "measured": sum(1 for a in standing if a["measured"])},
