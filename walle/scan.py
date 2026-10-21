@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 from . import estimate
 from .classify import classify_unit, emphasis_count
@@ -23,6 +24,12 @@ from .triage import sections, triage
 
 SCHEMA = 2
 
+# The steps that scan() reports to its progress callback, in order. classify holds segment and
+# classify_unit; pairs holds rule_pairs, topic_pairs, protocol_pairs and copy_groups.
+STEPS = ("collect", "stack", "classify", "pairs", "triage")
+
+Progress = Callable[..., None]
+
 PROSE_KINDS = {"claude_md", "agents_md", "skill", "agent", "command", "memory_index",
                "global_claude", "global_codex", "other_agent"}
 # Files that only Claude Code loads: their tokens are those of the text it loads (stack.claude_loaded).
@@ -35,16 +42,22 @@ def is_copy(a: Artifact) -> bool:
 
 
 def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
-         estimator: str = estimate.DEFAULT, keep: dict | None = None) -> dict:
+         estimator: str = estimate.DEFAULT, keep: dict | None = None, progress: Progress | None = None) -> dict:
     """The scan of roots. Token counts use the estimator (default bytes-v2) for every stack, file, section
     and item. The budget is in the same tokens; None is the estimator's default budget.
-    keep holds the user's kept items (keep.for_scan); kept items leave the verdict and Start here."""
+    keep holds the user's kept items (keep.for_scan); kept items leave the verdict and Start here.
+    progress, when given, is called as progress(step, "start") and progress(step, "end", **counts) for each
+    step of STEPS: files after collect, pairs after pairs, items after triage. It does not change the scan."""
+    step = progress or (lambda *a, **kw: None)
     estimator = estimate.name(estimator)
     if budget is None:
         budget = estimate.budget(estimator)
+    step("collect", "start")
     artifacts = collect(roots, home)
+    step("collect", "end", files=len(artifacts))
     by_path = {str(a.path): a for a in artifacts}
 
+    step("stack", "start")
     folders = session_folders(artifacts)
     for r in roots:
         if r not in folders:
@@ -60,7 +73,9 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
     for st in stacks:
         for p in st.paths():
             loaded_count[str(p)] += 1
+    step("stack", "end")
 
+    step("classify", "start")
     files = []
     unit_cache: dict[str, list] = {}
     file_sections: dict[str, list[dict]] = {}
@@ -89,6 +104,32 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
             "sections": file_sections[str(a.path)],
         })
 
+    stack_rows = []
+    for st in stacks:
+        st_flags = Counter()
+        n_units = 0
+        for p in st.paths():
+            us = unit_cache.get(str(p), [])
+            n_units += sum(1 for u in us if u.kind == "text")
+            for u in us:
+                for fl in classify_unit(u):
+                    st_flags[fl.cause] += 1
+        stack_rows.append({
+            "folder": str(st.folder),
+            "agent": st.agent,
+            "bytes": st.bytes,
+            "tokens_est": st.tokens,
+            "units": n_units,
+            "flags": {str(k): st_flags.get(k, 0) for k in (1, 3, 4)},
+            "layers": [
+                {"label": l.label, "path": str(l.path) if l.path else None,
+                 "bytes": l.bytes, "tokens_est": l.tokens, "note": l.note}
+                for l in st.layers
+            ],
+        })
+    step("classify", "end")
+
+    step("pairs", "start")
     # Rule pairs are compared inside one scope: every prose file of one repository's
     # main checkout, plus the global files that load next to them.
     globals_ = [p for p, a in by_path.items() if a.kind in ("global_claude", "global_codex")]
@@ -115,36 +156,15 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
     known |= {tuple(sorted([(p.a.file, p.a.line), (p.b.file, p.b.line)])) for p in topics}
     pairs += topics + protocol_pairs({k: [u for p in ps for u in unit_cache[p]] for k, ps in scopes.items()}, known)
 
-    stack_rows = []
-    for st in stacks:
-        st_flags = Counter()
-        n_units = 0
-        for p in st.paths():
-            us = unit_cache.get(str(p), [])
-            n_units += sum(1 for u in us if u.kind == "text")
-            for u in us:
-                for fl in classify_unit(u):
-                    st_flags[fl.cause] += 1
-        stack_rows.append({
-            "folder": str(st.folder),
-            "agent": st.agent,
-            "bytes": st.bytes,
-            "tokens_est": st.tokens,
-            "units": n_units,
-            "flags": {str(k): st_flags.get(k, 0) for k in (1, 3, 4)},
-            "layers": [
-                {"label": l.label, "path": str(l.path) if l.path else None,
-                 "bytes": l.bytes, "tokens_est": l.tokens, "note": l.note}
-                for l in st.layers
-            ],
-        })
-
     copies = [g.to_dict() for g in copy_groups(artifacts)]
+    step("pairs", "end", pairs=len(pairs))
+
+    step("triage", "start")
     tri = triage(roots, home, artifacts, stacks, unit_cache, flags_all, pairs, copies, file_sections, budget,
                  estimator, keep)
     for f in files:
         f["ownership"] = tri["ownership"][f["path"]]
-    return {
+    data = {
         "schema": SCHEMA,
         "run": run_block(roots, [st.folder for st in stacks], estimator),
         "generated": datetime.now().isoformat(timespec="seconds"),
@@ -159,3 +179,6 @@ def scan(roots: list[Path], home: Path = HOME, budget: int | None = None,
         "items": tri["items"],
         "triage": tri["triage"],
     }
+    # run_block reads the git heads of the roots, so the triage step ends after it.
+    step("triage", "end", items=len(data["items"]))
+    return data
