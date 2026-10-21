@@ -78,7 +78,12 @@ class PageTest(unittest.TestCase):
         # A divider above the scan whose rules changed, and above the one whose estimator changed.
         self.assertIn("rules changed aaaa -&gt; bbbb: open counts not comparable", page)
         self.assertIn("estimator changed bytes-v2 -&gt; bytes-v1: token totals not comparable", page)
-        self.assertLess(page.index("estimator changed"), page.index("rules changed"))
+        # Each divider sits between the two scans it compares: below the newer one in this newest-first table.
+        at = page.index
+        self.assertLess(at('id">20261020-110000'), at("estimator changed"))
+        self.assertLess(at("estimator changed"), at('id">20261020-100000'))
+        self.assertLess(at('id">20261020-100000'), at("rules changed"))
+        self.assertLess(at("rules changed"), at('id">20261020-090000'))
         self.assertIn('<span class="tag">pinned</span>', page)
         self.assertIn("<li><code>20261020-090000</code> · ~/projects/app</li>", page)
         # The apply: its rows, its undo, the two commands, and links to the runs made around it.
@@ -101,6 +106,47 @@ class PageTest(unittest.TestCase):
         self.assertIn("@font-face{font-family:'IBM Plex Mono'", page)
         self.assertNotIn("<script", page.replace("&lt;script", ""))
         self.assertNotIn("http", page.replace('http-equiv', ''))
+
+
+class DividerAndBadLineTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.out = Path(self.tmp.name) / "runs"
+        self.out.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def index(self, *rows):
+        (self.out / runs.INDEX).write_text("".join((r if isinstance(r, str) else json.dumps(r)) + "\n" for r in rows))
+
+    def test_the_divider_is_between_the_scans_whose_rules_differ(self):
+        scan = {"kind": "scan", "roots": ["/r"], "estimator": "bytes-v2", "counting_revision": 3}
+        self.index({**scan, "id": "s1", "rules": A}, {**scan, "id": "s2", "rules": B}, {**scan, "id": "s3", "rules": B})
+        page = history.render(self.out, Path(self.tmp.name), fonts=False)
+        order = [page.index(x) for x in ('id">s3', 'id">s2', "rules changed aaaa -&gt; bbbb", 'id">s1')]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(page.count('class="div"'), 1)
+
+    def test_broken_lines_never_stop_a_run(self):
+        self.index({"id": "a1", "kind": "apply", "rows": []},
+                   {"kind": "measure", "parent_id": "a1"},  # no id
+                   {"kind": "scan", "roots": ["/r"], "rules": B},  # no id, after a rules change
+                   {"id": 7, "kind": "scan"}, {"id": "x2", "kind": ["scan"]}, "not json", "[1, 2]",
+                   {"id": "s9", "kind": "scan", "roots": "/r", "rules": 5, "stack_sum": "big", "open": None},
+                   {"id": "t1", "kind": "trim", "rows": {"n": 1}})
+        page = history.render(self.out, Path(self.tmp.name), fonts=False)
+        self.assertIn('id">a1', page)
+        self.assertIn('id">s9', page)
+        self.assertNotIn("x2", page)
+        row = runs.append_row(self.out, {"id": "s10", "kind": "scan", "roots": ["/r"], "rules": A})
+        self.assertEqual(row["id"], "s10")
+        self.assertIn('id">s10', (self.out / "index.html").read_text())
+        # Even a page that fails for another reason leaves the run and its index line alone.
+        from unittest import mock
+        with mock.patch("walle.history.render", side_effect=KeyError("id")):
+            runs.append_row(self.out, {"id": "s11", "kind": "scan", "roots": ["/r"]})
+        self.assertEqual(runs.read_index(self.out)[-1]["id"], "s11")
 
 
 class RewriteTest(unittest.TestCase):

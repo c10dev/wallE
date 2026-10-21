@@ -6,8 +6,10 @@ estimator and counting revision, the stack sum and the open and kept counts of a
 run's report (scan.html of a scan, else its Markdown file).
 
 - A pinned scan says so. The pins are listed with their roots.
-- A divider with a text label sits above a scan whose rules, estimator or counting revision differ from the
-  previous scan of the same roots: their counts or token totals do not compare (brief 5.6).
+- A divider with a text label sits between two scans of the same roots whose rules, estimator or counting
+  revision differ: their counts or token totals do not compare (brief 5.6). In the newest-first table it is
+  below the newer scan.
+- Index lines without a string id and kind are left out (clean()). The page never stops a run.
 - Each apply id is listed with its plan, the rows it changed and its undo, the two commands that measure it
   (walle context --compare and walle eve --around), and links to the compare and measure runs made around it.
 
@@ -116,8 +118,41 @@ def _when(rid: str) -> str:
     return f"{m.group(1)}-{m.group(2)}-{m.group(3)} {m.group(4)}:{m.group(5)}" if m else ""
 
 
+def _str(x) -> str | None:
+    return x if isinstance(x, str) and x else None
+
+
+def _int(x) -> int | None:
+    return x if isinstance(x, int) and not isinstance(x, bool) else None
+
+
+def _strs(x) -> list[str]:
+    return [v for v in x if isinstance(v, str)] if isinstance(x, list) else []
+
+
+def clean(rows: list) -> list[dict]:
+    """The index lines the page can show, with each field of the type it expects.
+
+    A line without a string id and kind is left out; a field of another type is left empty. A broken
+    line never stops the page, and the page never stops a run (runs.append_row).
+    """
+    out = []
+    for r in rows:
+        if not isinstance(r, dict) or not _str(r.get("id")) or not _str(r.get("kind")):
+            continue
+        c = {k: _str(r.get(k)) for k in ("id", "kind", "label", "parent_id", "baseline_id", "rules", "estimator",
+                                          "status", "agent", "around", "session", "generated")}
+        c.update(roots=_strs(r.get("roots")), refs=_strs(r.get("refs")), stack_sum=_int(r.get("stack_sum")),
+                 open=_int(r.get("open")), kept=_int(r.get("kept")), counting_revision=_int(r.get("counting_revision")),
+                 usage=r.get("usage") is True,
+                 rows=_strs(r.get("rows")) if isinstance(r.get("rows"), list) else _int(r.get("rows")))
+        out.append(c)
+    return out
+
+
 def dividers(rows: list[dict]) -> dict[str, list[str]]:
-    """Run id -> the labels of the divider above it: what changed since the previous scan of the same roots."""
+    """Run id -> the labels of the divider below it in the newest-first table: what changed between this scan
+    and the previous scan of the same roots. The divider sits between the two."""
     last: dict[str, dict] = {}
     out: dict[str, list[str]] = {}
     for r in rows:
@@ -148,10 +183,10 @@ def _note(r: dict, pins: set[str], by_parent: dict[str, list[dict]]) -> str:
     if kind == "scan" and r.get("id") in pins:
         parts.append('<span class="tag">pinned</span>')
     if kind == "trim":
-        parts.append(f"{_e(r.get('rows', '-'))} rows")
+        parts.append(f"{_e(r['rows'] if isinstance(r.get('rows'), int) else '-')} rows")
     if kind == "apply":
-        parts.append(f"plan <code>{_e(r.get('parent_id') or '-')}</code>: {len(r.get('rows') or [])} changed, "
-                     f"{_e(r.get('status') or '-')}")
+        n = len(r["rows"]) if isinstance(r.get("rows"), list) else 0
+        parts.append(f"plan <code>{_e(r.get('parent_id') or '-')}</code>: {n} changed, {_e(r.get('status') or '-')}")
     if kind == "undo":
         parts.append(f"undo of <code>{_e(r.get('parent_id') or '-')}</code>: {_e(r.get('status') or '-')}")
     if kind == "diff":
@@ -171,7 +206,7 @@ def _note(r: dict, pins: set[str], by_parent: dict[str, list[dict]]) -> str:
 
 def render(out: Path, home: Path = HOME, fonts: bool = True) -> str:
     """The page for the run index of out."""
-    rows = runs.read_index(out)
+    rows = clean(runs.read_index(out))
     pins = runs.load_pins(out)
     pinned = set(pins.values())
     by_parent: dict[str, list[dict]] = {}
@@ -181,9 +216,7 @@ def render(out: Path, home: Path = HOME, fonts: bool = True) -> str:
     divs = dividers(rows)
     body = []
     for r in reversed(rows):
-        rid = r.get("id") or "-"
-        for label in divs.get(rid, []):
-            body.append(f'<tr class="div"><td colspan="11">{_e(label)}</td></tr>')
+        rid = r["id"]
         scan = r.get("kind") == "scan"
         link = _report(out, r)
         roots = _roots(r.get("roots") or [], home)
@@ -201,11 +234,13 @@ def render(out: Path, home: Path = HOME, fonts: bool = True) -> str:
             _td("Estimator", _e(est) if est else ("measured" if r.get("kind") == "measure" else None), "mono"),
             _td("Counting", _e(rev) if rev else None, "r"),
             _td("Stack sum", stack, "r"),
-            _td("Open", _e(r.get("open", "-")) if scan else None, "r"),
-            _td("Kept", _e(r.get("kept", "-")) if scan else None, "r"),
+            _td("Open", _e(r["open"]) if scan and r["open"] is not None else None, "r"),
+            _td("Kept", _e(r["kept"]) if scan and r["kept"] is not None else None, "r"),
             _td("Notes", " · ".join(x for x in (note, report) if x) or None, "n"),
         ]
         body.append("<tr>" + "".join(cells) + "</tr>")
+        for label in divs.get(rid, []):  # below the scan: between it and the older scan it differs from
+            body.append(f'<tr class="div"><td colspan="11">{_e(label)}</td></tr>')
     applies = []
     for r in reversed(rows):
         if r.get("kind") != "apply":
@@ -213,9 +248,10 @@ def render(out: Path, home: Path = HOME, fonts: bool = True) -> str:
         rid = _e(r.get("id"))
         kids = by_parent.get(r.get("id") or "", [])
         links = [f'<a href="{_e(x)}">{_e(k["kind"])} {_e(k["id"])}</a>' for k in kids for x in [_report(out, k)] if x]
+        changed = r["rows"] if isinstance(r.get("rows"), list) else []
         applies.append(
             f'<li><code>{rid}</code> · plan <code>{_e(r.get("parent_id") or "-")}</code> · '
-            f'{len(r.get("rows") or [])} rows changed ({_e(", ".join(r.get("rows") or []) or "-")}) · '
+            f'{len(changed)} rows changed ({_e(", ".join(changed) or "-")}) · '
             f'{_e(r.get("status") or "-")}'
             f'<span class="cmd"><code>walle context --compare {rid}</code> · '
             f'<code>walle eve --around {rid}</code> (after 10 sessions)</span>'

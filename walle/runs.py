@@ -194,8 +194,8 @@ def append_index(out: Path, data: dict, path: Path) -> dict:
 def append_row(out: Path, row: dict) -> dict:
     """Add one line to the run index, then write the history page again (history.py).
 
-    A scan's line comes from summary(); other kinds write their own. A page that cannot be written does not
-    stop the run: the index line is the record.
+    A scan's line comes from summary(); other kinds write their own. A page that cannot be written, for any
+    reason, does not stop the run: the index line is the record.
     """
     out.mkdir(parents=True, exist_ok=True)
     with open(out / INDEX, "a", encoding="utf-8") as fh:
@@ -203,7 +203,7 @@ def append_row(out: Path, row: dict) -> dict:
     from . import history
     try:
         history.write(out)
-    except OSError:
+    except Exception:  # noqa: BLE001 - the index line is the record; the page must never fail the command
         pass
     return row
 
