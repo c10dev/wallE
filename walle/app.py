@@ -8,7 +8,9 @@ Safety:
 - The server listens on 127.0.0.1 only. It makes a random token at start, and every path starts with it:
   /<token>/ is the page, /<token>/api/... the API. A request without the token gets 403.
 - The Host header must be 127.0.0.1, localhost or [::1] with the port of the server (DNS rebinding). An Origin
-  header must be the same origin, and a POST must carry one (or Sec-Fetch-Site: same-origin).
+  header must be the same origin, and a POST must carry one (or Sec-Fetch-Site: same-origin). --allow-host NAME
+  adds NAME:<port> to the Host names and http(s)://NAME:<port> to the origins, for a name that forwards to the
+  loopback port (tailscale serve). The server still listens on 127.0.0.1 only.
 - The browser opens a private temporary file (0600) that redirects to the URL, so the token is not in the argv
   of the browser, where `ps` shows it.
 - POST /<token>/api/run takes one `walle ...` command. The command is split with shlex, checked against an
@@ -55,6 +57,7 @@ LOOPBACK = ("127.0.0.1", "localhost", "[::1]")
 CSP = ("default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; "
        "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 TIMEOUT = 1800  # seconds a command may run
+HOST_NAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*$")
 OUTPUT_CAP = 2_000_000  # characters of stdout and stderr sent to the page
 BODY_CAP = 65536
 
@@ -237,18 +240,30 @@ def dumps(data) -> bytes:
 
 
 # ---------------------------------------------------------------------- server
+def check_host_name(name: str) -> str:
+    """A host name for --allow-host in lowercase, else ValueError: letters, digits, hyphens and dots only, with no
+    scheme, port or path."""
+    low = (name or "").strip().lower()
+    if not HOST_NAME.match(low) or len(low) > 253:
+        raise ValueError(f"--allow-host takes a host name such as vocado-dev.tail82e74d.ts.net, not {name!r}")
+    return low
+
+
 class App:
-    def __init__(self, out: Path, home: Path, launch: Path, port: int = 0, token: str | None = None):
+    def __init__(self, out: Path, home: Path, launch: Path, port: int = 0, token: str | None = None,
+                 allow_hosts: list[str] | tuple = ()):
         self.out, self.home, self.launch = out, home, launch
         self.token = token or secrets.token_urlsafe(24)
         self.lock = threading.Lock()
         self.children: set[subprocess.Popen] = set()
+        self.allow_hosts = [check_host_name(n) for n in allow_hosts]
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.httpd.daemon_threads = True
         self.httpd.app = self
         self.port = self.httpd.server_address[1]
-        self.hosts = {f"{h}:{self.port}" for h in LOOPBACK}
-        self.origins = {f"http://{h}" for h in self.hosts}
+        self.hosts = {f"{h}:{self.port}" for h in (*LOOPBACK, *self.allow_hosts)}
+        self.origins = {f"http://{h}:{self.port}" for h in LOOPBACK}
+        self.origins |= {f"{scheme}://{h}:{self.port}" for h in self.allow_hosts for scheme in ("http", "https")}
 
     @property
     def url(self) -> str:
@@ -327,11 +342,11 @@ class Handler(BaseHTTPRequestHandler):
     def _route(self) -> str | None:
         """The path after /<token>/, or None after a 403 or a redirect."""
         app: App = self.server.app
-        if self.headers.get("Host", "") not in app.hosts:
+        if self.headers.get("Host", "").lower() not in app.hosts:
             self._deny(403, "walle app: this host name is not allowed. Open the URL that walle app printed.")
             return None
         origin = self.headers.get("Origin")
-        if origin is not None and origin not in app.origins:
+        if origin is not None and origin.lower() not in app.origins:
             self._deny(403, "walle app: requests from other origins are refused.")
             return None
         if self.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
@@ -573,11 +588,18 @@ def _interrupt(*_args) -> None:
 def run_cli(args, home: Path) -> int:
     launch = Path.cwd().resolve()
     try:
-        app = App(args.out, home, launch, args.port)
+        names = [check_host_name(n) for n in args.allow_host or []]
+    except ValueError as e:
+        print(f"walle app: {e}", file=sys.stderr)
+        return 2
+    try:
+        app = App(args.out, home, launch, args.port, allow_hosts=names)
     except OSError as e:
         print(f"walle app: cannot listen on 127.0.0.1:{args.port}: {e.strerror or e}", file=sys.stderr)
         return 2
     print(f"walle app: {app.url}")
+    for name in app.allow_hosts:
+        print(f"Also allowed: https://{name}:{app.port}/{app.token}/ when that name forwards to this port.")
     print(f"Read commands only. Runs folder {brief.shown(str(args.out), None, home)}. Stop with Ctrl-C.")
     print(f"From another machine: ssh -N -L {app.port}:127.0.0.1:{app.port} {socket.gethostname()}, "
           "then open the URL above there.")

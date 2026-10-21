@@ -188,6 +188,12 @@ ssh -N -L 8760:127.0.0.1:8760 <server>
 
 Use the same port on the two sides: the server refuses a Host header with another port.
 
+`--allow-host NAME` (repeatable) adds a host name that forwards to the app port, for example a tailnet name that `tailscale serve` publishes. The server then also accepts the Host `NAME:<port>` and the origins `https://NAME:<port>` and `http://NAME:<port>`. It still listens on 127.0.0.1 only, and every path still needs the token.
+
+```bash
+walle app --port 8760 --no-open --allow-host vocado-dev.tail82e74d.ts.net
+```
+
 Without `--no-open`, walle opens the browser through a private temporary file (mode 0600) that redirects to the URL. The token is not in the command line of the browser, where other users can see it with `ps`.
 
 ## scan.json

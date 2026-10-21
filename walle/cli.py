@@ -251,6 +251,9 @@ def main(argv: list[str] | None = None) -> int:
     a = sub.add_parser("app", help="serve the walle web app on 127.0.0.1: the runs, and walle read commands")
     a.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free port)")
     a.add_argument("--no-open", action="store_true", help="print the URL only; do not open a browser")
+    a.add_argument("--allow-host", action="append", metavar="NAME",
+                   help="also accept this host name with the app port, for a name that forwards to it (for example "
+                        "tailscale serve). The server still listens on 127.0.0.1 only. Repeatable")
 
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")

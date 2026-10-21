@@ -125,6 +125,12 @@ ssh -N -L 8760:127.0.0.1:8760 <서버>
 
 양쪽 포트를 같게 둔다. 서버는 다른 포트가 적힌 Host 헤더를 거부한다.
 
+`--allow-host NAME`(여러 번 줄 수 있다)은 앱 포트로 넘겨 주는 호스트 이름을 더한다. 예를 들어 `tailscale serve`가 공개한 tailnet 이름이다. 그러면 서버는 Host `NAME:<포트>`와 출처 `https://NAME:<포트>`, `http://NAME:<포트>`도 받는다. 서버는 여전히 127.0.0.1에서만 듣고, 모든 경로에 토큰이 필요하다.
+
+```bash
+walle app --port 8760 --no-open --allow-host vocado-dev.tail82e74d.ts.net
+```
+
 `--no-open`이 없으면 walle는 URL로 넘겨 주는 개인 임시 파일(권한 0600)로 브라우저를 연다. 토큰은 브라우저 명령줄에 들어가지 않는다. 명령줄은 다른 사용자가 `ps`로 볼 수 있다.
 
 ## 한계

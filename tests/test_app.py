@@ -427,8 +427,15 @@ class CliTest(unittest.TestCase):
         from appfixture import walle
         p = walle(FX.home, FX.out, "app", "--help")
         self.assertEqual(p.returncode, 0)
-        for flag in ("--port", "--no-open"):
+        for flag in ("--port", "--no-open", "--allow-host"):
             self.assertIn(flag, p.stdout)
+
+    def test_a_bad_allow_host_stops_before_listening(self):
+        from appfixture import walle
+        for name in ("https://vocado-dev.ts.net", "vocado-dev.ts.net:8760", "a/b", "*.ts.net", ""):
+            p = walle(FX.home, FX.out, "app", "--no-open", "--allow-host", name)
+            self.assertEqual(p.returncode, 2, name)
+            self.assertIn("--allow-host takes a host name", p.stderr, name)
 
 
 SILENT = [sys.executable, "-c", "import time; time.sleep(60)"]
@@ -490,6 +497,49 @@ class SilentChildTest(Served):
         self.app.stop_children()
         self.assertTrue(self.wait_for(lambda: proc.poll() is not None), "the child still runs")
         self.assertEqual(proc.returncode, -15)
+
+
+class AllowHostTest(Served):
+    NAME = "vocado-dev.tail82e74d.ts.net"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.home, cls.out = FX.home, FX.out
+        cls.app = appmod.App(cls.out, cls.home, FX.app, 0, allow_hosts=[cls.NAME.upper()])
+        threading.Thread(target=cls.app.serve, daemon=True).start()
+        cls.port, cls.token = cls.app.port, cls.app.token
+
+    def test_the_name_with_the_port_is_a_host(self):
+        self.assertEqual(self.app.httpd.server_address[0], "127.0.0.1")
+        for host in (f"{self.NAME}:{self.port}", f"{self.NAME.upper()}:{self.port}", f"127.0.0.1:{self.port}"):
+            r, _ = self.get("api/state", host=host)
+            self.assertEqual(r.status, 200, host)
+        for host in (self.NAME, f"{self.NAME}:{self.port + 1}", f"evil.{self.NAME}:{self.port}",
+                     f"other.tail82e74d.ts.net:{self.port}"):
+            r, _ = self.get("api/state", host=host)
+            self.assertEqual(r.status, 403, host)
+
+    def test_the_name_is_an_origin_over_https_and_http(self):
+        host = f"{self.NAME}:{self.port}"
+        for origin in (f"https://{self.NAME}:{self.port}", f"http://{self.NAME}:{self.port}"):
+            r, _ = self.get("api/state", host=host, headers={"Origin": origin})
+            self.assertEqual(r.status, 200, origin)
+            with mock.patch("walle.app.subprocess.Popen", return_value=FakeProc(["ok"])):
+                r, _ = self.req("POST", f"/{self.token}/api/run", body={"command": "walle runs"},
+                                headers={"Origin": origin}, host=host)
+            self.assertEqual(r.status, 200, origin)
+        for origin in (f"https://{self.NAME}", f"https://{self.NAME}:443", f"https://evil.example:{self.port}"):
+            r, _ = self.get("api/state", host=host, headers={"Origin": origin})
+            self.assertEqual(r.status, 403, origin)
+
+    def test_the_token_is_still_needed(self):
+        r, _ = self.req("GET", "/api/state", host=f"{self.NAME}:{self.port}")
+        self.assertEqual(r.status, 403)
+
+    def test_bad_names_are_refused(self):
+        for name in ("https://x.ts.net", "x.ts.net:1", "x/y", "-x.ts.net", "x..ts.net", ""):
+            with self.assertRaises(ValueError, msg=name):
+                appmod.check_host_name(name)
 
 
 class OpenBrowserTest(unittest.TestCase):
