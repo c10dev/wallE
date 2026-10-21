@@ -56,6 +56,8 @@ HOST_SWITCHES = {
     "computer-use": "the Claude desktop app's settings: turn computer use off",
     "claude-in-chrome": "the Claude in Chrome extension: disconnect it from Claude Code",
 }
+# walle cannot see app menus: a place in an app is from the docs and the app's tool names.
+UNCONFIRMED = "walle has not confirmed the menu path"
 SETTINGS = "~/.claude/settings.json"
 CLAUDE_JSON = "~/.claude.json"
 JUDGE_CACHE = "trim-judge.json"
@@ -255,8 +257,8 @@ def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[
         elif kind == "connector":
             title = f"Disconnect the claude.ai connector {name}"
             change = {"kind": "app", "app": "claude.ai", "what": f"disconnect {name}"}
-            where = (f"claude.ai Settings > Connectors > {name.replace('claude.ai ', '')}. It loads in every "
-                     "surface signed in to the account; the Claude desktop app also has a per-session connector toggle.")
+            where = (f"claude.ai Settings > Connectors > {name.replace('claude.ai ', '')} ({UNCONFIRMED}). It loads in "
+                     "every surface signed in to the account; the Claude desktop app also has a per-session connector toggle.")
             undo = "Connect it again in the same place and sign in to the service again."
             risk = ("medium" if calls else "low",
                     f"tasks that need {name} fail until it is connected again; {used:,} sessions used it.")
@@ -266,7 +268,7 @@ def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[
         elif key in HOST_SWITCHES:
             title = f"Turn off {name} in the host app"
             change = {"kind": "app", "app": "Claude desktop app", "what": f"turn off {name}"}
-            where = f"{HOST_SWITCHES[key][0].upper()}{HOST_SWITCHES[key][1:]}. walle has not confirmed the menu path."
+            where = f"{HOST_SWITCHES[key][0].upper()}{HOST_SWITCHES[key][1:]} ({UNCONFIRMED})."
             need["source"] = "host app MCP server"
             rows.append(_row("server", key, name, "T1", title, change, "manual", where, per, sess, unused,
                              ("medium" if calls else "low", f"tasks that use {name} stop working until it is on again."),
@@ -339,7 +341,7 @@ def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
         else:
             where = ("The plugin comes from claude.ai, not from a file walle can change: turn it off where your "
                      "organization's plugins are managed on claude.ai (an organization plugin may need its admin), "
-                     "or with /plugin in Claude Code.")
+                     f"or with /plugin in Claude Code ({UNCONFIRMED}).")
             if not cat["sources"]:
                 where = "walle did not find this plugin on disk. Find where it is installed: /plugin in Claude Code."
             change = {"kind": "app", "app": "claude.ai", "what": f"turn off the plugin {name}"}
@@ -374,7 +376,7 @@ def skill_rows(u: dict, plugins: dict[str, dict], home: Path, folders: set[str])
         if prefix and base and base.group(1) in listed:
             change = {"kind": "app", "app": "claude.ai", "what": f"delete {short}, a copy of {base.group(1).split(':', 1)[1]}"}
             rows.append(_row("skill", nm, nm, "T6", f"Delete the duplicate skill {short}", change, "manual",
-                             "claude.ai skills settings: delete the copy, keep the first one.", per, sess,
+                             f"claude.ai skills settings: delete the copy, keep the first one ({UNCONFIRMED}).", per, sess,
                              s["sessions_listed"], ("low", "the first copy stays."),
                              "Add the skill again in claude.ai.", check, need))
             continue
