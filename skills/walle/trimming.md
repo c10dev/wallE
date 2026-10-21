@@ -23,4 +23,4 @@ Plugin rows:
 - For synced skills and `@synced` plugin keys, tell the user only the saving on `cli` and `sdk-cli`. For `@inline` plugin keys, tell the saving on `claude-desktop`. Give the other shares as a separate, unconfirmed number.
 - A row whose key is already set shows a status per surface. Tell the user that status. Do not count its saving. No row deletes a key.
 - A row marked "not in the current bucket" is a skill that no longer syncs. Its loaded count is from past sessions.
-- A plugin that the organization requires, and a desktop copy that the host does not pass now, are manual. On claude.ai, a member can turn off an "Installed by default" plugin; a "Required" plugin needs the organization Owner ([docs](https://claude.com/docs/plugins/admin)).
+- A plugin that the organization requires, and a past desktop plugin (none of the newest 10 `claude-desktop` sessions loaded it), are manual. `walle keep` on one row of a plugin keeps its other row too. On claude.ai, a member can turn off an "Installed by default" plugin; a "Required" plugin needs the organization Owner ([docs](https://claude.com/docs/plugins/admin)).
