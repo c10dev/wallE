@@ -395,6 +395,8 @@ STRINGS: dict[str, tuple[str, str]] = {
                       "쓸 것이 없다: 모든 키가 이미 계획한 값이다."),
     "undo.head": ("walle undo {id}", "walle undo {id}"),
     "undo.no_backup": ("walle undo: no backup {id} in {path}.", "walle undo: {path}에 백업 {id}가 없다."),
+    "undo.not_walle": ("walle undo: {path} is not a backup that walle apply wrote. Nothing changed. Restore it by hand.",
+                       "walle undo: {path}는 walle apply가 쓴 백업이 아니다. 아무것도 바꾸지 않았다. 직접 복원한다."),
     "undo.already": ("walle undo: {id} was undone at {at}. Nothing changed.",
                      "walle undo: {id}는 {at}에 이미 되돌렸다. 아무것도 바꾸지 않았다."),
     "undo.changed_since": ("walle undo: {file} changed after apply {id}. Nothing is restored.",

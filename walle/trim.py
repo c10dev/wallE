@@ -120,12 +120,36 @@ def target_path(file: str, home: Path) -> Path:
     return home / file[2:] if file.startswith("~/") else Path(file)
 
 
+_ABSENT = object()
+
+
+def _at(doc, keys: list[str]):
+    for k in keys:
+        if not isinstance(doc, dict) or k not in doc:
+            return _ABSENT
+        doc = doc[k]
+    return doc
+
+
+def already_set(c: dict, doc: dict) -> bool:
+    """The file already has the state that the change makes: walle apply will report it as "already"."""
+    now = _at(doc, [str(k) for k in c["keys"]])
+    if c["op"] == "set":
+        return now is not _ABSENT and now == c["value"] and type(now) is type(c["value"])
+    if c["op"] == "remove":
+        return now is _ABSENT
+    return now is _ABSENT and _at(doc, [str(k) for k in c["to"]]) is not _ABSENT
+
+
 def record_targets(rows: list[dict], home: Path) -> dict[str, str | None]:
     """Write the path and the sha256 of each settings file that a row changes, as the plan reads it now.
 
     walle apply refuses a target whose hash differs: the plan was made for that file as it was.
+    A row whose key already has the planned state gets "already": true. The sessions of the period
+    can be older than that change, so the row stays in the plan; its check tells whether it acts.
     """
     targets: dict[str, str | None] = {}
+    docs: dict[str, dict] = {}
     for r in rows:
         c = r["change"]
         if c.get("kind") != "settings_key":
@@ -133,7 +157,9 @@ def record_targets(rows: list[dict], home: Path) -> dict[str, str | None]:
         path = str(target_path(c["file"], home))
         if path not in targets:
             targets[path] = file_sha256(Path(path))
+            docs[path] = _json(Path(path))
         c["path"], c["sha256"] = path, targets[path]
+        c["already"] = already_set(c, docs[path])
     return targets
 
 
@@ -746,7 +772,10 @@ def render(data: dict) -> str:
     by = defaultdict(int)
     for r in rows:
         by[r["applies"]] += 1
-    md.append(f"{len(rows)} rows: walle can apply {by['walle']}, manual {by['manual']}, patch {by['patch']}. "
+    done = sum(1 for r in rows if r["change"].get("already"))
+    md.append(f"{len(rows)} rows: walle can apply {by['walle']}"
+              + (f" ({done} already set in the file)" if done else "")
+              + f", manual {by['manual']}, patch {by['patch']}. "
               f"Kept and left out: {len(data['kept'])} (walle keep --list). Nothing here is applied.")
     md.append("")
     src = [r for r in rows if r["group"] == "source"]
@@ -781,6 +810,9 @@ def render(data: dict) -> str:
             md.append(f"- Change: {_change_text(r)}")
             md.append(f"- Where: {r['where']}")
             md.append(f"- Who: {WHO[r['applies']]}")
+            if r["change"].get("already"):
+                md.append("- In the file: the key already has this state. Sessions of the period before that change "
+                          "still count here; the check tells whether it acts.")
             if r["saving"]:
                 sv = r["saving"]
                 line = f"- Saving: at least {_approx(sv['tokens_per_session_min'])} est. tokens per {sv['per']}"

@@ -476,9 +476,15 @@ def _save_undo(backup: Path, undo: dict) -> None:
 def load_undo(out: Path, apply_id: str) -> tuple[Path, dict]:
     backup = out.parent / "backups" / apply_id
     try:
-        return backup, json.loads((backup / UNDO).read_text())
+        rec = json.loads((backup / UNDO).read_text())
     except (OSError, ValueError):
         raise ApplyError("undo.no_backup", {"id": apply_id, "path": str(out.parent / "backups")}) from None
+    ok = isinstance(rec, dict) and rec.get("version") == 1 and isinstance(rec.get("files"), list)
+    ok = ok and all(isinstance(e, dict) and {"file", "real", "before", "after", "sha256_before", "sha256_after"} <= set(e)
+                    for e in rec["files"])
+    if not ok:  # a backup that walle apply did not write, for example one made by hand
+        raise ApplyError("undo.not_walle", {"id": apply_id, "path": str(backup)})
+    return backup, rec
 
 
 def undo(out: Path, apply_id: str, *, app_closed: bool = False, home: Path = HOME, procs=None) -> dict:
@@ -537,7 +543,7 @@ def render_line(key: str, fields: dict, lang: str) -> str:
 
 
 # ---------------------------------------------------------------------- CLI
-USAGE_ERRORS = ("apply.need_only", "apply.unknown_id", "undo.no_backup")
+USAGE_ERRORS = ("apply.need_only", "apply.unknown_id", "undo.no_backup", "undo.not_walle")
 
 
 def add_parser(sub) -> None:

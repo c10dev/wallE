@@ -73,6 +73,7 @@ class ApplyUndoTest(unittest.TestCase):
         self.assertEqual(data["targets"], {str(self.f.settings): sha(self.f.settings),
                                            str(self.f.claude_json): sha(self.f.claude_json)})
         self.assertNotIn("sha256", rows["claude.ai Vercel"]["change"])  # a manual row has no target file
+        self.assertEqual((ts["already"], rows["rea"]["change"]["already"]), (False, False))
         # The plan is a run of the index too: walle runs lists it, and an apply points at it.
         self.assertEqual([r["kind"] for r in runs.read_index(self.f.out)], ["trim"])
 
@@ -280,6 +281,18 @@ class ApplyUndoTest(unittest.TestCase):
         self.assertIn(f"walle apply: zzzzzz is not a row of plan {run_dir.name}. Nothing changed.", err)
         self.f.cli("apply", "no-such-run", "--only", ts["id"], code=2)
         self.f.cli("undo", "no-such-apply", code=2)
+        # A backup folder made by hand, in another shape: walle undo does not touch it.
+        hand = self.f.backups / "20261021-031013-trim"
+        hand.mkdir(parents=True)
+        (hand / "undo.json").write_text(json.dumps({"apply_id": "x", "file": str(self.f.settings), "backup": "b",
+                                                    "sha256_before": "0", "sha256_after": sha(self.f.settings)}))
+        before = self.f.settings.read_bytes()
+        _out, err = self.f.cli("undo", hand.name, code=2)
+        self.assertIn(f"walle undo: {hand} is not a backup that walle apply wrote.", err)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+        hand.joinpath("undo.json").unlink()
+        hand.rmdir()
+        self.f.backups.rmdir()
         # A plan.json changed by hand cannot make walle write a hook, a permission or a project file.
         plan = json.loads((run_dir / "plan.json").read_text())
         row = next(r for r in plan["rows"] if r["id"] == ts["id"])
@@ -304,11 +317,15 @@ class ApplyUndoTest(unittest.TestCase):
         self.assertIn(f"would    {ts['id']}  ~/.claude/settings.json enabledPlugins", out)
         self.assertEqual(tree_hash(self.f.home), home)
         self.assertFalse(self.f.backups.exists())
-        # The key already has the planned value: nothing to write, no backup.
+        # The key already has the planned value: the plan says so, and apply writes nothing and makes no backup.
         doc = json.loads(self.f.settings.read_text())
         doc["enabledPlugins"]["typesafe@typesafe-ai"] = False
         self.f.settings.write_text(json.dumps(doc, indent=2) + "\n")
         data, run_dir = self.f.plan()
+        self.assertTrue(self.f.rows(data)["typesafe"]["change"]["already"])
+        md = (run_dir / "plan.md").read_text()
+        self.assertIn("(1 already set in the file)", md)
+        self.assertIn("- In the file: the key already has this state.", md)
         out, _ = self.f.cli("apply", run_dir.name, "--only", ts["id"])
         self.assertIn(f"already  {ts['id']}", out)
         self.assertIn("Nothing to write", out)
