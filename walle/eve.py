@@ -556,7 +556,7 @@ def run_cli(args, home: Path = HOME) -> int:
     root = (args.transcripts or (home / ".codex" if agent == "codex" else args.claude_transcripts)).expanduser()
     hit = out_in_scan(args.out, [folder], home)
     if hit:
-        print(t("out.in_scan", lang, path=hit[0], root=hit[1]), file=sys.stderr)
+        print(t("out.in_folder", lang, path=hit[0], root=hit[1]), file=sys.stderr)
         return 2
     for value in (args.since, args.before):
         if value and measure.parse_when(value) is None:

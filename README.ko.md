@@ -45,7 +45,7 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 
 `walle keep`은 runs 폴더 옆 `keep.json`(기본 `~/.walle/keep.json`)에 쓴다. 남긴 줄이 바뀌면 다음 스캔이 `keep released: line changed`를 한 번 보이고 다시 센다. 팀은 저장소 루트의 `.wallekeep`에 팀 키를 한 줄씩 둔다. 팀 키는 원격 URL과 저장소 안 경로로 만들어서 모든 클론에서 같다. walle는 `.wallekeep`을 읽기만 한다. `walle keep --print <id>`가 붙일 줄을 낸다.
 
-리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`과 `walle check`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다. `~/.walle` 아래는 예외다.
+리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`, `walle check`, `walle diff`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다. `walle eve`와 `walle context --compare <apply-id|날짜>`는 재는 폴더에 같은 규칙을 쓴다. `~/.walle` 아래는 예외다.
 
 ## scan.json (schema 2)
 

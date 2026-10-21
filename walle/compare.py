@@ -481,6 +481,11 @@ def run_cli(args, home: Path = HOME) -> int:
     estimator = estimate.name(args.estimator or (estimate.CODEX_DEFAULT if agent == "codex" else estimate.DEFAULT))
     folder = (args.root or Path.cwd()).expanduser().resolve()
     cache = args.out.parent / "cache"
+    # With a split point, the command measures the sessions of a folder: it writes nothing inside it.
+    hit = out_in_scan(args.out, [folder], home) if len(refs) == 1 else None
+    if hit:
+        print(t("out.in_folder", lang, path=hit[0], root=hit[1]), file=sys.stderr)
+        return 2
     res: dict = {"split": None, "applied": [], "measure": None, "same_folder": True}
     names = cached_names(cache) if agent == "claude" else {}
     try:
@@ -513,10 +518,6 @@ def run_cli(args, home: Path = HOME) -> int:
         print(t(e.key, lang, **e.fields), file=sys.stderr)
         return 2
     res.update(a=a, b=b)
-    hit = out_in_scan(args.out, [folder] if res["measure"] else [], home)
-    if hit:
-        print(t("out.in_scan", lang, path=hit[0], root=hit[1]), file=sys.stderr)
-        return 2
     text = lines(res, lang, home)
     run_dir = runs.new_run_dir(args.out)
     now = datetime.now().isoformat(timespec="seconds")

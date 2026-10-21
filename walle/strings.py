@@ -394,6 +394,9 @@ STRINGS: dict[str, tuple[str, str]] = {
     "show.no_item": ("no item {ref} in recent scans; run walle scan", "최근 스캔에 항목 {ref}가 없다. walle scan을 돌린다."),
     "show.changed": ("file changed since scan; run walle scan", "스캔 뒤 파일이 바뀌었다. walle scan을 다시 돌린다."),
     # --out of scan and check: walle never writes into a folder that it scans
+    "out.in_folder": ("walle: {path} is inside {root}, the folder this command measures. "
+                      "Use an --out folder outside it, such as ~/.walle/runs.",
+                      "walle: {path}는 이 명령이 재는 폴더 {root} 안에 있다. 그 밖의 --out 폴더를 쓴다(예: ~/.walle/runs)."),
     "out.in_scan": ("walle: {path} is inside {root}, which this command scans. "
                     "Use an --out folder outside it, such as ~/.walle/runs.",
                     "walle: {path}는 이 명령이 스캔하는 {root} 안에 있다. 그 밖의 --out 폴더를 쓴다(예: ~/.walle/runs)."),

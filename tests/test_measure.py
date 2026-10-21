@@ -228,7 +228,13 @@ class AroundTest(unittest.TestCase):
         before = tree_hash(self.h.home / "projects")
         self.h.measure(str(self.h.app), "--around", APPLY)
         self.assertEqual(tree_hash(self.h.home / "projects"), before)
-        self.h.cli("--out", str(self.h.app / "runs"), "measure", str(self.h.app), code=2)
+        _out, err = self.h.cli("--out", str(self.h.app / "runs"), "measure", str(self.h.app), code=2)
+        self.assertIn("is inside", err)
+        self.assertIn("the folder this command measures", err)
+        _out, err = self.h.cli("--out", str(self.h.app / "runs"), "context", "--compare", APPLY, "--root", str(self.h.app),
+                               "--transcripts", str(self.h.projects), code=2)
+        self.assertIn("the folder this command measures", err)
+        self.assertFalse((self.h.app / "runs").exists())
 
     def test_no_transcripts(self):
         out, _ = self.h.cli("measure", str(self.h.app), "--transcripts", str(self.h.home / "none"))
