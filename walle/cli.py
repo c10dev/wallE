@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import brief, context, estimate, eve, judge, keep, report, report_html, runs, trim
+from . import apply, brief, context, estimate, eve, judge, keep, report, report_html, runs, trim
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -226,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
     context.add_parser(sub, HOME / ".claude" / "projects")
     trim.add_parser(sub, HOME / ".claude" / "projects")
     keep.add_parser(sub)
+    apply.add_parser(sub)
 
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
@@ -244,6 +245,8 @@ def main(argv: list[str] | None = None) -> int:
         return trim.run_cli(args)
     if args.cmd in ("keep", "unkeep"):
         return keep.run_cli(args, HOME)
+    if args.cmd in ("apply", "undo"):
+        return apply.run_cli(args, HOME)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
         started = time.monotonic()

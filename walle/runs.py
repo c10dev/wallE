@@ -5,6 +5,13 @@ previous scan of the same roots), the walle version, the rules hash, the token
 estimator and the counting revision. Two runs compare finding counts only when their
 rules hashes match, and token totals only when their estimators and their counting
 revisions match.
+
+Other runs also get an index line: trim (a plan), apply and undo (walle apply, walle
+undo: parent_id links them to the plan and to the apply), and diff. Code that reads the
+index for scans filters on kind "scan".
+
+pins.json in the runs folder holds the baseline that `walle pin` fixed for a set of
+roots. Without a pin, the baseline of a scan is its parent.
 """
 
 from __future__ import annotations
@@ -19,6 +26,7 @@ from .collect import find_checkout
 from .triage import rules_hash
 
 INDEX = "index.jsonl"
+PINS = "pins.json"
 # Scans without an estimator record (schema 1 scan.json, which has no run block) counted with bytes-v1.
 UNRECORDED_ESTIMATOR = "bytes-v1"
 # Which text of a file scan counts. Bump it when that text changes: token totals of two revisions do not compare.
@@ -178,11 +186,60 @@ def summary(data: dict, path: Path) -> dict:
 
 
 def append_index(out: Path, data: dict, path: Path) -> dict:
-    row = summary(data, path)
+    return append_row(out, summary(data, path))
+
+
+def append_row(out: Path, row: dict) -> dict:
+    """Add one line to the run index. A scan's line comes from summary(); other kinds write their own."""
     out.mkdir(parents=True, exist_ok=True)
     with open(out / INDEX, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
     return row
+
+
+def roots_key(roots: list[str]) -> str:
+    """One key for a set of roots: the sorted paths, one per line."""
+    return "\n".join(sorted(roots))
+
+
+def scans(out: Path, roots: list[str] | None = None) -> list[dict]:
+    """Index lines of scan runs, oldest first; with roots, only scans of exactly that set of roots."""
+    rows = [r for r in read_index(out) if r.get("kind") == "scan"]
+    if roots is not None:
+        want = sorted(roots)
+        rows = [r for r in rows if sorted(r.get("roots") or []) == want]
+    return rows
+
+
+def newest_scan_of(out: Path, folder: Path) -> dict | None:
+    """The newest scan whose roots include folder, else None."""
+    return next((r for r in reversed(scans(out)) if str(folder) in (r.get("roots") or [])), None)
+
+
+def load_pins(out: Path) -> dict[str, str]:
+    """Roots key -> the run id pinned as the baseline of those roots."""
+    try:
+        data = json.loads((out / PINS).read_text())
+    except (OSError, ValueError):
+        return {}
+    pins = data.get("pins") if isinstance(data, dict) else None
+    return {k: v for k, v in (pins or {}).items() if isinstance(k, str) and isinstance(v, str)}
+
+
+def save_pins(out: Path, pins: dict[str, str]) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    tmp = out / (PINS + ".tmp")
+    tmp.write_text(json.dumps({"version": 1, "pins": pins}, ensure_ascii=False, indent=1) + "\n")
+    tmp.replace(out / PINS)
+
+
+def baseline_of(out: Path, row: dict) -> tuple[dict | None, bool]:
+    """(baseline index line, pinned) of a scan: the pinned run of its roots, else its parent scan."""
+    by_id = {r.get("id"): r for r in scans(out)}
+    pinned = load_pins(out).get(roots_key(row.get("roots") or []))
+    if pinned and pinned in by_id:
+        return by_id[pinned], True
+    return by_id.get(row.get("parent_id")), False
 
 
 def history(out: Path, data: dict, path: Path, n: int = 10) -> list[dict]:

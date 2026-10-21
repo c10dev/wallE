@@ -16,13 +16,16 @@ runs/<id>/patches/; walle never edits an instruction file. Rows that need an ans
 user's work need it?" go to judge batch files in runs/<id>/judge/ (judge.py format: no API key, no
 network); `walle trim --import` reads the answers back into the plan.
 
-walle trim changes nothing: `walle apply` and `walle undo` are plan step C5. Measured values stay out
-of the scan verdict, Start here and the alarm (brief 2.1).
+Each row that walle can apply records its target file (`change.path`) and the sha256 of that file when
+the plan read it (`change.sha256`; `targets` lists them once per file). walle trim changes nothing:
+`walle apply <run> --only <id>` changes the rows the user picks and refuses a target whose hash is not the
+plan's (walle/apply.py). Measured values stay out of the scan verdict, Start here and the alarm (brief 2.1).
 """
 
 from __future__ import annotations
 
 import difflib
+import hashlib
 import json
 import re
 import sys
@@ -102,6 +105,36 @@ def gate(loaded: int, used: int, calls: int) -> bool:
 
 def row_id(kind: str, key: str) -> str:
     return _id(["trim", kind, key])
+
+
+def file_sha256(path: Path) -> str | None:
+    """The sha256 of a file's bytes, or None when it cannot be read."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return None
+
+
+def target_path(file: str, home: Path) -> Path:
+    """The absolute path of a change's file: "~/" is the home walle reads (not $HOME, so tests can move it)."""
+    return home / file[2:] if file.startswith("~/") else Path(file)
+
+
+def record_targets(rows: list[dict], home: Path) -> dict[str, str | None]:
+    """Write the path and the sha256 of each settings file that a row changes, as the plan reads it now.
+
+    walle apply refuses a target whose hash differs: the plan was made for that file as it was.
+    """
+    targets: dict[str, str | None] = {}
+    for r in rows:
+        c = r["change"]
+        if c.get("kind") != "settings_key":
+            continue
+        path = str(target_path(c["file"], home))
+        if path not in targets:
+            targets[path] = file_sha256(Path(path))
+        c["path"], c["sha256"] = path, targets[path]
+    return targets
 
 
 # ---------------------------------------------------------------------- what is on disk (key names only)
@@ -588,6 +621,7 @@ def build(args, run_dir: Path) -> dict:
     kept_ids = keep.source_ids(keep.path_for(out))
     kept = [{"id": r["id"], "name": r["source"]["name"], "type": r["source"]["type"]} for r in rows if r["id"] in kept_ids]
     rows = [r for r in rows if r["id"] not in kept_ids]
+    targets = record_targets(rows, home)
 
     items = _need_items(rows)
     for it in items:
@@ -608,7 +642,7 @@ def build(args, run_dir: Path) -> dict:
                 "scan": str(scan_path) if scan is not None else None,
                 "scan_generated": (scan or {}).get("generated")},
         "period": {"sessions": u["sessions"], **u["window"]},
-        "rows": rows, "kept": kept, "report_only": report_only,
+        "rows": rows, "kept": kept, "report_only": report_only, "targets": targets,
         "judge": {"rows": len(items), "cached": len(items) - len(todo), "to_judge": len(todo), "files": files,
                   "rubric_version": RUBRIC_VERSION},
         "method": {"min_sessions": MIN_SESSIONS, "used_share": USED_SHARE, "min_tokens": MIN_TOKENS,
@@ -623,7 +657,12 @@ def build(args, run_dir: Path) -> dict:
 
 
 NOTES = [
-    "walle trim --plan changes nothing. Pick row ids; walle apply (plan step C5) is not built yet.",
+    "walle trim --plan changes nothing. Pick row ids, then `walle apply <run> --only <id>[,<id>]`: it backs up "
+    "and changes only rows that walle can apply, and prints a checklist for manual rows. `walle undo <apply-id>` "
+    "puts the files back.",
+    "walle apply refuses a settings file that changed since this plan (sha256 in targets). The Claude app rewrites "
+    "~/.claude.json while it runs: close every Claude app and session, run walle trim --plan again, then apply "
+    "with --app-closed.",
     "Saving: the median bytes a source adds to a session that loads it, times the low end of the bytes-v2 rate "
     "of that kind of bytes. Estimates, not measured values.",
     "A source is proposed when it loaded in at least 10 sessions, sessions used it in fewer than 10% of them, "
@@ -799,7 +838,7 @@ def render(data: dict) -> str:
     return "\n".join(md) + "\n"
 
 
-WHO = {"walle": "walle apply can change this settings key after a backup (plan step C5); until then, by hand.",
+WHO = {"walle": "`walle apply <run> --only <id>` changes this settings key after a backup; `walle undo` puts it back.",
        "manual": "you, in the app or on the web: walle cannot reach it.",
        "patch": "your agent applies the patch in the repository (or writes it, when there is no patch file)."}
 
@@ -838,7 +877,7 @@ def add_parser(sub, default_transcripts: Path):
 
 
 def run_cli(args) -> int:
-    from .runs import new_run_dir
+    from .runs import append_row, new_run_dir
     try:
         if args.do_import:
             print(import_answers(args))
@@ -854,5 +893,12 @@ def run_cli(args) -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "plan.json").write_text(json.dumps(data, ensure_ascii=False, indent=1))
     (run_dir / "plan.md").write_text(render(data))
+    by = defaultdict(int)
+    for r in data["rows"]:
+        by[r["applies"]] += 1
+    append_row(args.out, {"id": run_dir.name, "kind": "trim", "label": args.label, "parent_id": None,
+                          "generated": data["generated"], "roots": [], "walle_version": __version__,
+                          "estimator": "bytes-v2", "rows": len(data["rows"]), "applies": dict(by),
+                          "path": str(run_dir / "plan.json")})
     print(run_dir / "plan.md")
     return 0
