@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -24,8 +25,15 @@ LISTING = ("- pptx-like: Make slide decks from notes and outlines.\n"
            "- sales:call-prep: Prepare for a sales call with the account history.\n"
            "- typesafe:typesafe-ai: Build typed AI features.\n"
            "- secret-redact:redact: Redact secrets before they leave the machine.\n"
-           "- loop: Run a prompt again and again.")
-NAMES = ["pptx-like", "sales:call-prep", "typesafe:typesafe-ai", "secret-redact:redact", "loop"]
+           "- loop: Run a prompt again and again.\n"
+           "- design:ux-copy: Write or review microcopy, error messages and empty states.\n"
+           "- legal:review-contract: Review a contract against the playbook of the team.\n"
+           "- anthropic-skills:pdf-like: Read, merge, split and fill PDF files of every kind.")
+NAMES = ["pptx-like", "sales:call-prep", "typesafe:typesafe-ai", "secret-redact:redact", "loop", "design:ux-copy",
+         "legal:review-contract", "anthropic-skills:pdf-like"]
+# skillOverrides keys in the fake settings: two plugin skills (no effect) and a skill without a plugin.
+OVERRIDES = {"anthropic-skills:pdf-like": "user-invocable-only", "sales:call-prep": "user-invocable-only",
+             "loop": "user-invocable-only"}
 
 
 class Fixture:
@@ -65,7 +73,21 @@ class Fixture:
             "typesafe@typesafe-ai": [{"installPath": str(tp)}],
             "secret-redact@secret-redact": [{"installPath": str(sr)}]}}))
         (self.home / ".claude" / "settings.json").write_text(json.dumps({"enabledPlugins": {
-            "typesafe@typesafe-ai": True, "secret-redact@secret-redact": True}}))
+            "typesafe@typesafe-ai": True, "secret-redact@secret-redact": True}, "skillOverrides": OVERRIDES}))
+        # claude.ai plugins synced to Claude Code: design (available) and legal (required by the organization).
+        # An older bucket of another account holds a plugin that the bucket in use does not have.
+        old = self.home / ".claude" / "plugins" / "synced" / "org1_acct0"
+        (old / "finance" / "skills" / "close").mkdir(parents=True)
+        (old / ".last-complete-round").write_text("1")
+        os.utime(old / ".last-complete-round", (1_000_000, 1_000_000))
+        self.bucket = self.home / ".claude" / "plugins" / "synced" / "org1_acct1"
+        for name in ("design~g2", "legal"):
+            (self.bucket / name / "skills" / "x").mkdir(parents=True)
+            (self.bucket / name / "skills" / "x" / "SKILL.md").write_text("---\nname: x\ndescription: X.\n---\n")
+        (self.bucket / "manifest.json").write_text(json.dumps({"plugins": [
+            {"name": "design", "installationPreference": "available", "generation": 2},
+            {"name": "legal", "installationPreference": "required"}]}))
+        (self.bucket / ".last-complete-round").write_text("2")
         sales = self.home / ".claude" / "remote" / "plugins" / "host" / "h1"
         (sales / ".claude-plugin").mkdir(parents=True)
         (sales / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "sales"}))
@@ -250,6 +272,103 @@ class PlanRowsTest(unittest.TestCase):
     def test_period_filters_sessions(self):
         data, _ = self.f.plan("--since", "2026-10-06")
         self.assertEqual(data["period"]["sessions"], 7)
+
+
+class PluginRowsTest(unittest.TestCase):
+    """claude.ai plugins, plugin skills and skillOverrides keys that have no effect (fake home only)."""
+
+    def setUp(self):
+        self.f = Fixture()
+
+    def tearDown(self):
+        self.f.close()
+
+    def rows(self, data: dict) -> dict:
+        return {r["source"]["name"]: r for r in data["rows"]}
+
+    def test_a_synced_claude_ai_plugin_is_one_settings_key(self):
+        data, run_dir = self.f.plan()
+        d = self.rows(data)["design"]
+        self.assertEqual((d["action"], d["applies"], d["source"]["type"]), ("T4", "walle", "claude.ai plugin"))
+        self.assertEqual({k: d["change"][k] for k in ("kind", "file", "op", "keys", "value")},
+                         {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                          "keys": ["enabledPlugins", "design@synced"], "value": False})
+        self.assertIn(trim.DOC_PLUGIN_DISABLE, d["where"])
+        for text in ("organization-required plugin ignores the key", "survives the next sync",
+                     "walle context --last", "the whole plugin goes"):
+            self.assertIn(text, d["risk"]["why"])
+        self.assertEqual(d["change"]["sha256"], trim.file_sha256(self.f.home / ".claude" / "settings.json"))
+        self.assertFalse(d["change"]["already"])
+        # An installed plugin keeps its own key, and a plugin of an older sync bucket is not a synced plugin.
+        self.assertEqual(self.rows(data)["typesafe"]["change"]["keys"], ["enabledPlugins", "typesafe@typesafe-ai"])
+        cat = trim.plugin_catalog(self.f.home)
+        self.assertNotIn("finance", cat)
+        self.assertEqual((cat["design"]["key"], cat["design"]["synced"]), ("design@synced", True))
+        # After the key is set, the next plan finds the plugin on disk still, and says the key is set.
+        settings = self.f.home / ".claude" / "settings.json"
+        doc = json.loads(settings.read_text())
+        doc["enabledPlugins"]["design@synced"] = False
+        settings.write_text(json.dumps(doc))
+        again, _ = self.f.plan()
+        d = self.rows(again)["design"]
+        self.assertEqual((d["applies"], d["change"]["already"]), ("walle", True))
+
+    def test_a_required_plugin_and_a_desktop_only_plugin_stay_manual(self):
+        data, run_dir = self.f.plan()
+        rows = self.rows(data)
+        legal, sales = rows["legal"], rows["sales"]
+        self.assertEqual((legal["applies"], legal["change"]["kind"]), ("manual", "app"))
+        self.assertIn("Your organization requires legal", legal["where"])
+        self.assertEqual((sales["action"], sales["applies"]), ("T3", "manual"))
+        for text in ('"Installed by default"', '"Required" plugin needs the organization Owner', trim.DOC_ORG_PLUGINS):
+            self.assertIn(text, sales["where"])
+        self.assertNotIn(trim.UNCONFIRMED, sales["where"])
+        self.assertNotIn("sha256", sales["change"])
+
+    def test_plugin_skills_get_the_plugin_row_not_skill_overrides(self):
+        data, run_dir = self.f.plan()
+        rows = self.rows(data)
+        cat = trim.plugin_catalog(self.f.home)
+        hide = [r for r in data["rows"] if r["change"].get("op") == "set" and r["change"]["keys"][0] == "skillOverrides"]
+        self.assertEqual([r["source"]["name"] for r in hide], ["pptx-like"])
+        self.assertFalse(any(trim.plugin_skill(r["source"]["name"], cat) for r in hide))
+        for name in ("design:ux-copy", "anthropic-skills:pdf-like", "legal:review-contract"):
+            self.assertNotIn(trim.row_id("skill", name), {r["id"] for r in data["rows"]})
+        # The claude.ai skills are one manual row: walle does not set syncClaudeAiSkills.
+        a = rows["anthropic-skills"]
+        self.assertEqual((a["action"], a["applies"], a["source"]["type"]), ("T3", "manual", "claude.ai skills"))
+        self.assertIn("syncClaudeAiSkills: false", a["where"])
+        self.assertIn(trim.DOC_SKILL_OVERRIDES, a["where"])
+        self.assertIn("go together", a["risk"]["why"])
+        self.assertTrue(trim.plugin_skill("anthropic-skills:pdf-like", cat))
+        self.assertFalse(trim.plugin_skill("atc:status", cat))  # a subfolder skill, no plugin of that name
+        self.assertFalse(trim.plugin_skill("loop", cat))
+
+    def test_a_skill_overrides_key_of_a_plugin_skill_is_set_no_effect(self):
+        data, run_dir = self.f.plan()
+        rows = self.rows(data)
+        idle = [r for r in data["rows"] if r.get("state") == trim.NO_EFFECT]
+        self.assertEqual(sorted(r["source"]["name"] for r in idle), ["anthropic-skills:pdf-like", "sales:call-prep"])
+        r = rows["anthropic-skills:pdf-like"]
+        self.assertEqual((r["applies"], r["change"]["op"], r["change"]["keys"]),
+                         ("walle", "unset", ["skillOverrides", "anthropic-skills:pdf-like"]))
+        self.assertFalse(r["change"]["already"])
+        self.assertEqual((r["saving"]["tokens_per_session_min"], r["saving"]["unused_tokens_min"]), (0, 0))
+        self.assertFalse(r["judge"]["needed"])
+        self.assertIn(f"That row is {rows['anthropic-skills']['id']}.", r["note"])
+        self.assertEqual(r["id"], trim.row_id("override", "anthropic-skills:pdf-like"))
+        # A key of a skill without a plugin is not one: "loop" has no row (a session called it).
+        self.assertNotIn("loop", rows)
+        # The rows come last among the sources, and plan.md does not count them as "already".
+        src = [x["id"] for x in data["rows"] if x["group"] == "source"]
+        self.assertEqual(set(src[-2:]), {x["id"] for x in idle})
+        md = (run_dir / "plan.md").read_text()
+        self.assertIn("(2 set, no effect)", md)
+        self.assertNotIn("already set in the file", md)
+        self.assertIn("| walle (set, no effect) |", md)
+        self.assertIn("- In the file: set, no effect.", md)
+        self.assertIn("- Saving: not counted: the skill still loads.", md)
+        self.assertIn('remove skillOverrides["sales:call-prep"] from ~/.claude/settings.json', md)
 
 
 class GateTest(unittest.TestCase):

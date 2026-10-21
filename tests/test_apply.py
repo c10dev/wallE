@@ -13,7 +13,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_keep import tree_hash  # noqa: E402
-from test_trim import Fixture  # noqa: E402
+from test_trim import OVERRIDES, Fixture  # noqa: E402
 
 from walle import apply, cli, runs  # noqa: E402
 
@@ -36,7 +36,7 @@ class ApplyFixture(Fixture):
             indent=2))
         self.settings.write_text(json.dumps({"enabledPlugins": {"typesafe@typesafe-ai": True,
                                                                 "secret-redact@secret-redact": True},
-                                             "theme": "dark"}, indent=2) + "\n")
+                                             "skillOverrides": OVERRIDES, "theme": "dark"}, indent=2) + "\n")
         os.chmod(self.claude_json, 0o600)
         self.procs = list(procs or [])
         more = [mock.patch("walle.apply.HOME", self.home), mock.patch("walle.apply.RECHECK_SECONDS", 0),
@@ -89,7 +89,7 @@ class ApplyUndoTest(unittest.TestCase):
         doc = json.loads(self.f.settings.read_text())
         self.assertIs(doc["enabledPlugins"]["typesafe@typesafe-ai"], False)
         self.assertIs(doc["enabledPlugins"]["secret-redact@secret-redact"], True)
-        self.assertEqual(doc["skillOverrides"], {"pptx-like": "user-invocable-only"})
+        self.assertEqual(doc["skillOverrides"], {**OVERRIDES, "pptx-like": "user-invocable-only"})
         self.assertEqual(doc["theme"], "dark")
         self.assertTrue(self.f.settings.read_text().endswith("}\n"))
         self.assertIn(f'changed  {rows["typesafe"]["id"]}  ~/.claude/settings.json '
@@ -222,7 +222,8 @@ class ApplyUndoTest(unittest.TestCase):
         out, _ = self.f.cli("apply", run_dir.name, "--only", f"{rows['claude.ai Vercel']['id']},{rows['sales']['id']}")
         self.assertIn(f"[ ] {rows['claude.ai Vercel']['id']}  Disconnect the claude.ai connector claude.ai Vercel", out)
         self.assertIn("claude.ai Settings > Connectors > Vercel (walle has not confirmed the menu path)", out)
-        self.assertEqual(out.count("[unconfirmed] walle has not confirmed this menu path."), 2)
+        self.assertEqual(out.count("[unconfirmed] walle has not confirmed this menu path."), 1)
+        self.assertIn('a "Required" plugin needs the organization Owner (https://claude.com/docs/plugins/admin)', out)
         self.assertEqual(out.strip().splitlines()[-1], str(run_dir / "plan.md"))
         self.assertEqual(tree_hash(self.f.home), home_before)
         self.assertFalse(self.f.backups.exists())
@@ -324,12 +325,97 @@ class ApplyUndoTest(unittest.TestCase):
         data, run_dir = self.f.plan()
         self.assertTrue(self.f.rows(data)["typesafe"]["change"]["already"])
         md = (run_dir / "plan.md").read_text()
-        self.assertIn("(1 already set in the file)", md)
+        self.assertIn("(1 already set in the file, 2 set, no effect)", md)
         self.assertIn("- In the file: the key already has this state.", md)
         out, _ = self.f.cli("apply", run_dir.name, "--only", ts["id"])
         self.assertIn(f"already  {ts['id']}", out)
         self.assertIn("Nothing to write", out)
         self.assertFalse(self.f.backups.exists())
+
+
+class PluginKeysTest(unittest.TestCase):
+    """enabledPlugins["<name>@synced"] and the skillOverrides keys that have no effect (fake home only)."""
+
+    def setUp(self):
+        self.f = ApplyFixture()
+
+    def tearDown(self):
+        self.f.close()
+
+    def test_a_synced_plugin_key_is_applied_and_undone(self):
+        before = self.f.settings.read_bytes()
+        data, run_dir = self.f.plan()
+        d = self.f.rows(data)["design"]
+        out, err = self.f.cli("apply", run_dir.name, "--only", d["id"])
+        self.assertEqual(err, "")
+        self.assertIn(f'changed  {d["id"]}  ~/.claude/settings.json enabledPlugins["design@synced"]: (none) -> false', out)
+        doc = json.loads(self.f.settings.read_text())
+        self.assertIs(doc["enabledPlugins"]["design@synced"], False)
+        self.assertEqual(doc["skillOverrides"], OVERRIDES)
+        apply_id = runs.read_index(self.f.out)[-1]["id"]
+        self.assertEqual((self.f.backups / apply_id / "before" / "1-settings.json").read_bytes(), before)
+        self.f.cli("undo", apply_id)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+
+    def test_keys_that_have_no_effect_are_deleted_and_undo_puts_them_back(self):
+        before = self.f.settings.read_bytes()
+        projects = tree_hash(self.f.home / "projects")
+        data, run_dir = self.f.plan()
+        rows = self.f.rows(data)
+        ids = [rows["anthropic-skills:pdf-like"]["id"], rows["sales:call-prep"]["id"]]
+        out, _ = self.f.cli("apply", run_dir.name, "--only", ",".join(ids), "--dry-run")
+        self.assertIn(f'would    {ids[0]}  ~/.claude/settings.json skillOverrides["anthropic-skills:pdf-like"]: '
+                      '"user-invocable-only" -> (none)', out)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+        out, err = self.f.cli("apply", run_dir.name, "--only", ",".join(ids))
+        self.assertEqual(err, "")
+        self.assertIn(f'changed  {ids[1]}  ~/.claude/settings.json skillOverrides["sales:call-prep"]: '
+                      '"user-invocable-only" -> (none)', out)
+        doc = json.loads(self.f.settings.read_text())
+        self.assertEqual(doc["skillOverrides"], {"loop": "user-invocable-only"})
+        self.assertEqual(doc["enabledPlugins"]["typesafe@typesafe-ai"], True)
+        apply_id = runs.read_index(self.f.out)[-1]["id"]
+        self.assertEqual((self.f.backups / apply_id / "before" / "1-settings.json").read_bytes(), before)
+        self.assertEqual(stat.S_IMODE((self.f.backups / apply_id).stat().st_mode), 0o700)
+        # The next plan has no row for a key that is gone; applying the old plan again is refused by the hash.
+        again, _ = self.f.plan()
+        self.assertFalse([r for r in again["rows"] if r.get("state")])
+        _out, err = self.f.cli("apply", run_dir.name, "--only", ids[0], code=1)
+        self.assertIn("changed since plan", err)
+        self.f.cli("undo", apply_id)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+        self.assertEqual(tree_hash(self.f.home / "projects"), projects)
+
+    def test_plugin_and_unset_changes_that_walle_does_not_make(self):
+        data, run_dir = self.f.plan()
+        rows = self.f.rows(data)
+        plan = json.loads((run_dir / "plan.json").read_text())
+        before = self.f.settings.read_bytes()
+        cases = [
+            ("design", {"value": True}),  # walle never turns a plugin on
+            ("design", {"file": "~/.claude/settings.local.json"}),  # the user-level settings file only
+            ("design", {"file": "~/projects/app/.claude/settings.json"}),
+            ("design", {"op": "unset"}),  # deleting an enabledPlugins key turns the plugin on again
+            ("sales:call-prep", {"keys": ["permissions", "allow"]}),
+            ("sales:call-prep", {"keys": ["skillOverrides", "x", "y"]}),
+            ("sales:call-prep", {"file": "~/.claude.json"}),
+            ("pptx-like", {"value": False}),  # skillOverrides takes the skill mode, nothing else
+        ]
+        for name, change in cases:
+            row = next(r for r in plan["rows"] if r["id"] == rows[name]["id"])
+            saved = dict(row["change"])
+            row["change"].update(change)
+            (run_dir / "plan.json").write_text(json.dumps(plan))
+            _out, err = self.f.cli("apply", run_dir.name, "--only", row["id"], code=1)
+            self.assertRegex(err, r"walle apply: .* is not a (settings file|key) that walle changes", (name, change))
+            self.assertEqual(self.f.settings.read_bytes(), before)
+            row["change"] = saved
+        self.assertFalse(self.f.backups.exists())
+        for c in ({"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                   "keys": ["enabledPlugins", "design@synced"], "value": False},
+                  {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "unset",
+                   "keys": ["skillOverrides", "anthropic-skills:pdf"]}):
+            self.assertIsNone(apply.check_change(c))
 
 
 class PartsTest(unittest.TestCase):
