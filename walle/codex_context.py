@@ -23,7 +23,7 @@ from . import estimate, rollout
 from .collect import HOME
 from .stack import codex_settings, codex_stack
 
-CACHE_VERSION = 1
+CACHE_VERSION = 2  # 2: listing_bytes is the whole skill list block
 LABELS = {
     "base_instructions": "Base instructions",
     "agents_md": "AGENTS.md chain",

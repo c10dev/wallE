@@ -476,9 +476,10 @@ def usage_row(r: Rollout) -> dict:
     fc = first_call(r)
     src = {s.kind: s for s in fc.sources} if fc else {}
     listing = None
+    block = 0  # bytes of the whole <skills_instructions> block, as the first-call source counts it
     # The skill list: from the first call, else the first one the rollout records (a resumed page).
     if fc and src["skill_listing"].count:
-        listing = src["skill_listing"].detail
+        listing, block = src["skill_listing"].detail, src["skill_listing"].bytes
     else:
         for p in r.items:
             if p.get("type") == "message" and p.get("role") in ("developer", "user"):
@@ -486,7 +487,7 @@ def usage_row(r: Rollout) -> dict:
                 for j, (_, text) in enumerate(_text(p.get("content"))):
                     if part_kind(kinds, j, text, str(p.get("role"))) == "host_skills.instructions":
                         roots, skills = parse_skill_listing(text)
-                        listing = {"roots": roots, "skills": skills}
+                        listing, block = {"roots": roots, "skills": skills}, blen(text)
                         break
             if listing:
                 break
@@ -528,7 +529,7 @@ def usage_row(r: Rollout) -> dict:
         "sources": {s.kind: s.bytes for s in fc.sources} if fc else {},
         "listed": sorted(names), "skill_lines": {s["name"]: s["bytes"] for s in skills},
         "skill_paths": {s["name"]: s["path"] for s in skills},
-        "listing_bytes": sum(s["bytes"] for s in skills) if listing else None,
+        "listing_bytes": block if listing else None,
         "skill_refs": refs, "skills_used": used, "skill_reads_unlisted": unlisted, "tools": tools,
         "servers_used": servers, "servers_loaded": loaded,
     }

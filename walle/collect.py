@@ -195,11 +195,6 @@ def collect(roots: list[Path], home: Path = HOME) -> list[Artifact]:
     return found
 
 
-def is_disabled_skill(text: str) -> bool:
-    fm = frontmatter(text)
-    return fm.get("disable-model-invocation", "").lower() == "true"
-
-
 def frontmatter(text: str) -> dict[str, str]:
     """Top-level `key: value` pairs of a YAML front matter block.
 
