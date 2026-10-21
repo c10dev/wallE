@@ -445,16 +445,26 @@
     if (r.month_tokens == null) return "";
     return " · " + kTokens(r.month_tokens) + " a month" + (r.month_usd != null ? " (" + (r.month_usd >= 0.01 ? "$" + r.month_usd.toFixed(2) : "under $0.01") + ")" : "");
   }
+  // The command that shows what the newest session loaded: after a connector is disconnected, it tells if it left.
+  var CHECK_NEWEST = "walle context --last --json";
   function SavingRow(p) {
     var r = p.row, a = APPLIES[r.applies] || [r.applies || "-", "neutral"];
     var st = useState(function () { return readDone(r.id); }), done = st[0], setDone = st[1];
+    var desktop = r.connector && r.applies === "manual";
     return h("li", { className: done ? "is-done" : null },
       h("div", { className: "app-row" },
         h("span", { className: "app-sav-n" }, kTokens(r.per_session)),
         h("span", { className: "app-sav-title" }, r.title),
+        r.connector ? h(W.Badge, { tone: "neutral" }, desktop ? "Desktop sessions" : "Terminal, IDE, SDK") : null,
         h(W.Badge, { tone: a[1] }, r.who)),
       h("div", { className: "app-src" }, "est. tokens per session that loads it · " + plural(r.sessions, "session") + " loaded it and did not use it" + monthText(r)),
       r.applies === "walle" && r.command ? h(Copy, { text: r.command }) : null,
+      desktop ? h("div", { className: "app-row" },
+        r.url ? h("a", { className: "app-more", href: r.url, target: "_blank", rel: "noopener noreferrer" }, "Open claude.ai connectors") : null,
+        h("span", { className: "app-src" }, "Disconnecting takes it out of claude.ai on the web and phone too; no setting reaches desktop sessions.")) : null,
+      desktop && done ? h("div", { className: "app-row" },
+        h("span", { className: "app-src" }, "After you start a new desktop session, check that it is gone:"),
+        h(W.Button, { onClick: function () { p.onRun(CHECK_NEWEST); }, disabled: p.running }, "Check the newest session")) : null,
       h("details", { className: "app-details" }, h("summary", null, r.applies === "walle" ? "What it changes, check and undo" : r.applies === "manual" ? "How to turn it off" : "How to change it"),
         h("ol", { className: "app-steps" },
           r.applies === "walle" ? h("li", null, "Run the command above in a terminal. It changes: ", r.where || "-")
@@ -471,7 +481,7 @@
     return h("div", { className: "app-sav" },
       h("p", { className: "app-p" }, plural(s.n, "open saving") + ", largest first" +
         (shares.length ? ". Of the tokens they save: " + shares.map(function (k) { return s.share[k] + "% " + ((APPLIES[k] || [k])[0]).toLowerCase(); }).join(", ") : "") + "."),
-      h("ol", { className: "app-trim" }, s.rows.map(function (r) { return h(SavingRow, { key: r.id, row: r }); })),
+      h("ol", { className: "app-trim" }, s.rows.map(function (r) { return h(SavingRow, { key: r.id, row: r, onRun: p.onRun, running: p.running }); })),
       h("p", { className: "app-src" }, "Per session is walle's low estimate. A month is the plan's " + (s.days ? num(s.days) + " days" : "period") + " scaled to 30 days" +
         (s.priced_as ? "; dollars at the cache-read list price of " + s.priced_as + " (" + s.prices_as_of + "), the low end, since a trimmed prefix is mostly read from the cache." : ".")));
   }
@@ -510,7 +520,7 @@
       h("section", { className: "app-sec" },
         h("h2", { className: "app-h" }, "3 · Trim"),
         t ? h(React.Fragment, null,
-          t.savings && t.savings.n ? h(Savings, { s: t.savings }) : null,
+          t.savings && t.savings.n ? h(Savings, { s: t.savings, onRun: p.onRun, running: p.running }) : null,
           h("p", { className: "app-p" }, t.to_apply ? plural(t.to_apply, "row") + " that walle can apply. Copy a command and run it in a terminal; each row has its undo and check."
             : "No row of this plan is left for walle to apply."),
           t.applied_since ? h("p", { className: "app-src" }, plural(t.applied_since, "row") + " of this plan changed by an apply after it are left out. A new plan shows them as already set.") : null,

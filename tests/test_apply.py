@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_keep import tree_hash  # noqa: E402
 from test_trim import OVERRIDES, Fixture  # noqa: E402
 
-from walle import apply, cli, runs  # noqa: E402
+from walle import apply, cli, runs, trim  # noqa: E402
 
 
 def sha(path: Path) -> str:
@@ -415,6 +415,37 @@ class PluginKeysTest(unittest.TestCase):
         self.assertEqual(self.f.settings.read_bytes(), before)
         self.assertEqual(tree_hash(self.f.home / "projects"), projects)
 
+    def test_a_connector_is_blocked_in_denied_mcp_servers_and_undone(self):
+        before = self.f.settings.read_bytes()
+        data, run_dir = self.f.plan()
+        deny = next(r for r in data["rows"] if r["id"] == trim.row_id("connector-cli", "claude.ai:vercel"))
+        out, err = self.f.cli("apply", run_dir.name, "--only", deny["id"])
+        self.assertEqual(err, "")
+        self.assertIn(f'changed  {deny["id"]}  ~/.claude/settings.json deniedMcpServers: add {{"serverName": "claude.ai Vercel"}}', out)
+        doc = json.loads(self.f.settings.read_text())
+        self.assertEqual(doc["deniedMcpServers"], [{"serverName": "claude.ai Vercel"}])
+        self.assertEqual((doc["skillOverrides"], doc["theme"]), (OVERRIDES, "dark"))
+        apply_id = runs.read_index(self.f.out)[-1]["id"]
+        # The next plan finds the entry and the apply that added it; the manual row stays for claude-desktop.
+        again, _ = self.f.plan()
+        d2 = next(r for r in again["rows"] if r["id"] == deny["id"])
+        self.assertEqual((d2["change"]["already"], d2["change"]["set_at"]["from"]), (True, f"walle apply {apply_id}"))
+        self.assertEqual(d2["saving"]["counted"], False)
+        self.assertTrue(any(r["id"] == trim.row_id("server", "claude.ai:vercel") for r in again["rows"]))
+        self.f.cli("undo", apply_id)
+        self.assertEqual(self.f.settings.read_bytes(), before)
+
+    def test_an_append_keeps_the_entries_already_there(self):
+        c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "append", "keys": ["deniedMcpServers"],
+             "value": {"serverName": "claude.ai Resend"}}
+        doc = {"deniedMcpServers": [{"serverUrl": "https://x.example/*"}]}
+        self.assertEqual(apply.apply_change(doc, c), (True, doc["deniedMcpServers"]))
+        self.assertEqual(doc["deniedMcpServers"], [{"serverUrl": "https://x.example/*"}, {"serverName": "claude.ai Resend"}])
+        self.assertEqual(apply.apply_change(doc, c)[0], False)  # already there
+        self.assertTrue(trim.already_set(c, doc))
+        with self.assertRaises(apply.ApplyError):
+            apply.apply_change({"deniedMcpServers": {"x": 1}}, c)  # not a list: refused, nothing changes
+
     def test_changes_that_walle_does_not_make(self):
         data, run_dir = self.f.plan()
         rows = self.f.rows(data)
@@ -453,6 +484,15 @@ class PluginKeysTest(unittest.TestCase):
             c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
                  "keys": ["enabledPlugins", "marketing@inline"], "value": value}
             self.assertEqual(apply.check_change(c), "apply.key_not_allowed", value)
+        ok = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "append", "keys": ["deniedMcpServers"],
+              "value": {"serverName": "claude.ai Resend"}}
+        self.assertIsNone(apply.check_change(ok))
+        for change in ({"value": {"serverName": "rea"}},  # a claude.ai connector by its display name only
+                       {"value": {"serverName": "claude.ai "}}, {"value": {"serverName": " claude.ai Resend"}},
+                       {"value": {"serverUrl": "https://*"}}, {"value": {"serverName": "claude.ai X", "extra": 1}},
+                       {"value": "claude.ai Resend"}, {"keys": ["allowedMcpServers"]}, {"keys": ["permissions", "deny"]},
+                       {"file": "~/.claude.json"}):
+            self.assertIsNotNone(apply.check_change({**ok, **change}), change)
         for op in ("unset", "delete", None):
             c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": op,
                  "keys": ["skillOverrides", "anthropic-skills:pdf"]}
