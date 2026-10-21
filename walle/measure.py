@@ -3,7 +3,8 @@
 A split point is an apply id (walle apply) or a date. The windows around it:
 - before: from DAYS before the split, or from the previous apply or undo if it is later, to the split;
 - after: from the split to DAYS after it, or to the next apply or undo if it is sooner.
-So one window holds the sessions of one state of the settings.
+So one window holds the sessions of one state of the settings. DAYS count on the local calendar. An apply
+or undo made in the same second as the split bounds neither window: no session can start between them.
 
 Measured values follow brief 5.5. Each side of one model family gets n, the median and p25-p75
 (statistics.quantiles, method "inclusive"). A side with fewer than MIN_SHOW sessions has no values at all.
@@ -45,7 +46,8 @@ class SplitError(Exception):
 
 # ---------------------------------------------------------------------- time
 def parse_when(text: str | None) -> datetime | None:
-    """An ISO date or time as an aware datetime. A date or a time without a zone is local time."""
+    """An ISO date or time as an aware datetime. A date or a time without a zone is local time, with the
+    offset of that date (daylight saving included)."""
     if not text:
         return None
     try:
@@ -116,15 +118,21 @@ def split_point(out: Path, ref: str, days: int = DAYS) -> dict:
         kind = "time"
         if at is None:
             raise SplitError("measure.bad_split", ref=ref)
-    lo, hi = at - timedelta(days=days), at + timedelta(days=days)
+    if not isinstance(days, int) or days < 1:
+        raise SplitError("measure.bad_days", days=days)
+    lo, hi = shift(at, -days), shift(at, days)
     prev = nxt = None
+    same = []
     for r in _change_rows(out):
         if apply_row and r.get("id") == apply_row["id"]:
             continue
         when = parse_when(r["generated"])
-        if when <= at and when > lo:
+        if when == at:
+            # Made in the same second: no session can start between the two, so both windows hold both changes.
+            same.append(r.get("id"))
+        elif lo < when < at:
             lo, prev = when, r
-        elif when > at and when < hi:
+        elif at < when < hi:
             hi, nxt = when, r
     return {
         "ref": ref, "kind": kind, "at": utc(at),
@@ -133,7 +141,14 @@ def split_point(out: Path, ref: str, days: int = DAYS) -> dict:
         "days": days,
         "windows": {"before": {"from": utc(lo), "to": utc(at)}, "after": {"from": utc(at), "to": utc(hi)}},
         "bounded_by": {"before": _bound(prev), "after": _bound(nxt)},
+        "same_time": same,
     }
+
+
+def shift(at: datetime, days: int) -> datetime:
+    """at moved by whole days on the local calendar: across a daylight saving change the local time stays."""
+    wall = at.astimezone().replace(tzinfo=None) + timedelta(days=days)
+    return wall.astimezone()
 
 
 def _bound(r: dict | None) -> dict | None:

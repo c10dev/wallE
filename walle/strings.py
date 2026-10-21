@@ -264,6 +264,9 @@ STRINGS: dict[str, tuple[str, str]] = {
                           "walle eve: {ref}는 apply id도 날짜(2026-10-21, 2026-10-21T09:00)도 아니다."),
     "measure.not_apply": ("walle eve: {ref} is not an apply in {path}. Give an apply id or a date.",
                           "walle eve: {ref}는 {path}에 있는 apply가 아니다. apply id나 날짜를 준다."),
+    "measure.bad_days": ("walle: --days must be 1 or more, not {days}.", "walle: --days는 1 이상이어야 한다({days}가 아니다)."),
+    "measure.same_time": ("{ids} came in the same second. Both windows hold that change too.",
+                          "{ids}도 같은 초에 있었다. 두 구간 모두 그 변경을 포함한다."),
     "measure.bad_date": ("walle eve: {value} is not a date such as 2026-10-21.", "walle eve: {value}는 날짜(예: 2026-10-21)가 아니다."),
     # walle context --compare
     "compare.args": ("walle context --compare: give two runs or session ids (A B), or one apply id or date.",

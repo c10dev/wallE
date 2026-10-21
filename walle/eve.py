@@ -532,6 +532,8 @@ def lines(block: dict, lang: str = "en", home: Path = HOME) -> list[str]:
         if split["apply"]:
             a = split["apply"]
             out.append(t("measure.apply_line", lang, id=a["id"], plan=a.get("parent_id") or "-", n=len(a.get("rows") or [])))
+        if split.get("same_time"):
+            out.append(t("measure.same_time", lang, ids=", ".join(split["same_time"])))
     else:
         p = block["period"]
         if p["since"] or p["before"]:
@@ -618,6 +620,9 @@ def run_cli(args, home: Path = HOME) -> int:
         if value and measure.parse_when(value) is None:
             print(t("measure.bad_date", lang, value=value), file=sys.stderr)
             return 2
+    if args.days < 1:
+        print(t("measure.bad_days", lang, days=args.days), file=sys.stderr)
+        return 2
     split = None
     if args.around:
         try:

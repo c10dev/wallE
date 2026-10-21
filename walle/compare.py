@@ -373,6 +373,8 @@ def lines(res: dict, lang: str = "en", home: Path = HOME) -> list[str]:
             out.append(t("compare.newest", lang))
         else:
             out.append(t("compare.split_at", lang, at=measure.local(sp["at"])))
+        if sp.get("same_time"):
+            out.append(t("measure.same_time", lang, ids=", ".join(sp["same_time"])))
         if not res["same_folder"]:
             out.append(t("compare.other_folders", lang))
     out.append(f"{brief.pad(tags[0], 7)}{_who(a, home)}")
@@ -481,6 +483,9 @@ def run_cli(args, home: Path = HOME) -> int:
     estimator = estimate.name(args.estimator or (estimate.CODEX_DEFAULT if agent == "codex" else estimate.DEFAULT))
     folder = (args.root or Path.cwd()).expanduser().resolve()
     cache = args.out.parent / "cache"
+    if args.days < 1:
+        print(t("measure.bad_days", lang, days=args.days), file=sys.stderr)
+        return 2
     # With a split point, the command measures the sessions of a folder: it writes nothing inside it.
     hit = out_in_scan(args.out, [folder], home) if len(refs) == 1 else None
     if hit:
@@ -492,7 +497,7 @@ def run_cli(args, home: Path = HOME) -> int:
         if len(refs) == 1:
             try:
                 split = measure.split_point(args.out, refs[0], args.days)
-            except measure.SplitError as e:
+            except measure.SplitError:
                 raise CompareError("compare.bad_ref", ref=refs[0]) from None
             sessions = _sessions(agent, root, cache)
             before, after, here = pick_pair(sessions, split, folder)

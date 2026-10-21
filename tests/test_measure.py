@@ -142,6 +142,50 @@ class SplitTest(unittest.TestCase):
             measure.split_point(self.h.out, "yesterday")
         self.assertEqual(e.exception.key, "measure.bad_split")
 
+    def test_days_must_be_one_or_more(self):
+        with self.assertRaises(measure.SplitError) as e:
+            measure.split_point(self.h.out, "2026-10-01", days=0)
+        self.assertEqual(e.exception.key, "measure.bad_days")
+        self.h.apply_row()
+        before = (self.h.out / runs.INDEX).read_text()
+        for days in ("-5", "0"):
+            _out, err = self.h.cli("measure", str(self.h.app), "--around", "2026-10-01", "--days", days, code=2)
+            self.assertIn(f"--days must be 1 or more, not {days}", err)
+            _out, err = self.h.cli("context", "--compare", APPLY, "--days", days, code=2)
+            self.assertIn("--days must be 1 or more", err)
+        self.assertEqual((self.h.out / runs.INDEX).read_text(), before)  # no run was written
+
+    def test_windows_keep_local_midnight_across_daylight_saving(self):
+        import os
+        import time
+        old = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        try:
+            sp = measure.split_point(self.h.out, "2026-11-15")  # EST; 30 days earlier is EDT
+            self.assertEqual(sp["at"], "2026-11-15T05:00:00Z")
+            self.assertEqual(sp["windows"]["before"]["from"], "2026-10-16T04:00:00Z")
+            self.assertEqual(sp["windows"]["after"]["to"], "2026-12-15T05:00:00Z")
+            self.assertEqual(measure.local(sp["windows"]["before"]["from"]), "2026-10-16 00:00")
+        finally:
+            if old is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old
+            time.tzset()
+
+    def test_an_apply_in_the_same_second_bounds_neither_window(self):
+        self.h.apply_row("20261001-120000", "2026-10-01T12:00:00+00:00")
+        self.h.apply_row("20261001-120000-2", "2026-10-01T12:00:00+00:00")
+        for ref, other in (("20261001-120000", "20261001-120000-2"), ("20261001-120000-2", "20261001-120000")):
+            sp = measure.split_point(self.h.out, ref)
+            self.assertEqual(sp["windows"]["before"], {"from": "2026-09-01T12:00:00Z", "to": "2026-10-01T12:00:00Z"})
+            self.assertEqual(sp["windows"]["after"], {"from": "2026-10-01T12:00:00Z", "to": "2026-10-31T12:00:00Z"})
+            self.assertEqual((sp["same_time"], sp["bounded_by"]), ([other], {"before": None, "after": None}))
+        claude_session(self.h.projects, "x1", self.h.app, day(2, 1))
+        out, _ = self.h.measure(str(self.h.app), "--around", "20261001-120000")
+        self.assertIn("20261001-120000-2 came in the same second. Both windows hold that change too.", out)
+
     def test_an_apply_found_in_the_backups_folder(self):
         b = self.h.out.parent / "backups" / APPLY
         b.mkdir(parents=True)
