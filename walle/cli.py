@@ -248,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
     apply.add_parser(sub)
     rundiff.add_parsers(sub)
 
+    a = sub.add_parser("app", help="serve the walle web app on 127.0.0.1: the runs, and walle read commands")
+    a.add_argument("--port", type=int, default=0, help="port on 127.0.0.1 (default: a free port)")
+    a.add_argument("--no-open", action="store_true", help="print the URL only; do not open a browser")
+
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
                                                    or (i and argv[i - 1] == "--out"))]
@@ -271,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
         return rundiff.run_cli(args, HOME)
     if args.cmd in ("eve", "measure"):
         return eve.run_cli(args, HOME)
+    if args.cmd == "app":
+        from . import app
+        return app.run_cli(args, HOME)
     if args.cmd == "scan":
         started = time.monotonic()
         fmt = args.format or ("brief" if sys.stdout.isatty() else "path")
