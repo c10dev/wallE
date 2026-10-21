@@ -160,6 +160,34 @@ The history page `index.html` in the runs folder lists every run, newest first, 
 
 `walle keep` writes `keep.json` next to the runs folder (`~/.walle/keep.json` by default). A team keeps lines in `.wallekeep` at the repository root: one team key per line, then `# ` and a note. The team key uses the remote URL and the path in the repository, so every clone has the same key. walle reads `.wallekeep` and never writes it. A repository without a remote has no team key.
 
+### Web app
+
+`walle app` shows your runs in a browser and runs walle read commands. It serves a local page on 127.0.0.1 only.
+
+```bash
+walle app --no-open
+walle app --port 8760
+```
+
+- walle prints a URL with a random token. A request without the token gets 403. The token changes each time that `walle app` starts.
+- The server accepts only the Host names 127.0.0.1, localhost and [::1] with its own port. It refuses a request from another origin or site.
+- The page loads nothing from the network. React 18, the walle design system and the IBM Plex fonts are in the package. The Content-Security-Policy allows only the app itself.
+- The left list has the actions (Scan, Measure, Trim, Runs, Keep) and the folders of your scans. Each folder shows its verdict and its estimated tokens.
+- Scan shows the newest scan of the folder: the verdict, Start here, the other items and the judge answers. A folder without a scan shows the commands to start with.
+- Measure shows the `walle eve` rows of the folder (median [p25-p75] and n, and the change after a split) and the context panel of the newest context runs.
+- Trim shows the newest plan. It is read-only: each row has its `walle apply` command to copy into a terminal. Runs shows the run index, and Keep shows `keep.json`.
+- The command bar takes one walle command. The command runs in the folder that the page shows, as a list of arguments without a shell. `walle scan` shows its steps while it runs.
+- This version runs read commands only: `scan`, `context`, `eve`, `runs`, `diff`, `show`, `trim --plan` and `judge --dry-run`. It refuses `apply`, `undo`, `keep`, `unkeep`, `pin`, `judge --import` and `trim --import` and runs nothing for them. Run them in a terminal.
+- `--out` sets the runs folder, as for the other commands. A command from the page cannot change it.
+
+To open the app from another computer, forward the port over SSH. Then open the printed URL on that computer:
+
+```bash
+ssh -N -L 8760:127.0.0.1:8760 <server>
+```
+
+Use the same port on the two sides: the server refuses a Host header with another port.
+
 ## scan.json
 
 `scan.json` is the data that every surface reads. Schema 2 adds fields and renames none, so readers of schema 1 keep working.

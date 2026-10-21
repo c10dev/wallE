@@ -97,6 +97,34 @@ walle는 기기 밖으로 아무것도 보내지 않는다.
 - Codex와 다른 에이전트: CLI를 pipx로 설치하고 `skills/walle`을 스킬 폴더에 복사
 - CI: `walle check . --max-tokens 15000`
 
+## 웹 앱
+
+`walle app`은 실행 기록을 브라우저로 보여 주고 walle 읽기 명령을 돌린다. 127.0.0.1에서만 로컬 페이지를 연다.
+
+```bash
+walle app --no-open
+walle app --port 8760
+```
+
+- walle는 무작위 토큰이 든 URL을 출력한다. 토큰이 없는 요청은 403을 받는다. 토큰은 `walle app`을 시작할 때마다 바뀐다.
+- 서버는 Host가 127.0.0.1, localhost, [::1]이고 포트가 서버 포트일 때만 받는다. 다른 출처(origin)나 사이트의 요청은 거부한다.
+- 페이지는 네트워크에서 아무것도 불러오지 않는다. React 18, walle 디자인 시스템, IBM Plex 글꼴이 패키지에 들어 있다. Content-Security-Policy는 앱 자신만 허용한다.
+- 왼쪽 목록에는 동작(Scan, Measure, Trim, Runs, Keep)과 스캔한 폴더가 있다. 폴더마다 판정과 추정 토큰을 보여 준다.
+- Scan은 폴더의 최신 스캔을 보여 준다: 판정, 여기부터, 나머지 항목, judge 답. 스캔이 없는 폴더는 시작할 명령을 보여 준다.
+- Measure는 폴더의 `walle eve` 행(중앙값 [p25-p75]와 n, 분할 뒤의 변화)과 최신 context 실행의 컨텍스트 패널을 보여 준다.
+- Trim은 최신 계획을 읽기 전용으로 보여 준다. 행마다 터미널에 붙여 넣을 `walle apply` 명령이 있다. Runs는 실행 색인을, Keep은 `keep.json`을 보여 준다.
+- 명령 막대는 walle 명령 하나를 받는다. 명령은 페이지가 보여 주는 폴더에서 셸 없이 인자 목록으로 돈다. `walle scan`은 도는 동안 단계를 보여 준다.
+- 이 버전은 읽기 명령만 돌린다: `scan`, `context`, `eve`, `runs`, `diff`, `show`, `trim --plan`, `judge --dry-run`. `apply`, `undo`, `keep`, `unkeep`, `pin`, `judge --import`, `trim --import`는 거부하고 아무것도 돌리지 않는다. 터미널에서 돌린다.
+- `--out`은 다른 명령처럼 실행 폴더를 정한다. 페이지의 명령은 이 값을 바꿀 수 없다.
+
+다른 컴퓨터에서 열려면 SSH로 포트를 넘기고, 출력된 URL을 그 컴퓨터에서 연다.
+
+```bash
+ssh -N -L 8760:127.0.0.1:8760 <서버>
+```
+
+양쪽 포트를 같게 둔다. 서버는 다른 포트가 적힌 Host 헤더를 거부한다.
+
 ## 한계
 
 [README.md](README.md#limits)의 Limits와 같다.
