@@ -22,6 +22,7 @@ walle finds the second kind, so you can cut it and measure the effect.
 |---|---|
 | `walle scan [folder ...] [--max-tokens N] [--estimator v1\|v2] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
 | `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
+| `walle context [--last \| --session ID] [--agent claude\|codex] [--usage]` | Measured, not estimated: the first API call of one session, by source (system prompt, tool lists, skill list, instruction files, first prompt), with a residual row for what no record explains. `--usage` counts, over all sessions, what each MCP server, tool and skill cost and whether a session used it. `--agent codex` reads Codex rollouts in `~/.codex` (zstd files need the `zstd` program). |
 | `walle diff old/scan.json new/scan.json` | What changed after you trimmed: stack tokens, rule counts, flags. |
 | `walle check [folder] [--max-tokens N] [--estimator v1\|v2]` | Exit 1 when a stack is over budget. Use it in CI. |
 | `walle trim --plan [--since D] [--before D]` | A plan to take unused sources out of every session's context: claude.ai connectors, MCP servers, plugins, skills, hook output, and lines that a scan found loaded twice. One row per action: the change (a settings key, a patch or a place in an app), who makes it, the expected saving as a lower bound in bytes-v2 tokens per session, the sessions that loaded and used the source, the risk, the undo and the check. Writes `plan.json`, `plan.md`, `patches/` and judge batch files in a new run folder. `walle trim --import` reads the judge answers into the plan. It changes nothing. |
@@ -132,6 +133,7 @@ The id is a hash of the rule, the text and the file path. It stays the same when
 **Verdicts.** The budget is 15,000 estimated tokens per stack (`--max-tokens`).
 Token counts use the bytes-v2 estimator, which has the same prose rates as `walle context`, so the two commands give one number for one file.
 A file that Claude Code loads counts without its HTML comment blocks, as Claude Code drops them. Codex files count whole.
+A Codex skill counts as Codex lists it: a skill whose `agents/openai.yaml` sets `allow_implicit_invocation: false` is not listed. The Codex project doc cap is `project_doc_max_bytes` in `~/.codex/config.toml` (32 KiB when unset).
 `--estimator v1` counts with bytes-v1 (ASCII at 4 characters per token), and its default budget is 8,000.
 On the author's machine, 15,000 bytes-v2 tokens put the same stacks over the budget as 8,000 bytes-v1 tokens, with HTML comment blocks removed (2026-10-20).
 The other token thresholds scale the bytes-v1 values by the first bytes-v2 calibration (14,500 / 8,000). They did not move with the budget.
@@ -149,7 +151,7 @@ Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle 
 
 **Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, counting revision, stack totals, verdicts, and open and kept counts.
 Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` and `counting_revision` values are the same.
-`counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. A run without the field counts as 1. That label can be wrong for runs made between commits b0f005e and 7a956ce, which already left the comments out; walle was not released then.
+`counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. 3 also counts the Codex skill list as Codex writes it. A run without the field counts as 1. That label can be wrong for runs made between commits b0f005e and 7a956ce, which already left the comments out; walle was not released then.
 
 ## Limits
 

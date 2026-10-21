@@ -13,6 +13,7 @@ CLAUDE.md, AGENTS.md, 스킬, MEMORY.md, Cursor·Copilot·Gemini·Windsurf·Clin
 ```bash
 python3 bin/walle scan ~/projects --html   # 정적 점검
 python3 bin/walle eve --since 2026-10-01   # 세션 실측
+python3 bin/walle context --agent codex    # Codex 세션 첫 호출을 원천별로 실측(--usage: 실린 것 대 쓴 것)
 python3 bin/walle diff 이전/scan.json 이후/scan.json
 python3 bin/walle check . --max-tokens 15000  # CI용, 넘으면 종료 코드 1
 python3 bin/walle judge --dry-run          # 판정할 항목(파일:줄)과 추정 토큰
@@ -39,13 +40,13 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 - `triage`: 스택마다 판정, 토큰 구성, 여기부터(`start_here`) 항목 id, 접힌 묶음
 - `files[]`: `sha`, `ownership`, `##` 절의 줄 범위도 담는다
 
-토큰 수는 bytes-v2 추정기로 센다. `walle context`와 같은 산문 비율이라서 한 파일은 두 명령에서 같은 수다. Claude Code가 읽는 파일은 HTML 주석 블록을 빼고 센다. Claude Code가 그 주석을 버리기 때문이다. Codex 파일은 통째로 센다. `--estimator v1`은 bytes-v1(ASCII 4자당 1토큰)로 세고 기본 예산은 8,000이다. HTML 주석 블록을 빼고 세면, 작성자의 기계에서 15,000 bytes-v2 토큰과 8,000 bytes-v1 토큰은 같은 스택을 예산 초과로 판정한다(2026-10-20). 다른 토큰 기준은 bytes-v1 값에 첫 bytes-v2 비율(14,500 / 8,000)을 곱해 두 자리로 반올림한 값이다. 예산이 바뀔 때 그대로 두었다.
+토큰 수는 bytes-v2 추정기로 센다. `walle context`와 같은 산문 비율이라서 한 파일은 두 명령에서 같은 수다. Claude Code가 읽는 파일은 HTML 주석 블록을 빼고 센다. Claude Code가 그 주석을 버리기 때문이다. Codex 파일은 통째로 센다. Codex 스킬은 Codex가 목록에 싣는 대로 센다. `agents/openai.yaml`에 `allow_implicit_invocation: false`가 있으면 싣지 않는다. Codex 프로젝트 문서 상한은 `~/.codex/config.toml`의 `project_doc_max_bytes`다(없으면 32 KiB). `--estimator v1`은 bytes-v1(ASCII 4자당 1토큰)로 세고 기본 예산은 8,000이다. HTML 주석 블록을 빼고 세면, 작성자의 기계에서 15,000 bytes-v2 토큰과 8,000 bytes-v1 토큰은 같은 스택을 예산 초과로 판정한다(2026-10-20). 다른 토큰 기준은 bytes-v1 값에 첫 bytes-v2 비율(14,500 / 8,000)을 곱해 두 자리로 반올림한 값이다. 예산이 바뀔 때 그대로 두었다.
 claude.ai에서 동기화한 스킬과 플러그인 스킬은 예산 스택에 넣지 않는다. 그 비용은 `walle context`가 보여 준다.
 판정(예산 기본 15,000 추정 토큰, `--max-tokens`): 예산을 넘으면 `OVER BUDGET`. 예산 이하이고, 스택(공용 파일 포함)에 확실한 DELETE 줄이 180 토큰(`--estimator v1`은 100 토큰) 이상이거나 충돌(함께 읽히는 달라진 두 줄)이 있거나, 내 파일에 열린 후보가 3개 이상이면 `TRIM`. 나머지는 `LEAN`.
 한 스택의 `topic`·`protocol` 쌍은 용어나 메시지만 같고 글은 다르다. 실제 파일에서는 대개 같은 말이다. 그래서 `term_clash` 확인 후보로 나머지 묶음에 두고, 여기부터와 판정에는 넣지 않는다. `walle judge`가 읽는다.
 여기부터는 내 파일(폴더의 git 체크아웃과 그 폴더의 MEMORY.md)에서 최대 3개다. 큰 층(MOVE)은 3,600 토큰(`--estimator v1`은 2,000 토큰)을 넘고 스택의 40%를 넘는 내 파일이다. 세션 시작에 읽히는 항목만 판정과 여기부터에 든다.
 DELETE는 넓은 쪽 사본을 남긴다. 지울 줄을 읽는 모든 스택이 남길 줄도 읽을 때만 DELETE이고, `~/.claude/CLAUDE.md` 같은 공용 파일의 줄은 지우라고 하지 않는다.
-두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`와 `counting_revision`이 같을 때만 비교한다. `counting_revision` 2는 Claude Code가 읽는 파일을 HTML 주석 블록 없이 센 실행이다. 이 값이 없는 실행은 1로 본다. b0f005e와 7a956ce 사이의 실행은 이미 주석을 빼고 셌지만 1로 표시된다. 그때 walle는 공개 전이었다.
+두 실행의 발견 수는 `rules_hash`가 같을 때만, 토큰 합은 `estimator`와 `counting_revision`이 같을 때만 비교한다. `counting_revision` 2는 Claude Code가 읽는 파일을 HTML 주석 블록 없이 센 실행이다. 3은 Codex 스킬 목록도 Codex가 쓰는 대로 센다. 이 값이 없는 실행은 1로 본다. b0f005e와 7a956ce 사이의 실행은 이미 주석을 빼고 셌지만 1로 표시된다. 그때 walle는 공개 전이었다.
 
 ## 보는 것
 

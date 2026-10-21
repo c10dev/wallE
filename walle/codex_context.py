@@ -120,7 +120,7 @@ def session_context(fc: rollout.CodexFirstCall, estimator: str, home: Path | Non
 
 def _basis(estimator: str) -> str:
     if estimator == "bytes-v1":
-        return "bytes-v1 (Codex fit: 0.258 per ASCII character, 0.707 per other)"
+        return "bytes-v1 (near a Codex fit: see run.codex_fit)"
     return "bytes-v2 prose rates (fitted on Claude tokens)"
 
 
