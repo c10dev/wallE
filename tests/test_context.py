@@ -304,6 +304,38 @@ class ContextCommandTest(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 cli.main(["--out", str(self.out), "context", "--transcripts", str(self.root), "--estimator", "v9"])
 
+    def test_json_prints_what_context_json_holds(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cli.main(["--out", str(self.out), "context", "--transcripts", str(self.root),
+                             "--session", "630f787e", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(buf.getvalue())
+        self.assertEqual(data["first_call"]["measured"]["total"], 90499)
+        self.assertEqual(data["session"]["id"], SID)
+        # The run is still written and indexed, and stdout is the same object as its context.json.
+        from walle import runs
+        row = runs.read_index(self.out)[-1]
+        self.assertEqual(json.loads(Path(row["path"]).read_text()), data)
+        self.assertEqual(data["run"]["id"], row["id"])
+
+    def test_json_with_usage(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = cli.main(["--out", str(self.out), "context", "--transcripts", str(self.root), "--usage", "--json"])
+        self.assertEqual(code, 0)
+        data = json.loads(buf.getvalue())
+        self.assertIn("servers", data["usage"])
+        self.assertNotIn("first_call", data)
+
+    def test_json_refuses_compare(self):
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), unittest.mock.patch("sys.stderr", err):
+            code = cli.main(["--out", str(self.out), "context", "--compare", "a", "b", "--json"])
+        self.assertEqual(code, 2)
+        self.assertIn("--json does not work with --compare", err.getvalue())
+        self.assertFalse(self.out.exists())
+
     def test_errors(self):
         buf = io.StringIO()
         with redirect_stdout(buf), unittest.mock.patch("sys.stderr", io.StringIO()):

@@ -566,10 +566,14 @@ def build_codex(args, root: Path, out: Path, data: dict) -> dict:
     return data
 
 
+def to_json(data: dict) -> str:
+    return json.dumps(data, ensure_ascii=False, indent=1, default=sorted)
+
+
 def write(data: dict, run_dir: Path) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     data["run"]["id"] = run_dir.name
-    (run_dir / "context.json").write_text(json.dumps(data, ensure_ascii=False, indent=1, default=sorted))
+    (run_dir / "context.json").write_text(to_json(data))
     md = codex_context.render(data) if data["run"].get("agent") == "codex" else render(data)
     (run_dir / "context.md").write_text(md)
     return run_dir / "context.md"
@@ -692,6 +696,9 @@ def add_parser(sub, default_transcripts: Path):
     x.add_argument("--root", type=Path, help="with --compare <apply-id|date>: the folder (default: the current folder)")
     x.add_argument("--days", type=int, default=30, help="with --compare <apply-id|date>: days on each side (default 30)")
     x.add_argument("--lang", choices=("en", "ko"))
+    x.add_argument("--json", action="store_true",
+                   help="print context.json to stdout instead of the context.md path (the run is still written); "
+                        "not with --compare")
     x.set_defaults(claude_transcripts=default_transcripts)
     return x
 
@@ -700,6 +707,9 @@ def run_cli(args) -> int:
     import sys
     from . import runs
     if args.compare:
+        if args.json:
+            print("walle context: --json does not work with --compare", file=sys.stderr)
+            return 2
         from . import compare
         return compare.run_cli(args, HOME)
     root = args.transcripts or (HOME / ".codex" if args.agent == "codex" else args.claude_transcripts)
@@ -719,5 +729,6 @@ def run_cli(args) -> int:
                                "estimator": run["estimator"], "counting_revision": run["counting_revision"],
                                "usage": "usage" in data, "session": session.get("id"), "cwd": session.get("cwd"),
                                "walle_version": __version__, "path": str(run_dir / "context.json")})
-    print(md)
+    # --json prints what context.json holds, so a page or a script reads one object from stdout.
+    print(to_json(data) if args.json else md)
     return 0
