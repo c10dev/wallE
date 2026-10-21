@@ -574,8 +574,8 @@ STRINGS: dict[str, tuple[str, str]] = {
     "diff.sessions": ("Sessions (same folder, {family} only)", "세션 (같은 폴더, {family}만)"),
     "diff.sessions_value": ("median {value} n={n}", "중앙값 {value} n={n}"),
     "diff.next": ("Next", "다음"),
-    "diff.next_measure": ("walle measure --around {ref} (after {n} sessions)",
-                          "walle measure --around {ref} (이후 세션 {n}개 뒤)"),
+    "diff.next_measure": ("walle measure{folder} --around {ref}", "walle measure{folder} --around {ref}"),
+    "diff.next_after": ("(after {n} sessions)", "(이후 세션 {n}개 뒤)"),
 }
 
 

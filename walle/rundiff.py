@@ -18,8 +18,9 @@ The applies and undos between the two runs are listed: they link a change of the
 The Sessions lines measure the first calls of the newest scan's folder in Claude Code transcripts, one model
 family per block, as walle eve --around does (measure.py). The split is the newest apply between the two
 scans, else the time of the newest scan. The n rule of measure.py holds: no value under MIN_SHOW sessions,
-a change only with MIN_COMPARE on each side. When the since side is short, a Next line gives the walle
-measure command to run later. Measured values never enter the verdict, Start here or the alarm (brief 2.1, L4).
+a change only with MIN_COMPARE on each side. When the since side is short and its window is still open, a
+Next line gives the walle measure command to run later, with the folder when it is not the current one.
+Measured values never enter the verdict, Start here or the alarm (brief 2.1, L4).
 
 The result goes to a new run folder (kind diff) as diff.md and diff.json. The last line printed is the
 path of diff.md. walle diff does not write into a folder that the two scans scanned.
@@ -30,8 +31,9 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import shlex
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__, brief, eve, measure, report, runs
@@ -186,11 +188,13 @@ def compare(a: dict, b: dict, out: Path) -> dict:
     }
 
 
-def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path) -> dict | None:
+def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, cwd: Path) -> dict | None:
     """The measure block of the first root of scan b, split at the newest apply of applied, else at b's time.
 
     None when there are no transcripts or no time to split at. ref is what walle measure --around takes.
-    next is ref when the since side of the largest family has fewer than MIN_COMPARE sessions.
+    next is ref when the since side of the largest family has fewer than MIN_COMPARE sessions and the since
+    window is still open: a later apply or undo, or the end of its days, closes it. next_folder is the folder
+    for walle measure when it is not cwd.
     """
     roots = (b.get("run") or {}).get("roots") or []
     if not roots or not transcripts.is_dir() or not any(transcripts.glob("*/*.jsonl")):
@@ -207,7 +211,11 @@ def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path) -> d
     block = eve.measure_block(sessions, "claude", Path(roots[0]), split)
     first = block["rows"][0]["change"]["first_call"] if block["rows"] else None
     short = first is None or (first["state"] == "too_few" and first["need_after"] > 0)
-    return {"split_at": "apply" if applies else "scan", "ref": ref, "next": ref if short else None, "measure": block}
+    open_ = measure.parse_when(split["windows"]["after"]["to"]) > datetime.now(timezone.utc)
+    folder = str(Path(roots[0]))
+    return {"split_at": "apply" if applies else "scan", "ref": ref, "folder": folder,
+            "next": ref if short and open_ else None, "next_folder": None if Path(folder) == cwd else folder,
+            "measure": block}
 
 
 # ---------------------------------------------------------------------- text
@@ -256,7 +264,14 @@ def session_lines(s: dict, lang: str, home: Path) -> list[str]:
     if any(r["change"]["first_call"]["state"] != "too_few" for r in shown):
         out.append(t("measure.not_proof", lang))
     if s["next"]:
-        out.append(_label("diff.next", lang) + t("diff.next_measure", lang, ref=s["next"], n=measure.MIN_COMPARE))
+        folder = ""
+        if s.get("next_folder"):
+            shown = _short(s["next_folder"], home)  # ~ must stay unquoted for the shell to expand it
+            rest = shown.removeprefix("~")
+            folder = " " + (shown if shlex.quote(rest) == rest else shlex.quote(s["next_folder"]))
+        cmd = _label("diff.next", lang) + t("diff.next_measure", lang, folder=folder, ref=s["next"])
+        after = t("diff.next_after", lang, n=measure.MIN_COMPARE)
+        out += ([f"{cmd} {after}"] if brief.width(f"{cmd} {after}") <= brief.WIDTH else [cmd, indent + after])
     return out
 
 
@@ -486,7 +501,7 @@ def diff_cli(args, home: Path, lang: str) -> int:
         return 2
     c = compare(a, b, args.out)
     c["sessions"] = sessions_of(b, c["applied"], args.out,
-                                (args.transcripts or home / ".claude" / "projects").expanduser())
+                                (args.transcripts or home / ".claude" / "projects").expanduser(), Path.cwd().resolve())
     color = brief.use_color(args.color, sys.stdout.isatty(), os.environ)
     text = lines(c, a, b, pinned, lang, home, (lambda s: f"\x1b[32m{s}\x1b[0m") if color else (lambda s: s))
     run_dir = runs.new_run_dir(args.out)

@@ -2,10 +2,11 @@
 
 import io
 import json
+import os
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -226,11 +227,8 @@ class DiffTest(unittest.TestCase):
 
 
 APPLY = "20261021-090000"
-AT = "2026-10-21T09:00:00+00:00"
-
-
-def day(d: int, h: int) -> str:
-    return f"2026-10-{d:02d}T{h:02d}:00:00Z"
+# The apply is two days old, so every session is in the past and the since window is still open.
+AT = (datetime.now(timezone.utc) - timedelta(days=2)).replace(microsecond=0)
 
 
 class DiffSessionsTest(unittest.TestCase):
@@ -244,30 +242,35 @@ class DiffSessionsTest(unittest.TestCase):
         self.patches = [mock.patch("walle.eve.HOME", self.f.home), mock.patch("walle.eve.SCRATCH_ROOTS", ())]
         for p in self.patches:
             p.start()
+        self.cwd = os.getcwd()
+        os.chdir(self.f.app)  # walle diff in the scanned folder: the Next command needs no folder
 
     def tearDown(self):
+        os.chdir(self.cwd)
         for p in self.patches:
             p.stop()
         self.f.close()
 
     def sessions(self, before: int, after: int, model: str = "claude-opus-5-5", after_total: int = 80000,
-                 folder: Path | None = None, tag: str = "o"):
-        """before: first calls 90,000 + 500 i on 10-19 October; after: after_total + 400 i on 21 October."""
+                 folder: Path | None = None, tag: str = "o", at: datetime = AT):
+        """before: first calls 90,000 + 500 i in the 10 days before at; after: after_total + 400 i, 1-9 h after."""
         for i in range(before):
-            claude_session(self.transcripts, f"{tag}b{i:02d}", folder or self.f.app, day(10 + i % 10, i % 9),
-                           model=model, total=90000 + 500 * i)
+            claude_session(self.transcripts, f"{tag}b{i:02d}", folder or self.f.app,
+                           measure.utc(at - timedelta(days=1 + i % 10, hours=i % 9)), model=model, total=90000 + 500 * i)
         for i in range(after):
-            claude_session(self.transcripts, f"{tag}a{i:02d}", folder or self.f.app, day(21, 10 + i % 9),
-                           model=model, total=after_total + 400 * i)
+            claude_session(self.transcripts, f"{tag}a{i:02d}", folder or self.f.app,
+                           measure.utc(at + timedelta(hours=1 + i % 9)), model=model, total=after_total + 400 * i)
 
-    def apply_row(self, rid: str = APPLY, when: str | None = AT):
-        row = {"id": rid, "kind": "apply", "parent_id": "20261021-041703", "roots": [], "rows": ["e94298"],
-               "status": "applied"}
-        runs.append_row(self.f.out, {**row, "generated": when} if when else row)
+    def change_row(self, rid: str = APPLY, when: datetime | None = AT, kind: str = "apply"):
+        row = {"id": rid, "kind": kind, "parent_id": APPLY if kind == "undo" else "20261021-041703", "roots": [],
+               "rows": ["e94298"], "status": "applied"}
+        runs.append_row(self.f.out, {**row, "generated": when.isoformat()} if when else row)
 
-    def around_apply(self, *args) -> tuple[list[str], dict]:
+    def around_apply(self, *args, at: datetime = AT, undo: datetime | None = None) -> tuple[list[str], dict]:
         self.f.scan()
-        self.apply_row()
+        self.change_row(when=at)
+        if undo:
+            self.change_row("20261021-100000", undo, "undo")
         self.f.scan()
         out, data = self.f.diff(*args)
         return out.splitlines(), data
@@ -287,7 +290,8 @@ class DiffSessionsTest(unittest.TestCase):
         self.assertNotIn("A change in median is not proof of cause: task mix and connectors move it.", lines)
         self.assertTrue(all(brief.width(x) <= 80 for x in lines[:-1]), lines)
         s = data["sessions"]
-        self.assertEqual((s["split_at"], s["ref"], s["next"]), ("apply", APPLY, APPLY))
+        self.assertEqual((s["split_at"], s["ref"], s["next"], s["next_folder"]), ("apply", APPLY, APPLY, None))
+        self.assertEqual(s["folder"], str(self.f.app))
         block = s["measure"]
         self.assertEqual((block["agent"], block["folder"]["key"]), ("claude", "app"))
         self.assertEqual([(r["family"], r["before"]["sessions"], r["after"]["sessions"]) for r in block["rows"]],
@@ -298,6 +302,30 @@ class DiffSessionsTest(unittest.TestCase):
         # walle diff reads the transcripts and writes its cache next to the runs folder, not into the scan.
         self.assertEqual(tree_hash(self.f.home / "projects"), before)
         self.assertTrue((self.f.out.parent / "cache" / "eve.json").is_file())
+
+    def test_from_another_folder_the_next_command_names_the_folder(self):
+        self.sessions(12, 3)
+        os.chdir(self.f.h.root)
+        lines, data = self.around_apply()
+        self.assertEqual(data["sessions"]["next_folder"], str(self.f.app))
+        # The command and its condition do not fit in 80 columns together: the condition goes under it.
+        self.assertEqual(lines[-3:-1], [f"Next    walle measure ~/projects/app --around {APPLY}",
+                                        "        (after 10 sessions)"])
+
+    def test_a_closed_since_window_gives_no_next_line(self):
+        self.sessions(12, 3)
+        lines, data = self.around_apply(undo=AT + timedelta(days=1))  # the undo ends the since window
+        self.assertIn("        -> too few sessions (3 of 10)", lines)
+        self.assertFalse(any(x.startswith("Next") for x in lines))
+        self.assertIsNone(data["sessions"]["next"])
+        self.assertEqual(data["sessions"]["measure"]["split"]["bounded_by"]["after"]["kind"], "undo")
+
+    def test_an_old_apply_gives_no_next_line(self):
+        old = AT - timedelta(days=40)  # its 30 days are over
+        self.sessions(12, 3, at=old)
+        lines, data = self.around_apply(at=old)
+        self.assertIn("        -> too few sessions (3 of 10)", lines)
+        self.assertIsNone(data["sessions"]["next"])
 
     def test_ten_on_each_side_give_a_change_and_no_next_line(self):
         self.sessions(12, 11)
@@ -329,9 +357,9 @@ class DiffSessionsTest(unittest.TestCase):
     def test_the_newest_apply_with_a_time_is_the_split(self):
         self.sessions(12, 3)
         self.f.scan()
-        self.apply_row("20261015-000000", "2026-10-15T00:00:00+00:00")
-        self.apply_row()
-        self.apply_row("zz-apply", None)  # an apply line without a time cannot split
+        self.change_row("20261015-000000", AT - timedelta(days=6))
+        self.change_row()
+        self.change_row("zz-apply", None)  # an apply line without a time cannot split
         self.f.scan()
         out, data = self.f.diff()
         s = data["sessions"]
@@ -346,8 +374,8 @@ class DiffSessionsTest(unittest.TestCase):
                            total=70000 + 1000 * i)
         self.f.scan()
         b = self.f.scan()
-        lines, data = self.f.diff()
-        lines = lines.splitlines()
+        out, data = self.f.diff()
+        lines = out.splitlines()
         at = json.loads(Path(b["path"]).read_text())["generated"]
         s = data["sessions"]
         self.assertEqual((s["split_at"], s["ref"], s["next"]), ("scan", at, at))
