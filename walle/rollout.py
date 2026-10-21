@@ -491,40 +491,14 @@ def usage_row(r: Rollout) -> dict:
             if listing:
                 break
     skills = (listing or {}).get("skills", [])
-    by_path = {s["path"]: s["name"] for s in skills if s["path"]}
     names = {s["name"] for s in skills}
-    used: dict[str, int] = {}
-    unlisted: dict[str, int] = {}
+    refs = skill_refs(r)
+    used, unlisted = resolve_refs(refs, skills)
     tools: dict[str, int] = {}
     for p in r.items:
-        t = p.get("type")
-        if t in CALL_TYPES:
+        if p.get("type") in CALL_TYPES:
             name = call_name(p)
             tools[name] = tools.get(name, 0) + 1
-            hits = set()
-            for tok in SKILL_PATH_RE.findall(_call_text(p)):
-                n = match_skill(tok, by_path)
-                if n:
-                    hits.add(n)
-                else:
-                    key = "/".join(tok.split("/")[-2:])
-                    unlisted[key] = unlisted.get(key, 0) + 1
-            for n in hits:
-                used[n] = used.get(n, 0) + 1
-        elif t == "message" and p.get("role") in ("developer", "user"):
-            kinds = (p.get("internal_chat_message_metadata_passthrough") or {}).get("content_item_kinds")
-            for j, (_, text) in enumerate(_text(p.get("content"))):
-                kind = part_kind(kinds, j, text, str(p.get("role")))
-                if kind == "skills.selected_skill_instructions":
-                    m = SKILL_NAME_RE.search(text)
-                    n = _listed(m.group(1), names) if m else None
-                    if n:
-                        used[n] = used.get(n, 0) + 1
-                elif kind == "user.text" and "$" in text:
-                    for m in set(DOLLAR_RE.findall(text)):
-                        n = _listed(m, names)
-                        if n:
-                            used[n] = used.get(n, 0) + 1
     servers: dict[str, dict[str, int]] = {}
     for it in r.completed:
         if it.get("type") == "McpToolCall":
@@ -555,9 +529,60 @@ def usage_row(r: Rollout) -> dict:
         "listed": sorted(names), "skill_lines": {s["name"]: s["bytes"] for s in skills},
         "skill_paths": {s["name"]: s["path"] for s in skills},
         "listing_bytes": sum(s["bytes"] for s in skills) if listing else None,
-        "skills_used": used, "skill_reads_unlisted": unlisted, "tools": tools,
+        "skill_refs": refs, "skills_used": used, "skill_reads_unlisted": unlisted, "tools": tools,
         "servers_used": servers, "servers_loaded": loaded,
     }
+
+
+def skill_refs(r: Rollout) -> list[list[list[str]]]:
+    """Each event that may use a skill, with what it names: ["path", a SKILL.md path in a tool call] or
+    ["name", a <skill> block's name or $name in a user message]. A later page has no skill list of its own,
+    so the refs are kept and matched against its thread's list."""
+    events: list[list[list[str]]] = []
+    for p in r.items:
+        t = p.get("type")
+        if t in CALL_TYPES:
+            toks = sorted(set(SKILL_PATH_RE.findall(_call_text(p))))
+            if toks:
+                events.append([["path", x] for x in toks])
+        elif t == "message" and p.get("role") in ("developer", "user"):
+            kinds = (p.get("internal_chat_message_metadata_passthrough") or {}).get("content_item_kinds")
+            for j, (_, text) in enumerate(_text(p.get("content"))):
+                kind = part_kind(kinds, j, text, str(p.get("role")))
+                if kind == "skills.selected_skill_instructions":
+                    m = SKILL_NAME_RE.search(text)
+                    if m:
+                        events.append([["name", m.group(1)]])
+                elif kind == "user.text" and "$" in text:
+                    found = sorted(set(DOLLAR_RE.findall(text)))
+                    if found:
+                        events.append([["name", x] for x in found])
+    return events
+
+
+def resolve_refs(events, skills: list[dict]) -> tuple[dict[str, int], dict[str, int]]:
+    """Skills used (events per listed skill) and SKILL.md reads of skills the list does not hold."""
+    by_path = {s["path"]: s["name"] for s in skills if s.get("path")}
+    names = {s["name"] for s in skills}
+    used: dict[str, int] = {}
+    unlisted: dict[str, int] = {}
+    for ev in events:
+        hits = set()
+        for how, tok in ev:
+            if how == "path":
+                n = match_skill(tok, by_path)
+                if n:
+                    hits.add(n)
+                else:
+                    key = "/".join(tok.split("/")[-2:])
+                    unlisted[key] = unlisted.get(key, 0) + 1
+            else:
+                n = _listed(tok, names)  # $HOME and other names that are not skills drop out here
+                if n:
+                    hits.add(n)
+        for n in hits:
+            used[n] = used.get(n, 0) + 1
+    return used, unlisted
 
 
 def _listed(name: str, names: set[str]) -> str | None:

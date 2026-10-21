@@ -347,10 +347,15 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
         tools: Counter = Counter()
         srv_used: dict[str, Counter] = defaultdict(Counter)
         loaded: dict[str, int] = {}
+        thread_skills = [{"name": k, "path": v} for k, v in listed["skill_paths"].items()] if listed else []
         for r in rs:
-            used.update(r["skills_used"])
+            if r["listed"]:
+                u, x = r["skills_used"], r["skill_reads_unlisted"]
+            else:  # a later page: match what it names against the thread's skill list
+                u, x = rollout.resolve_refs(r["skill_refs"], thread_skills)
+            used.update(u)
+            unlisted.update(x)
             tools.update(r["tools"])
-            unlisted.update(r["skill_reads_unlisted"])
             for k, ts in r["servers_used"].items():
                 srv_used[k].update(ts)
             for k, v in r["servers_loaded"].items():
