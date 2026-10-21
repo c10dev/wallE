@@ -109,7 +109,8 @@ walle app --port 8760
 - walle는 무작위 토큰이 든 URL을 출력한다. 토큰이 없는 요청은 403을 받는다. 토큰은 `walle app`을 시작할 때마다 바뀐다.
 - 서버는 Host가 127.0.0.1, localhost, [::1]이고 포트가 서버 포트일 때만 받는다. 다른 출처(origin)나 사이트의 요청은 거부한다.
 - 페이지는 네트워크에서 아무것도 불러오지 않는다. React 18, walle 디자인 시스템, IBM Plex 글꼴이 패키지에 들어 있다. Content-Security-Policy는 앱 자신만 허용한다.
-- 왼쪽 목록에는 동작(Scan, Measure, Trim, Runs, Keep)과 스캔한 폴더가 있다. 폴더마다 판정과 추정 토큰을 보여 준다.
+- 왼쪽 목록에는 동작(Efficiency, Scan, Measure, Trim, Runs, Keep)과 스캔한 폴더가 있다. 폴더마다 판정과 추정 토큰을 보여 준다. 페이지는 `walle app`을 시작한 폴더의 Efficiency로 열린다.
+- Efficiency는 한 폴더의 고리를 한 페이지에 모은다: 지침 스택, 측정한 첫 호출(중앙값 [p25-p75]와 n, 프롬프트 캐싱을 센 청구 토큰, 세션이 가격이 있는 모델 하나만 썼으면 정가 달러), 적용할 trim 행, 그리고 apply마다 `walle undo` 명령과 `walle context --compare` 결과. Next step 줄은 다음에 돌릴 명령을 알려 준다. 페이지는 읽기 명령만 돌린다: `walle apply`와 `walle undo`는 터미널에 붙여 넣도록 보여 주기만 한다. 계획 뒤의 apply가 바꾼 행은 다시 권하지 않는다.
 - Scan은 폴더의 최신 스캔을 보여 준다: 판정, 여기부터, 나머지 항목, judge 답. 스캔이 없는 폴더는 시작할 명령을 보여 준다.
 - Measure는 폴더의 `walle eve` 행(중앙값 [p25-p75]와 n, 분할 뒤의 변화)과 최신 context 실행의 컨텍스트 패널을 보여 준다.
 - Trim은 최신 계획을 읽기 전용으로 보여 준다. 행마다 터미널에 붙여 넣을 `walle apply` 명령이 있다. 키가 이미 설정된 행은 표면별 상태를 보여 주고, 절감량과 명령은 없다. Runs는 실행 색인을, Keep은 `keep.json`을 보여 준다.

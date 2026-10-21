@@ -1,5 +1,6 @@
-"""View data of `walle app`: the folders, the newest scan, judge answers, measure rows, the trim plan, context and
-the run history, read from the run index and the run files.
+"""View data of `walle app`: the folders, the newest scan, judge answers, measure rows, the trim plan, context,
+the applies with their measurement, the run history and the Efficiency page, read from the run index and the run
+files.
 
 Nothing here runs a command or writes a file. Every function takes the runs folder (out) and home, so a test can
 give a fake home. A run file is read from out/<id>/ first (a copy of a runs folder keeps working), else from the
@@ -14,12 +15,14 @@ import re
 from collections import OrderedDict
 from pathlib import Path
 
-from . import brief, eve, keep, runs, strings
+from . import brief, cost, eve, keep, runs, strings, trim
 from .strings import round_tokens, t
 
 RUN_ID = re.compile(r"^\d{8}-\d{6}(?:-\d+)?$")
 VERDICT_RANK = {"OVER BUDGET": 2, "TRIM": 1, "LEAN": 0}
 ITEM_LIMIT = 200
+APPLY_LIMIT = 10
+TOP_ROWS = 5
 TEXT_LIMIT = 600
 # The parsed run files that the views read again and again (scan.json is often over 1 MB). The cache holds at most
 # CACHE_FILES files and CACHE_BYTES bytes of file text, the least recently used goes first, and the entry of a file
@@ -294,6 +297,31 @@ def judge_view(scan_path: Path | None, home: Path, folder: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------- measure
+def _measure_rows(m: dict) -> list[dict]:
+    """The rows of a measure block (eve.json, or the measure of a compare.json), one per model family, with the
+    cell texts that the terminal prints and the models of each side."""
+    sides, metrics = m.get("sides") or ["period"], m.get("metrics") or []
+    rows = []
+    for row in m.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        out_row = {"family": row.get("family"), "models": row.get("models") if isinstance(row.get("models"), dict) else {},
+                   "sides": {}, "change": {}}
+        for s in sides:
+            cell = row.get(s) or {}
+            n = cell.get("sessions", 0)
+            out_row["sides"][s] = {"sessions": n, "cells": {k: {**(cell.get(k) or {}),
+                                                                 "text": eve.cell(cell[k], k, n, "en")}
+                                                             for k in metrics if isinstance(cell.get(k), dict)}}
+        for k, c in (row.get("change") or {}).items():
+            if isinstance(c, dict):
+                text = eve.change_cell(c, "en") if c.get("state") != "too_few" else \
+                    f"too few sessions to compare (need {c.get('need', 0)} more)"
+                out_row["change"][k] = {**c, "text": text}
+        rows.append(out_row)
+    return rows
+
+
 def measure_view(out: Path, home: Path, folder: str) -> dict | None:
     """The newest `walle eve` run of the folder: one row per model family, median [p25-p75] and n."""
     for r in reversed(_rows(out)):
@@ -303,27 +331,26 @@ def measure_view(out: Path, home: Path, folder: str) -> dict | None:
         m = data.get("measure") if isinstance(data, dict) else None
         if not isinstance(m, dict):
             continue
-        sides, metrics = m.get("sides") or ["period"], m.get("metrics") or []
-        rows = []
-        for row in m.get("rows") or []:
-            out_row = {"family": row.get("family"), "sides": {}, "change": {}}
-            for s in sides:
-                cell = row.get(s) or {}
-                n = cell.get("sessions", 0)
-                out_row["sides"][s] = {"sessions": n, "cells": {k: {**(cell.get(k) or {}),
-                                                                     "text": eve.cell(cell[k], k, n, "en")}
-                                                                 for k in metrics if isinstance(cell.get(k), dict)}}
-            for k, c in (row.get("change") or {}).items():
-                if isinstance(c, dict):
-                    text = eve.change_cell(c, "en") if c.get("state") != "too_few" else \
-                        f"too few sessions to compare (need {c.get('need', 0)} more)"
-                    out_row["change"][k] = {**c, "text": text}
-            rows.append(out_row)
         return {"id": r["id"], "label": r.get("label"), "generated": when(data.get("generated")),
-                "agent": m.get("agent"), "sides": sides, "split": m.get("split"), "period": m.get("period"),
-                "rules": m.get("rules"), "metrics": metrics, "rows": rows, "left_out": m.get("left_out"),
+                "agent": m.get("agent"), "sides": m.get("sides") or ["period"], "split": m.get("split"),
+                "period": m.get("period"), "rules": m.get("rules"), "metrics": m.get("metrics") or [],
+                "rows": _measure_rows(m), "left_out": m.get("left_out"),
                 "around": (data.get("run") or {}).get("around"), "sessions": data.get("sessions")}
     return None
+
+
+def median_usd(row: dict, side: str) -> dict | None:
+    """The median billed first call of one side at list price, when every session of the side used one model
+    that cost.PRICES has. The raw median decides the price tier."""
+    cells = (row.get("sides", {}).get(side) or {}).get("cells") or {}
+    billed = (cells.get("first_call_billed") or {}).get("median")
+    raw = (cells.get("first_call") or {}).get("median") or 0
+    models = {cost.model_key(m) for m in (row.get("models") or {}).get(side) or {}}
+    if billed is None or len(models) != 1:
+        return None
+    model = models.pop()
+    usd = cost.usd(billed, model, int(raw))
+    return {"usd": usd, "model": model, "prices_as_of": cost.PRICES_AS_OF} if usd is not None else None
 
 
 # ---------------------------------------------------------------------- trim
@@ -404,6 +431,200 @@ def context_view(out: Path, home: Path, folder: str) -> dict:
     return {"first_call": first, "usage": usage}
 
 
+# ---------------------------------------------------------------------- applies
+PAIR_STATES = ("still_loaded", "gone", "new", "not_loaded")
+
+
+def _counts(x: dict) -> dict:
+    return {k: x.get(k, 0) if isinstance(x.get(k), int) else 0 for k in ("sessions", "loaded", "used")}
+
+
+def _applied_row(x: dict) -> dict:
+    """One row that an apply changed, before and since, as `walle context --compare <apply-id>` prints it."""
+    what = f"{x.get('kind') or '-'} {x.get('name') or '-'}"
+    b, a = _counts(x.get("before") or {}), _counts(x.get("after") or {})
+    seen = x.get("kind") is not None
+    text = (t("compare.applied_line", "en", id=x.get("id"), what=what, la=b["loaded"], na=b["sessions"],
+              lb=a["loaded"], nb=a["sessions"], ua=b["used"], ub=a["used"]) if seen
+            else t("compare.applied_none", "en", id=x.get("id"), what=what))
+    surfaces = x.get("surfaces") if isinstance(x.get("surfaces"), dict) else {}
+    pair = x.get("pair") if isinstance(x.get("pair"), dict) else None
+    state = pair.get("state") if pair else None
+    return {"id": x.get("id"), "title": x.get("title"), "kind": x.get("kind"), "name": x.get("name"), "seen": seen,
+            "before": b, "after": a, "text": text,
+            # One surface is the same as the row line; more show where the key acts and where it does not.
+            "surfaces": [{"entrypoint": ep, "text": t("compare.applied_surface", "en", ep=ep, la=_counts(s.get("before") or {})["loaded"],
+                                                      na=_counts(s.get("before") or {})["sessions"],
+                                                      lb=_counts(s.get("after") or {})["loaded"],
+                                                      nb=_counts(s.get("after") or {})["sessions"],
+                                                      ua=_counts(s.get("before") or {})["used"],
+                                                      ub=_counts(s.get("after") or {})["used"])}
+                         for ep, s in surfaces.items() if isinstance(s, dict)] if len(surfaces) > 1 else [],
+            "pair": {"state": state, "text": t("compare.applied_pair", "en", state=t(f"compare.pair.{state}", "en"),
+                                               ea=(pair.get("before") or {}).get("entrypoint") or "-",
+                                               eb=(pair.get("after") or {}).get("entrypoint") or "-")}
+            if state in PAIR_STATES else None}
+
+
+def _billed_side(c) -> dict | None:
+    if not isinstance(c, dict) or not isinstance(c.get("input_equiv"), (int, float)):
+        return None
+    return {"input_equiv": c["input_equiv"], "usd": c.get("usd"), "priced_as": c.get("priced_as"),
+            "prices_as_of": c.get("prices_as_of")}
+
+
+def _compare_of(out: Path, rows: list[dict], apply_id: str, home: Path, folder: str) -> dict | None:
+    """The newest `walle context --compare <apply-id>` run: each changed row before and since, the newest
+    session of each side, and the measured first call of the folder it ran in."""
+    for r in reversed(rows):
+        if r["kind"] != "compare" or r.get("parent_id") != apply_id:
+            continue
+        data = load_json(run_file(out, r, "compare.json"))
+        if not isinstance(data, dict):
+            continue
+        run = data.get("run") or {}
+        m = data.get("measure") if isinstance(data.get("measure"), dict) else None
+        mc = (data.get("compare") or {}).get("measured") or {}
+        billed = mc.get("billed") if isinstance(mc.get("billed"), dict) else {}
+        newest = None
+        if isinstance(mc.get("a"), int) and isinstance(mc.get("b"), int):
+            ba, bb = _billed_side(billed.get("a")), _billed_side(billed.get("b"))
+            newest = {"before": mc["a"], "since": mc["b"], "delta": mc.get("delta"), "same_family": bool(mc.get("same_family")),
+                      "family": mc.get("family") or [], "billed": {"before": ba, "since": bb, "delta": billed.get("delta")}
+                      if ba and bb else None}
+        mfolder = ((m or {}).get("folder") or {}).get("path") or run.get("folder")
+        return {"id": r["id"], "generated": when(data.get("generated")), "label": r.get("label"),
+                "folder": brief.shown(mfolder, None, home) if mfolder else None, "here": mfolder == folder,
+                "applied": [_applied_row(x) for x in data.get("applied") or [] if isinstance(x, dict)],
+                "newest": newest,
+                "measure": {"sides": m.get("sides") or ["before", "after"], "metrics": m.get("metrics") or [],
+                            "rules": m.get("rules"), "rows": _measure_rows(m)} if m else None}
+    return None
+
+
+def applies_view(out: Path, home: Path, folder: str) -> list[dict]:
+    """The applies, newest first: what each changed, its `walle undo` command while it stands, and its newest
+    `walle context --compare`. A settings key acts on every folder, so every apply is listed."""
+    rows = _rows(out)
+    # An undo line means that walle undo ran: it put the files back ("restored") or another program rewrote one
+    # right after ("lost"). Either way a second walle undo of the apply refuses.
+    undone = {r.get("parent_id"): r.get("status") for r in rows if r["kind"] == "undo"}
+    plans = {r["id"]: r for r in rows if r["kind"] == "trim"}
+    result = []
+    for r in reversed(rows):
+        if r["kind"] != "apply":
+            continue
+        rec = load_json(run_file(out, r, "apply.json"))
+        rec = rec if isinstance(rec, dict) else {}
+        plan = load_json(run_file(out, plans[r["parent_id"]], "plan.json")) if r.get("parent_id") in plans else None
+        titles = {p.get("id"): p.get("title") for p in (plan or {}).get("rows") or [] if isinstance(p, dict)} \
+            if isinstance(plan, dict) else {}
+        changed = [x for x in rec.get("rows") or [] if isinstance(x, dict)] or \
+            [{"id": i} for i in r.get("rows") or [] if isinstance(i, str)]
+        status = rec.get("status") or r.get("status")
+        is_undone = r["id"] in undone
+        result.append({
+            "id": r["id"], "generated": when(r.get("generated")), "label": r.get("label"), "plan_id": r.get("parent_id"),
+            "status": status, "undone": is_undone, "undo_status": undone.get(r["id"]), "files": [f for f in r.get("files") or [] if isinstance(f, str)],
+            "rows": [{"id": x.get("id"), "title": titles.get(x.get("id")), "what": x.get("what"),
+                      "changed": x.get("changed")} for x in changed],
+            # walle undo puts back the files of an apply that stands; the page only shows the command.
+            "undo_command": f"walle undo {r['id']}" if status == "applied" and not is_undone else None,
+            "compare_command": f"walle context --compare {r['id']}",
+            "measured": _compare_of(out, rows, r["id"], home, folder),
+        })
+        if len(result) >= APPLY_LIMIT:
+            break
+    return result
+
+
+# ---------------------------------------------------------------------- efficiency
+def _worst(stacks: list[dict]) -> dict | None:
+    return max(stacks, key=lambda s: (VERDICT_RANK.get(s["verdict"], -1), s["tokens_est"] or 0)) if stacks else None
+
+
+def _next_step(scan, measure, plan, top, applies) -> dict:
+    """The next step of the loop scan, measure, trim, apply, measure again. run is false for a command that
+    changes files: the page shows it to copy, it does not run it."""
+    if not scan:
+        return {"text": "Scan the instruction files of this folder.", "command": "walle scan .", "run": True}
+    if not measure:
+        return {"text": "Measure the first call of the past sessions in this folder.", "command": "walle eve .", "run": True}
+    if not plan:
+        return {"text": "Make a trim plan. It lists what the sessions load and do not use.",
+                "command": "walle trim --plan", "run": True}
+    if top:
+        return {"text": f"Apply the top trim row in a terminal: {top['title']}.", "command": top["command"], "run": False}
+    open_apply = next((a for a in applies if a["undo_command"] and not a["measured"]), None)
+    if open_apply:
+        return {"text": f"Measure the sessions since apply {open_apply['id']}.",
+                "command": open_apply["compare_command"], "run": True}
+    return {"text": "Every step has a result. Measure again after more sessions.", "command": "walle eve .", "run": True}
+
+
+def efficiency_view(scan: dict | None, measure: dict | None, context: dict, plan: dict | None,
+                    applies: list[dict]) -> dict:
+    """The Efficiency page: the instruction stack, the measured first call with its billed cost, the newest
+    session, the trim rows to apply and the next step, from the views that folder_view read."""
+    worst = _worst(scan["stacks"]) if scan else None
+    stack = None
+    if worst:
+        stack = {"agent": worst["agent"], "verdict": worst["verdict"], "verdict_text": worst["verdict_text"],
+                 "tokens_text": worst["tokens_text"], "budget": worst["budget"], "lead": worst["lead"],
+                 "start_here": worst["start_here"][:3], "start_here_n": len(worst["start_here"]),
+                 "stacks": len(scan["stacks"]), "scan_id": scan["id"], "generated": scan["generated"]}
+    first = None
+    if measure and measure["rows"]:
+        side = measure["sides"][-1]  # the period, or the side since the split
+        row = max(measure["rows"], key=lambda r: (r["sides"].get(side) or {}).get("sessions", 0))
+        cells = (row["sides"].get(side) or {}).get("cells") or {}
+        first = {"family": row["family"], "side": side, "sessions": (row["sides"].get(side) or {}).get("sessions", 0),
+                 "first_call": cells.get("first_call"), "billed": cells.get("first_call_billed"),
+                 "usd": median_usd(row, side), "change": row["change"].get("first_call") if measure["split"] else None,
+                 "billed_change": row["change"].get("first_call_billed") if measure["split"] else None,
+                 "measure_id": measure["id"], "generated": measure["generated"], "around": measure["around"],
+                 "families": len(measure["rows"])}
+    session = None
+    fc = (context or {}).get("first_call")
+    if fc:
+        data = fc["data"]
+        m = (data.get("first_call") or {}).get("measured") or {}
+        model = (data.get("session") or {}).get("model") or ""
+        c = m.get("cost")
+        if not isinstance(c, dict) and isinstance(m.get("total"), int) and (data.get("run") or {}).get("agent", "claude") == "claude":
+            c = cost.claude(m, model)  # a context run from before walle recorded the cost: the same counts
+        session = {"id": fc["id"], "generated": fc["generated"], "here": fc["here"], "cwd": fc["cwd"],
+                   "session": (data.get("session") or {}).get("id"), "model": model, "total": m.get("total"),
+                   "billed": _billed_side(c)}
+    trim_part = None
+    top = None
+    standing = [a for a in applies if a["undo_command"]]
+    if plan:
+        rows = plan["rows"]
+        # A row that an apply of this plan or of a later one changed is not "already set" in the plan: it is not
+        # offered again. Run ids sort by time. An apply before the plan is in the plan's "already" state.
+        applied = {x["id"] for a in standing if a["plan_id"] == plan["id"] or a["id"] > plan["id"] for x in a["rows"]}
+        open_rows = [r for r in rows if not r["already"]]
+        to_apply = [r for r in open_rows if r["applies"] == "walle" and r["counted"] and r["command"]
+                    and r["id"] not in applied]
+        conf, other = trim.totals([r for r in rows if r["id"] not in applied])
+        top = to_apply[0] if to_apply else None
+        trim_part = {"plan_id": plan["id"], "generated": plan["generated"], "rows": len(rows),
+                     "walle": sum(1 for r in open_rows if r["applies"] == "walle"),
+                     "manual": sum(1 for r in open_rows if r["applies"] == "manual"),
+                     "patch": sum(1 for r in open_rows if r["applies"] == "patch"),
+                     "already": sum(1 for r in rows if r["already"]),
+                     "saving": conf, "saving_text": tokens_text(conf), "unconfirmed": other,
+                     "unconfirmed_text": tokens_text(other), "sessions": (plan.get("period") or {}).get("sessions"),
+                     "top": [r for r in to_apply[:TOP_ROWS]], "to_apply": len(to_apply),
+                     "applied_since": sum(1 for r in open_rows if r["id"] in applied),
+                     "already_rows": [r for r in rows if r["already"]][:TOP_ROWS]}
+    return {"stack": stack, "first_call": first, "session": session, "trim": trim_part,
+            "applies": {"n": len(applies), "standing": len(standing),
+                        "measured": sum(1 for a in standing if a["measured"])},
+            "next": _next_step(scan, measure, plan, top, applies)}
+
+
 # ---------------------------------------------------------------------- runs and keep
 def _what(r: dict) -> str:
     k = r["kind"]
@@ -448,9 +669,11 @@ def keep_view(out: Path, home: Path) -> list[dict]:
 
 def folder_view(out: Path, home: Path, folder: str) -> dict:
     scan, _data, path = scan_view(out, home, folder)
+    measure, plan = measure_view(out, home, folder), trim_view(out, home, folder)
+    context, applies = context_view(out, home, folder), applies_view(out, home, folder)
     return {
         "path": folder, "display": brief.shown(folder, None, home), "scan": scan,
-        "judge": judge_view(path, home, folder), "measure": measure_view(out, home, folder),
-        "trim": trim_view(out, home, folder), "context": context_view(out, home, folder),
+        "judge": judge_view(path, home, folder), "measure": measure, "trim": plan, "context": context,
+        "applies": applies, "efficiency": efficiency_view(scan, measure, context, plan, applies),
         "runs": runs_view(out, home, folder), "keep": keep_view(out, home),
     }

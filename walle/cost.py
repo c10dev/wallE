@@ -46,6 +46,17 @@ def model_key(model: str) -> str:
     return DATE_RE.sub("", (model or "").strip().lower())
 
 
+def usd(input_equiv: float, model: str, prompt: int = 0) -> float | None:
+    """input_equiv tokens at the model's list price, None for a model this table does not have. prompt is the
+    call's input tokens before weighting: a model with a tier bills a longer prompt at a higher rate."""
+    key = model_key(model)
+    price = PRICES.get(key)
+    if not price:
+        return None
+    limit, factor = TIERS.get(key, (None, 1.0))
+    return round(input_equiv * price[0] * (factor if limit and prompt > limit else 1.0) / 1_000_000, 4)
+
+
 def claude(measured: dict, model: str) -> dict:
     """The cost of one call's input. measured: input, cache_creation, cache_read and, when the transcript
     records the split, cache_write_1h (the rest of cache_creation is 5-minute writes)."""
@@ -56,10 +67,6 @@ def claude(measured: dict, model: str) -> dict:
     w1h = min(measured.get("cache_write_1h", 0), measured.get("cache_creation", 0))
     w5m = measured.get("cache_creation", 0) - w1h
     equiv = (measured.get("input", 0) + WRITE_5M * w5m + WRITE_1H * w1h + read_rate * measured.get("cache_read", 0))
-    usd = None
-    if price:
-        prompt = measured.get("input", 0) + measured.get("cache_creation", 0) + measured.get("cache_read", 0)
-        limit, factor = TIERS.get(key, (None, 1.0))
-        usd = round(equiv * base * (factor if limit and prompt > limit else 1.0) / 1_000_000, 4)
-    return {"input_equiv": round(equiv), "usd": usd, "read_rate": round(read_rate, 4),
+    prompt = measured.get("input", 0) + measured.get("cache_creation", 0) + measured.get("cache_read", 0)
+    return {"input_equiv": round(equiv), "usd": usd(equiv, key, prompt), "read_rate": round(read_rate, 4),
             "priced_as": key if price else None, "prices_as_of": PRICES_AS_OF}
