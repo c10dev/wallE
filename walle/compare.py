@@ -31,7 +31,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, brief, codex_context, context, estimate, eve, measure, rollout, runs, transcript
+from . import __version__, brief, codex_context, context, cost, estimate, eve, measure, rollout, runs, transcript
 from .collect import HOME
 from .strings import resolve_lang, t
 
@@ -170,6 +170,15 @@ def from_session(agent: str, root: Path, ref: str, estimator: str, names: dict |
             "loaded": loaded}
 
 
+def _billed(sd: dict) -> dict | None:
+    """The first call's input with caching counted (cost.claude). A context run from before walle recorded it
+    gets it now from the same counts, without the 1-hour split. Codex is not priced."""
+    if sd["agent"] != "claude":
+        return None
+    m = sd["first_call"]["measured"]
+    return m.get("cost") or cost.claude(m, sd["session"].get("model") or "")
+
+
 def _source(s: dict) -> dict:
     return {"source": s["source"], "label": s["label"], "bytes": s["bytes"], "items": s["items"],
             "tokens_est": s["tokens_est"], "recorded": s.get("recorded"), "parts": parts(s)}
@@ -261,6 +270,10 @@ def compare_pair(a: dict, b: dict, lang: str = "en") -> dict:
     fa, fb = measure.family(a["session"].get("model") or ""), measure.family(b["session"].get("model") or "")
     measured = {"a": ma, "b": mb, "family": [fa, fb], "same_family": fa == fb,
                 "delta": mb - ma if fa == fb else None}
+    ca, cb = _billed(a), _billed(b)
+    if ca and cb:
+        measured["billed"] = {"a": ca, "b": cb,
+                              "delta": cb["input_equiv"] - ca["input_equiv"] if fa == fb else None}
     loaded = None
     if a["loaded"] is not None and b["loaded"] is not None:
         loaded = {}
@@ -489,6 +502,13 @@ def lines(res: dict, lang: str = "en", home: Path = HOME) -> list[str]:
     else:
         text = t("compare.measured_family", lang, a=_num(m["a"]), b=_num(m["b"]), fa=m["family"][0], fb=m["family"][1])
     out.append(text)
+    if m.get("billed") and m["same_family"]:
+        ba, bb = m["billed"]["a"], m["billed"]["b"]
+        out.append(t("compare.billed", lang, a=_num(ba["input_equiv"]), b=_num(bb["input_equiv"]),
+                     d=_signed(m["billed"]["delta"])))
+        if ba["usd"] is not None and bb["usd"] is not None:
+            out.append(t("compare.billed_usd", lang, a=f"{ba['usd']:.4f}", b=f"{bb['usd']:.4f}",
+                         model=measure.family(bb["priced_as"]), at=bb["prices_as_of"]))
     out.append(t("compare.one_each", lang) if m["same_family"] else t("compare.family_differs", lang))
     if c["loaded"] is None:
         out += brief.wrap(t("compare.no_loaded", lang), brief.WIDTH)
@@ -526,7 +546,7 @@ def lines(res: dict, lang: str = "en", home: Path = HOME) -> list[str]:
         if blk["rows"]:
             shown, few = eve._shown_rows(blk, blk["rows"])
             if shown:
-                out += eve._table(*eve._rows(blk, shown, ["first_call"], lang, False))
+                out += eve._fitted(blk, shown, [m for m in blk["metrics"] if m.startswith("first_call")], lang)
             out += eve._too_few_line(blk, few, lang)
             c1 = (blk["rows"][0].get("change") or {}).get("first_call")
             if c1 and c1["state"] == "too_few":

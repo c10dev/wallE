@@ -71,7 +71,11 @@ class PairTest(unittest.TestCase):
         self.assertEqual(data["run"]["kind"], "compare")
         self.assertIn("estimator bytes-v2 = bytes-v2  counting revision 1 = 1", out)
         self.assertIn("* changes with every session. It is not a setting.", out)
-        self.assertIn("Measured first call  90,499 -> 90,499 tokens (0)\nOne session on each side is not a median", out)
+        self.assertIn("Measured first call  90,499 -> 90,499 tokens (0)\n"
+                      "Billed as            121,431 -> 121,431 input-equivalent tokens (0)\n"
+                      "                     $0.4857 -> $0.4857 at opus 5.5 list prices of 2026-10-06\n"
+                      "One session on each side is not a median", out)
+        self.assertEqual(c["measured"]["billed"]["delta"], 0)
         self.assertTrue(all(len(x) <= 80 for x in out.splitlines()[:-1]), out)
 
     def test_estimator_and_counting_revision_mismatch(self):
