@@ -571,6 +571,11 @@ STRINGS: dict[str, tuple[str, str]] = {
     "diff.undone_line": ("{id} undo of {apply}", "{id} {apply} 되돌림"),
     "diff.pinned": ("baseline pinned", "기준 실행 고정"),
     "diff.stale": ("{n} files changed since {id}. Run walle scan.", "{id} 뒤에 파일 {n}개가 바뀌었다. walle scan을 다시 돌린다."),
+    "diff.sessions": ("Sessions (same folder, {family} only)", "세션 (같은 폴더, {family}만)"),
+    "diff.sessions_value": ("median {value} n={n}", "중앙값 {value} n={n}"),
+    "diff.next": ("Next", "다음"),
+    "diff.next_measure": ("walle measure --around {ref} (after {n} sessions)",
+                          "walle measure --around {ref} (이후 세션 {n}개 뒤)"),
 }
 
 

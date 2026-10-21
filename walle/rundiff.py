@@ -15,6 +15,12 @@ item of A is gone), new, moved (same id, another line), edited (a gone and a new
 the same file whose text is at least EDITED similar: one item to review, not "closed 1, new 1") and kept.
 The applies and undos between the two runs are listed: they link a change of the settings to the scans.
 
+The Sessions lines measure the first calls of the newest scan's folder in Claude Code transcripts, one model
+family per block, as walle eve --around does (measure.py). The split is the newest apply between the two
+scans, else the time of the newest scan. The n rule of measure.py holds: no value under MIN_SHOW sessions,
+a change only with MIN_COMPARE on each side. When the since side is short, a Next line gives the walle
+measure command to run later. Measured values never enter the verdict, Start here or the alarm (brief 2.1, L4).
+
 The result goes to a new run folder (kind diff) as diff.md and diff.json. The last line printed is the
 path of diff.md. walle diff does not write into a folder that the two scans scanned.
 """
@@ -28,7 +34,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, brief, report, runs
+from . import __version__, brief, eve, measure, report, runs
 from .collect import HOME
 from .strings import resolve_lang, round_tokens, t
 from .triage import norm_id
@@ -180,6 +186,30 @@ def compare(a: dict, b: dict, out: Path) -> dict:
     }
 
 
+def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path) -> dict | None:
+    """The measure block of the first root of scan b, split at the newest apply of applied, else at b's time.
+
+    None when there are no transcripts or no time to split at. ref is what walle measure --around takes.
+    next is ref when the since side of the largest family has fewer than MIN_COMPARE sessions.
+    """
+    roots = (b.get("run") or {}).get("roots") or []
+    if not roots or not transcripts.is_dir() or not any(transcripts.glob("*/*.jsonl")):
+        return None
+    applies = [r for r in applied if r.get("kind") == "apply" and measure.parse_when(r.get("generated"))]
+    ref = applies[-1]["id"] if applies else b.get("generated")
+    if not ref:
+        return None
+    try:
+        split = measure.split_point(out, ref)
+    except measure.SplitError:
+        return None
+    sessions = eve.load_sessions(transcripts, out.parent / "cache" / "eve.json")
+    block = eve.measure_block(sessions, "claude", Path(roots[0]), split)
+    first = block["rows"][0]["change"]["first_call"] if block["rows"] else None
+    short = first is None or (first["state"] == "too_few" and first["need_after"] > 0)
+    return {"split_at": "apply" if applies else "scan", "ref": ref, "next": ref if short else None, "measure": block}
+
+
 # ---------------------------------------------------------------------- text
 def _signed(n: int) -> str:
     if n == 0:
@@ -193,6 +223,41 @@ def _short(p: str, home: Path) -> str:
 
 def _label(key: str, lang: str) -> str:
     return brief.pad(t(key, lang), LABEL_COLS)
+
+
+def _side(v: dict, lang: str) -> str:
+    """One side of the first-call input: median [p25-p75] n=, or too few sessions (n of 10)."""
+    if v["sessions"] < measure.MIN_SHOW:
+        return t("measure.too_few_cell", lang, n=v["sessions"], need=measure.MIN_COMPARE)
+    st = v["first_call"]
+    text = t("diff.sessions_value", lang, value=eve.cell(st, "first_call", v["sessions"], lang), n=st["n"])
+    return text + ("  " + t("measure.few", lang) if st["few"] else "")
+
+
+def session_lines(s: dict, lang: str, home: Path) -> list[str]:
+    """The Sessions blocks and the Next line. Exact numbers, no color: a measured change is not a verdict."""
+    block, indent = s["measure"], " " * LABEL_COLS
+    shown, few = eve._shown_rows(block, block["rows"])
+    out = []
+    for r in shown:
+        out.append(t("diff.sessions", lang, family=r["family"]))
+        out.append(f"{indent}{t('measure.col.first_call', lang)} {_side(r['before'], lang)}")
+        after = f"{indent}-> {_side(r['after'], lang)}"
+        change = eve.change_cell(r["change"]["first_call"], lang)
+        if change and brief.width(f"{after}  {change}") > brief.WIDTH:
+            out.append(after)
+            after = f"{indent}   {change}"
+        elif change:
+            after += f"  {change}"
+        out.append(after)
+    out += eve._too_few_line(block, few, lang)
+    if not block["rows"]:
+        out.append(t("measure.no_sessions", lang, folder=_short(block["folder"]["path"], home)))
+    if any(r["change"]["first_call"]["state"] != "too_few" for r in shown):
+        out.append(t("measure.not_proof", lang))
+    if s["next"]:
+        out.append(_label("diff.next", lang) + t("diff.next_measure", lang, ref=s["next"], n=measure.MIN_COMPARE))
+    return out
 
 
 def lines(c: dict, a: dict, b: dict, pinned: bool, lang: str, home: Path, green=lambda s: s) -> list[str]:
@@ -241,6 +306,8 @@ def lines(c: dict, a: dict, b: dict, pinned: bool, lang: str, home: Path, green=
             out.append(lead + t("diff.undone_line", lang, id=r["id"], apply=r.get("parent_id") or "-"))
     if c["stale_files"]:
         out.append(t("diff.stale", lang, n=len(c["stale_files"]), id=rb.get("id") or "-"))
+    if c.get("sessions"):
+        out += session_lines(c["sessions"], lang, home)
     return out
 
 
@@ -294,6 +361,8 @@ def add_parsers(sub) -> None:
     d = sub.add_parser("diff", help="compare two scans: baseline -> newest (no argument), last, or A B")
     d.add_argument("runs", nargs="*", help="nothing, last, or two runs (ids or scan.json paths)")
     d.add_argument("--root", type=Path, help="the folder whose scans to compare (default: the current folder)")
+    d.add_argument("--transcripts", type=Path, default=None,
+                   help="where the Claude Code sessions are for the Sessions lines (default ~/.claude/projects)")
     d.add_argument("--color", choices=["auto", "always", "never"], default="auto")
     d.add_argument("--lang", choices=("en", "ko"))
 
@@ -416,6 +485,8 @@ def diff_cli(args, home: Path, lang: str) -> int:
         print(t("out.in_scan", lang, path=hit[0], root=hit[1]), file=sys.stderr)
         return 2
     c = compare(a, b, args.out)
+    c["sessions"] = sessions_of(b, c["applied"], args.out,
+                                (args.transcripts or home / ".claude" / "projects").expanduser())
     color = brief.use_color(args.color, sys.stdout.isatty(), os.environ)
     text = lines(c, a, b, pinned, lang, home, (lambda s: f"\x1b[32m{s}\x1b[0m") if color else (lambda s: s))
     run_dir = runs.new_run_dir(args.out)

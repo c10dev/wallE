@@ -5,14 +5,16 @@ import json
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from sessions import claude_session  # noqa: E402
 from test_keep import tree_hash  # noqa: E402
 from test_triage import Home  # noqa: E402
 
-from walle import brief, cli, rundiff, runs, triage  # noqa: E402
+from walle import brief, cli, measure, rundiff, runs, triage  # noqa: E402
 from walle.scan import scan  # noqa: E402
 
 V1 = """# App
@@ -109,6 +111,8 @@ class DiffTest(unittest.TestCase):
         self.assertEqual(data["run"]["kind"], "diff")
         md = (Path(lines[-1])).read_text()
         self.assertIn("### edited (review) (1)", md)
+        self.assertIsNone(data["sessions"])  # no transcripts: no Sessions lines
+        self.assertNotIn("Sessions", out)
         # A diff run is not a scan: the next scan's parent is still the previous scan.
         c = self.f.scan()
         self.assertEqual(c["parent_id"], b["id"])
@@ -219,6 +223,148 @@ class DiffTest(unittest.TestCase):
         self.f.cli("runs")
         self.f.cli("runs", "--root", str(self.f.app))
         self.assertEqual(tree_hash(self.f.home / "projects"), before)
+
+
+APPLY = "20261021-090000"
+AT = "2026-10-21T09:00:00+00:00"
+
+
+def day(d: int, h: int) -> str:
+    return f"2026-10-{d:02d}T{h:02d}:00:00Z"
+
+
+class DiffSessionsTest(unittest.TestCase):
+    """The Sessions lines of walle diff on synthetic transcripts: the n rule of measure.py, the split, Next."""
+
+    def setUp(self):
+        self.f = RunsFixture()
+        self.transcripts = self.f.home / ".claude" / "projects"
+        self.web = self.f.h.repo("web")
+        self.f.h.write("projects/web/CLAUDE.md", "- rule\n")
+        self.patches = [mock.patch("walle.eve.HOME", self.f.home), mock.patch("walle.eve.SCRATCH_ROOTS", ())]
+        for p in self.patches:
+            p.start()
+
+    def tearDown(self):
+        for p in self.patches:
+            p.stop()
+        self.f.close()
+
+    def sessions(self, before: int, after: int, model: str = "claude-opus-5-5", after_total: int = 80000,
+                 folder: Path | None = None, tag: str = "o"):
+        """before: first calls 90,000 + 500 i on 10-19 October; after: after_total + 400 i on 21 October."""
+        for i in range(before):
+            claude_session(self.transcripts, f"{tag}b{i:02d}", folder or self.f.app, day(10 + i % 10, i % 9),
+                           model=model, total=90000 + 500 * i)
+        for i in range(after):
+            claude_session(self.transcripts, f"{tag}a{i:02d}", folder or self.f.app, day(21, 10 + i % 9),
+                           model=model, total=after_total + 400 * i)
+
+    def apply_row(self, rid: str = APPLY, when: str | None = AT):
+        row = {"id": rid, "kind": "apply", "parent_id": "20261021-041703", "roots": [], "rows": ["e94298"],
+               "status": "applied"}
+        runs.append_row(self.f.out, {**row, "generated": when} if when else row)
+
+    def around_apply(self, *args) -> tuple[list[str], dict]:
+        self.f.scan()
+        self.apply_row()
+        self.f.scan()
+        out, data = self.f.diff(*args)
+        return out.splitlines(), data
+
+    def test_too_few_since_the_apply_gives_the_next_line(self):
+        self.sessions(12, 3)
+        self.sessions(0, 2, model="claude-sonnet-5-5", tag="s")
+        self.sessions(12, 12, folder=self.web, tag="w")  # another folder: not counted
+        before = tree_hash(self.f.home / "projects")
+        lines, data = self.around_apply()
+        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        self.assertEqual(lines[i + 1:i + 4], [
+            "        first-call input median 92,750 [91,375-94,125] n=12",
+            "        -> too few sessions (3 of 10)",
+            "Too few sessions for a value: sonnet 5.5 (0 before, 2 since)"])
+        self.assertEqual(lines[-2], f"Next    walle measure --around {APPLY} (after 10 sessions)")
+        self.assertNotIn("A change in median is not proof of cause: task mix and connectors move it.", lines)
+        self.assertTrue(all(brief.width(x) <= 80 for x in lines[:-1]), lines)
+        s = data["sessions"]
+        self.assertEqual((s["split_at"], s["ref"], s["next"]), ("apply", APPLY, APPLY))
+        block = s["measure"]
+        self.assertEqual((block["agent"], block["folder"]["key"]), ("claude", "app"))
+        self.assertEqual([(r["family"], r["before"]["sessions"], r["after"]["sessions"]) for r in block["rows"]],
+                         [("opus 5.5", 12, 3), ("sonnet 5.5", 0, 2)])
+        self.assertEqual(block["rows"][0]["change"]["first_call"]["state"], "too_few")
+        # The Next line splits the sessions the same way: walle measure --around takes its ref.
+        self.assertEqual(measure.split_point(self.f.out, s["next"])["windows"], block["split"]["windows"])
+        # walle diff reads the transcripts and writes its cache next to the runs folder, not into the scan.
+        self.assertEqual(tree_hash(self.f.home / "projects"), before)
+        self.assertTrue((self.f.out.parent / "cache" / "eve.json").is_file())
+
+    def test_ten_on_each_side_give_a_change_and_no_next_line(self):
+        self.sessions(12, 11)
+        lines, data = self.around_apply()
+        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        self.assertEqual(lines[i + 1:i + 4], [
+            "        first-call input median 92,750 [91,375-94,125] n=12",
+            "        -> median 82,000 [81,000-83,000] n=11  -10,750 lower",
+            "A change in median is not proof of cause: task mix and connectors move it."])
+        self.assertFalse(any(x.startswith("Next") for x in lines))
+        self.assertIsNone(data["sessions"]["next"])
+        self.assertEqual(data["sessions"]["measure"]["rows"][0]["change"]["first_call"]["state"], "lower")
+        # A lower measured value is not green: only the estimated stack change can be.
+        out, _ = self.f.cli("diff", "--root", str(self.f.app), "--color", "always")
+        self.assertNotIn("\x1b", "\n".join(out.splitlines()[i:]))
+
+    def test_few_sessions_since_are_marked_in_both_languages(self):
+        self.sessions(12, 6)
+        lines, _data = self.around_apply("--lang", "ko")
+        i = lines.index("세션 (같은 폴더, opus 5.5만)")
+        self.assertEqual(lines[i + 1:i + 3], [
+            "        첫 호출 입력 중앙값 92,750 [91,375-94,125] n=12",
+            "        -> 중앙값 81,000 [80,500-81,500] n=6  (세션 적음)"])
+        self.assertEqual(lines[-2], f"다음    walle measure --around {APPLY} (이후 세션 10개 뒤)")
+        self.assertTrue(all(brief.width(x) <= 80 for x in lines[:-1]), lines)
+        out, _ = self.f.diff()
+        self.assertIn("        -> median 81,000 [80,500-81,500] n=6  (few sessions)", out.splitlines())
+
+    def test_the_newest_apply_with_a_time_is_the_split(self):
+        self.sessions(12, 3)
+        self.f.scan()
+        self.apply_row("20261015-000000", "2026-10-15T00:00:00+00:00")
+        self.apply_row()
+        self.apply_row("zz-apply", None)  # an apply line without a time cannot split
+        self.f.scan()
+        out, data = self.f.diff()
+        s = data["sessions"]
+        self.assertEqual((s["split_at"], s["ref"]), ("apply", APPLY))
+        self.assertEqual(s["measure"]["split"]["bounded_by"]["before"]["id"], "20261015-000000")
+        self.assertIn("        zz-apply (plan 20261021-041703, 1 changed)", out)
+
+    def test_no_apply_splits_at_the_time_of_the_newest_scan(self):
+        now = datetime.now().astimezone()
+        for i in range(7):
+            claude_session(self.transcripts, f"n{i:02d}", self.f.app, measure.utc(now - timedelta(hours=1 + i)),
+                           total=70000 + 1000 * i)
+        self.f.scan()
+        b = self.f.scan()
+        lines, data = self.f.diff()
+        lines = lines.splitlines()
+        at = json.loads(Path(b["path"]).read_text())["generated"]
+        s = data["sessions"]
+        self.assertEqual((s["split_at"], s["ref"], s["next"]), ("scan", at, at))
+        self.assertEqual(s["measure"]["split"]["kind"], "time")
+        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        self.assertEqual(lines[i + 1:i + 3], [
+            "        first-call input median 73,000 [71,500-74,500] n=7  (few sessions)",
+            "        -> too few sessions (0 of 10)"])
+        self.assertEqual(lines[-2], f"Next    walle measure --around {at} (after 10 sessions)")
+        self.assertEqual(measure.split_point(self.f.out, at)["windows"], s["measure"]["split"]["windows"])
+
+    def test_no_session_of_the_folder_in_the_windows(self):
+        self.sessions(3, 0, folder=self.web, tag="w")
+        lines, data = self.around_apply()
+        self.assertIn("No sessions for ~/projects/app in these windows.", lines)
+        self.assertEqual(lines[-2], f"Next    walle measure --around {APPLY} (after 10 sessions)")
+        self.assertEqual(data["sessions"]["measure"]["rows"], [])
 
 
 class RunsListTest(unittest.TestCase):
