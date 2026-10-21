@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import shlex
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -227,6 +228,7 @@ class DiffTest(unittest.TestCase):
 
 
 APPLY = "20261021-090000"
+LABEL = rundiff.LABEL_COLS
 # The apply is two days old, so every session is in the past and the since window is still open.
 AT = (datetime.now(timezone.utc) - timedelta(days=2)).replace(microsecond=0)
 
@@ -236,10 +238,12 @@ class DiffSessionsTest(unittest.TestCase):
 
     def setUp(self):
         self.f = RunsFixture()
+        self.f.out = self.f.home / ".walle" / "runs"  # the default --out of this home: Next needs no --out
         self.transcripts = self.f.home / ".claude" / "projects"
         self.web = self.f.h.repo("web")
         self.f.h.write("projects/web/CLAUDE.md", "- rule\n")
-        self.patches = [mock.patch("walle.eve.HOME", self.f.home), mock.patch("walle.eve.SCRATCH_ROOTS", ())]
+        self.patches = [mock.patch("walle.eve.HOME", self.f.home), mock.patch("walle.eve.SCRATCH_ROOTS", ()),
+                        mock.patch("walle.cli.DEFAULT_OUT", self.f.out)]
         for p in self.patches:
             p.start()
         self.cwd = os.getcwd()
@@ -275,22 +279,41 @@ class DiffSessionsTest(unittest.TestCase):
         out, data = self.f.diff(*args)
         return out.splitlines(), data
 
+    def run_next(self, lines: list[str]) -> tuple[list[str], dict]:
+        """Run the Next command as a shell would: join the lines that end with a backslash, expand ~."""
+        i = next(n for n, x in enumerate(lines) if x.startswith("Next"))
+        text = lines[i][LABEL:]
+        while text.endswith(" \\"):
+            i += 1
+            text = text[:-2] + " " + lines[i].strip()
+        words = [str(self.f.home) + w[1:] if w.startswith("~/") else w
+                 for w in shlex.split(text.removesuffix(" (after 10 sessions)"))]
+        self.assertEqual(words[0], "walle")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(words[1:])
+        self.assertEqual(code, 0, err.getvalue())
+        last = Path(out.getvalue().strip().splitlines()[-1])
+        self.assertEqual(last.name, "eve.md", out.getvalue())
+        return words, json.loads((last.parent / "eve.json").read_text())["measure"]
+
     def test_too_few_since_the_apply_gives_the_next_line(self):
         self.sessions(12, 3)
         self.sessions(0, 2, model="claude-sonnet-5-5", tag="s")
         self.sessions(12, 12, folder=self.web, tag="w")  # another folder: not counted
         before = tree_hash(self.f.home / "projects")
         lines, data = self.around_apply()
-        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        i = lines.index("Sessions (~/projects/app, opus 5.5 only)")
         self.assertEqual(lines[i + 1:i + 4], [
             "        first-call input median 92,750 [91,375-94,125] n=12",
             "        -> too few sessions (3 of 10)",
-            "Too few sessions for a value: sonnet 5.5 (0 before, 2 since)"])
+            "Too few sessions in ~/projects/app for a value: sonnet 5.5 (0 before, 2 since)"])
         self.assertEqual(lines[-2], f"Next    walle measure --around {APPLY} (after 10 sessions)")
         self.assertNotIn("A change in median is not proof of cause: task mix and connectors move it.", lines)
         self.assertTrue(all(brief.width(x) <= 80 for x in lines[:-1]), lines)
         s = data["sessions"]
-        self.assertEqual((s["split_at"], s["ref"], s["next"], s["next_folder"]), ("apply", APPLY, APPLY, None))
+        self.assertEqual((s["split_at"], s["ref"]), ("apply", APPLY))
+        self.assertEqual(s["next"], {"around": APPLY, "folder": None, "out": None, "transcripts": None})
         self.assertEqual(s["folder"], str(self.f.app))
         block = s["measure"]
         self.assertEqual((block["agent"], block["folder"]["key"]), ("claude", "app"))
@@ -298,7 +321,10 @@ class DiffSessionsTest(unittest.TestCase):
                          [("opus 5.5", 12, 3), ("sonnet 5.5", 0, 2)])
         self.assertEqual(block["rows"][0]["change"]["first_call"]["state"], "too_few")
         # The Next line splits the sessions the same way: walle measure --around takes its ref.
-        self.assertEqual(measure.split_point(self.f.out, s["next"])["windows"], block["split"]["windows"])
+        self.assertEqual(measure.split_point(self.f.out, s["next"]["around"])["windows"], block["split"]["windows"])
+        words, again = self.run_next(lines)
+        self.assertEqual(words, ["walle", "measure", "--around", APPLY])
+        self.assertEqual(again["rows"], block["rows"])
         # walle diff reads the transcripts and writes its cache next to the runs folder, not into the scan.
         self.assertEqual(tree_hash(self.f.home / "projects"), before)
         self.assertTrue((self.f.out.parent / "cache" / "eve.json").is_file())
@@ -307,10 +333,81 @@ class DiffSessionsTest(unittest.TestCase):
         self.sessions(12, 3)
         os.chdir(self.f.h.root)
         lines, data = self.around_apply()
-        self.assertEqual(data["sessions"]["next_folder"], str(self.f.app))
+        self.assertEqual(data["sessions"]["next"]["folder"], str(self.f.app))
         # The command and its condition do not fit in 80 columns together: the condition goes under it.
         self.assertEqual(lines[-3:-1], [f"Next    walle measure ~/projects/app --around {APPLY}",
                                         "        (after 10 sessions)"])
+        self.assertEqual(self.run_next(lines)[1]["rows"], data["sessions"]["measure"]["rows"])
+
+    def test_a_scan_of_two_roots_measures_the_folder_that_diff_compares(self):
+        # Defect: the Sessions lines measured the first root (app) when walle diff --root picked web.
+        self.sessions(12, 12, folder=self.web, tag="w")
+        self.f.cli("scan", str(self.f.app), str(self.web), "--format", "path")
+        self.change_row()
+        self.f.cli("scan", str(self.f.app), str(self.web), "--format", "path")
+        os.chdir(self.web)
+        lines = self.f.cli("diff", "--root", str(self.web), "--color", "never")[0].splitlines()
+        data = json.loads((Path(lines[-1]).parent / "diff.json").read_text())
+        self.assertEqual(data["sessions"]["measure"]["folder"]["path"], str(self.web))
+        self.assertNotIn("No sessions for ~/projects/app in these windows.", lines)
+        i = lines.index("Sessions (~/projects/web, opus 5.5 only)")
+        self.assertEqual(lines[i + 1:i + 3], [
+            "        first-call input median 92,750 [91,375-94,125] n=12",
+            "        -> median 82,200 [81,100-83,300] n=12  -10,550 lower"])
+        self.assertEqual((data["sessions"]["folder"], data["sessions"]["next"]), (str(self.web), None))
+        # walle diff A B from a folder outside both roots measures the first root of the newest scan.
+        os.chdir(self.f.h.root)
+        ids = [r["id"] for r in runs.scans(self.f.out)]
+        out = self.f.cli("diff", ids[0], ids[1], "--color", "never")[0]
+        self.assertIn("No sessions for ~/projects/app in these windows.", out)
+        self.assertIn(f"Next    walle measure ~/projects/app --around {APPLY}", out)
+
+    def test_the_next_command_keeps_out(self):
+        # Defect: the Next command dropped --out, so walle measure read the default runs folder and exited 2.
+        self.f.out = self.f.home / "other" / "runs"
+        self.sessions(12, 3)
+        lines, data = self.around_apply()
+        words, again = self.run_next(lines)
+        self.assertEqual(words, ["walle", "--out", str(self.f.out), "measure", "--around", APPLY])
+        self.assertEqual(again["rows"], data["sessions"]["measure"]["rows"])
+        self.assertEqual(again["split"]["windows"], data["sessions"]["measure"]["split"]["windows"])
+        self.assertEqual(lines[-3:-1], [f"Next    walle --out ~/other/runs measure --around {APPLY}",
+                                        "        (after 10 sessions)"])  # 83 columns on one line
+
+    def test_the_next_command_keeps_transcripts(self):
+        # Defect: the Next command dropped --transcripts, so walle measure read ~/.claude/projects instead.
+        moved = self.f.home / "sessions-copy"
+        self.transcripts = moved
+        self.sessions(12, 3)
+        lines, data = self.around_apply("--transcripts", str(moved))
+        words, again = self.run_next(lines)
+        self.assertEqual(words[-2:], ["--transcripts", str(moved)])
+        self.assertEqual(again["rows"], data["sessions"]["measure"]["rows"])
+        self.assertEqual(data["sessions"]["next"], {"around": APPLY, "folder": None, "out": None,
+                                                    "transcripts": str(moved)})
+        # Both flags: the command goes on to a second line, and the condition takes its own line.
+        self.f.out = self.f.home / "other" / "runs"
+        lines, _ = self.around_apply("--transcripts", str(moved))
+        self.assertEqual(lines[-4:-1], [
+            f"Next    walle --out ~/other/runs measure --around {APPLY} \\",
+            "          --transcripts ~/sessions-copy",
+            "        (after 10 sessions)"])
+        self.assertEqual(self.run_next(lines)[1]["rows"], data["sessions"]["measure"]["rows"])
+
+    def test_a_long_next_command_goes_on_with_a_backslash(self):
+        deep = self.f.home / "runs-folder-with-a-long-name" / "runs"
+        self.f.out = deep
+        self.sessions(12, 3)
+        os.chdir(self.f.h.root)
+        lines, data = self.around_apply("--lang", "ko")
+        i = next(n for n, x in enumerate(lines) if x.startswith("다음"))
+        self.assertTrue(lines[i].endswith(" \\"), lines[i:])
+        self.assertTrue(all(brief.width(x) <= 80 for x in lines[:-1]), lines)
+        self.assertEqual(lines[-2], "        (이후 세션 10개 뒤)")
+        text = " ".join(x.strip().removesuffix(" \\") for x in lines[i:-2])
+        self.assertEqual(text, f"다음    walle --out ~/runs-folder-with-a-long-name/runs measure ~/projects/app "
+                               f"--around {APPLY}")
+        self.assertEqual(data["sessions"]["next"]["out"], str(deep))
 
     def test_a_closed_since_window_gives_no_next_line(self):
         self.sessions(12, 3)
@@ -330,7 +427,7 @@ class DiffSessionsTest(unittest.TestCase):
     def test_ten_on_each_side_give_a_change_and_no_next_line(self):
         self.sessions(12, 11)
         lines, data = self.around_apply()
-        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        i = lines.index("Sessions (~/projects/app, opus 5.5 only)")
         self.assertEqual(lines[i + 1:i + 4], [
             "        first-call input median 92,750 [91,375-94,125] n=12",
             "        -> median 82,000 [81,000-83,000] n=11  -10,750 lower",
@@ -345,7 +442,7 @@ class DiffSessionsTest(unittest.TestCase):
     def test_few_sessions_since_are_marked_in_both_languages(self):
         self.sessions(12, 6)
         lines, _data = self.around_apply("--lang", "ko")
-        i = lines.index("세션 (같은 폴더, opus 5.5만)")
+        i = lines.index("세션 (~/projects/app, opus 5.5만)")
         self.assertEqual(lines[i + 1:i + 3], [
             "        첫 호출 입력 중앙값 92,750 [91,375-94,125] n=12",
             "        -> 중앙값 81,000 [80,500-81,500] n=6  (세션 적음)"])
@@ -378,9 +475,9 @@ class DiffSessionsTest(unittest.TestCase):
         lines = out.splitlines()
         at = json.loads(Path(b["path"]).read_text())["generated"]
         s = data["sessions"]
-        self.assertEqual((s["split_at"], s["ref"], s["next"]), ("scan", at, at))
+        self.assertEqual((s["split_at"], s["ref"], s["next"]["around"]), ("scan", at, at))
         self.assertEqual(s["measure"]["split"]["kind"], "time")
-        i = lines.index("Sessions (same folder, opus 5.5 only)")
+        i = lines.index("Sessions (~/projects/app, opus 5.5 only)")
         self.assertEqual(lines[i + 1:i + 3], [
             "        first-call input median 73,000 [71,500-74,500] n=7  (few sessions)",
             "        -> too few sessions (0 of 10)"])

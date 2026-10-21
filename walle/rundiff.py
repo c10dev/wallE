@@ -15,11 +15,13 @@ item of A is gone), new, moved (same id, another line), edited (a gone and a new
 the same file whose text is at least EDITED similar: one item to review, not "closed 1, new 1") and kept.
 The applies and undos between the two runs are listed: they link a change of the settings to the scans.
 
-The Sessions lines measure the first calls of the newest scan's folder in Claude Code transcripts, one model
-family per block, as walle eve --around does (measure.py). The split is the newest apply between the two
-scans, else the time of the newest scan. The n rule of measure.py holds: no value under MIN_SHOW sessions,
-a change only with MIN_COMPARE on each side. When the since side is short and its window is still open, a
-Next line gives the walle measure command to run later, with the folder when it is not the current one.
+The Sessions lines measure the first calls of one folder in Claude Code transcripts, one model family per
+block, as walle eve --around does (measure.py). The folder is the one that walle diff compares (--root, else
+the current folder) when a root of the newest scan holds it, else the first root of the newest scan. The
+split is the newest apply between the two scans, else the time of the newest scan. The n rule of measure.py
+holds: no value under MIN_SHOW sessions, a change only with MIN_COMPARE on each side. When the since side
+is short and its window is still open, a Next line gives the walle measure command to run later. It names
+the folder, --out and --transcripts when they are not the defaults, so the command measures the same thing.
 Measured values never enter the verdict, Start here or the alarm (brief 2.1, L4).
 
 The result goes to a new run folder (kind diff) as diff.md and diff.json. The last line printed is the
@@ -188,16 +190,22 @@ def compare(a: dict, b: dict, out: Path) -> dict:
     }
 
 
-def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, cwd: Path) -> dict | None:
-    """The measure block of the first root of scan b, split at the newest apply of applied, else at b's time.
+def measured_folder(b: dict, picked: Path) -> Path | None:
+    """The folder that walle diff compares when a root of scan b holds it, else the first root of b."""
+    roots = [Path(r) for r in (b.get("run") or {}).get("roots") or []]
+    return picked if any(picked == r or r in picked.parents for r in roots) else (roots[0] if roots else None)
 
-    None when there are no transcripts or no time to split at. ref is what walle measure --around takes.
-    next is ref when the since side of the largest family has fewer than MIN_COMPARE sessions and the since
-    window is still open: a later apply or undo, or the end of its days, closes it. next_folder is the folder
-    for walle measure when it is not cwd.
+
+def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, folder: Path | None,
+                defaults: dict) -> dict | None:
+    """The measure block of folder, split at the newest apply of applied, else at b's time.
+
+    None when there are no transcripts, no folder or no time to split at. ref is what walle measure --around
+    takes. next is set when the since side of the largest family has fewer than MIN_COMPARE sessions and the
+    since window is still open: a later apply or undo, or the end of its days, closes it. Its folder, out and
+    transcripts are None when they are the defaults (defaults: folder is the current folder, out, transcripts).
     """
-    roots = (b.get("run") or {}).get("roots") or []
-    if not roots or not transcripts.is_dir() or not any(transcripts.glob("*/*.jsonl")):
+    if folder is None or not transcripts.is_dir() or not any(transcripts.glob("*/*.jsonl")):
         return None
     applies = [r for r in applied if r.get("kind") == "apply" and measure.parse_when(r.get("generated"))]
     ref = applies[-1]["id"] if applies else b.get("generated")
@@ -208,13 +216,15 @@ def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, cwd:
     except measure.SplitError:
         return None
     sessions = eve.load_sessions(transcripts, out.parent / "cache" / "eve.json")
-    block = eve.measure_block(sessions, "claude", Path(roots[0]), split)
+    block = eve.measure_block(sessions, "claude", folder, split)
     first = block["rows"][0]["change"]["first_call"] if block["rows"] else None
     short = first is None or (first["state"] == "too_few" and first["need_after"] > 0)
     open_ = measure.parse_when(split["windows"]["after"]["to"]) > datetime.now(timezone.utc)
-    folder = str(Path(roots[0]))
-    return {"split_at": "apply" if applies else "scan", "ref": ref, "folder": folder,
-            "next": ref if short and open_ else None, "next_folder": None if Path(folder) == cwd else folder,
+    nxt = None
+    if short and open_:
+        given = {"folder": folder, "out": out, "transcripts": transcripts.resolve()}
+        nxt = {"around": ref, **{k: None if v == defaults[k] else str(v) for k, v in given.items()}}
+    return {"split_at": "apply" if applies else "scan", "ref": ref, "folder": str(folder), "next": nxt,
             "measure": block}
 
 
@@ -242,13 +252,50 @@ def _side(v: dict, lang: str) -> str:
     return text + ("  " + t("measure.few", lang) if st["few"] else "")
 
 
+def _arg(path: str, home: Path) -> str:
+    """A path for a shell command: ~/... when the rest needs no quotes (the shell expands an unquoted ~),
+    else the absolute path, quoted."""
+    shown = _short(path, home)
+    rest = shown.removeprefix("~")
+    return shown if shlex.quote(rest) == rest else shlex.quote(path)
+
+
+def next_lines(nx: dict, lang: str, home: Path) -> list[str]:
+    """Next: the walle measure command, with --out, the folder and --transcripts when they are not the defaults.
+
+    A command wider than 80 columns goes on to more lines that end with a backslash, so it still runs when
+    pasted. A flag stays on one line with its value. The condition (after 10 sessions) follows the command on
+    its line when both fit, else it takes a line of its own.
+    """
+    units = ["walle"] + ([f"--out {_arg(nx['out'], home)}"] if nx["out"] else []) + ["measure"]
+    units += [_arg(nx["folder"], home)] if nx["folder"] else []
+    units.append(f"--around {shlex.quote(nx['around'])}")
+    units += [f"--transcripts {_arg(nx['transcripts'], home)}"] if nx["transcripts"] else []
+    out, cur = [], _label("diff.next", lang) + units[0]
+    for n, unit in enumerate(units[1:], 2):
+        room = brief.WIDTH - (0 if n == len(units) else 2)  # 2: the backslash of a line that goes on
+        if brief.width(f"{cur} {unit}") <= room:
+            cur += " " + unit
+        else:
+            out.append(cur + " \\")
+            cur = " " * (LABEL_COLS + 2) + unit
+    after = t("diff.next_after", lang, n=measure.MIN_COMPARE)
+    if not out and brief.width(f"{cur} {after}") <= brief.WIDTH:
+        return [f"{cur} {after}"]
+    return out + [cur, " " * LABEL_COLS + after]  # its own line: the command lines paste as they are
+
+
 def session_lines(s: dict, lang: str, home: Path) -> list[str]:
     """The Sessions blocks and the Next line. Exact numbers, no color: a measured change is not a verdict."""
     block, indent = s["measure"], " " * LABEL_COLS
     shown, few = eve._shown_rows(block, block["rows"])
+    where = _short(block["folder"]["path"], home)
     out = []
     for r in shown:
-        out.append(t("diff.sessions", lang, family=r["family"]))
+        head = t("diff.sessions", lang, folder=where, family=r["family"])
+        if brief.width(head) > brief.WIDTH:
+            head = t("diff.sessions", lang, folder=".../" + Path(block["folder"]["path"]).name, family=r["family"])
+        out.append(head)
         out.append(f"{indent}{t('measure.col.first_call', lang)} {_side(r['before'], lang)}")
         after = f"{indent}-> {_side(r['after'], lang)}"
         change = eve.change_cell(r["change"]["first_call"], lang)
@@ -258,20 +305,18 @@ def session_lines(s: dict, lang: str, home: Path) -> list[str]:
         elif change:
             after += f"  {change}"
         out.append(after)
-    out += eve._too_few_line(block, few, lang)
+    if few:
+        items = []
+        for r in few:
+            counts = ", ".join(f"{r[x]['sessions']} {t('measure.side.' + x, lang)}" for x in block["sides"])
+            items.append(f"{r['family']} ({counts})")
+        out += brief.wrap_list(t("diff.sessions_too_few", lang, folder=where) + " ", items, "  ")
     if not block["rows"]:
-        out.append(t("measure.no_sessions", lang, folder=_short(block["folder"]["path"], home)))
+        out.append(t("measure.no_sessions", lang, folder=where))
     if any(r["change"]["first_call"]["state"] != "too_few" for r in shown):
         out.append(t("measure.not_proof", lang))
     if s["next"]:
-        folder = ""
-        if s.get("next_folder"):
-            shown = _short(s["next_folder"], home)  # ~ must stay unquoted for the shell to expand it
-            rest = shown.removeprefix("~")
-            folder = " " + (shown if shlex.quote(rest) == rest else shlex.quote(s["next_folder"]))
-        cmd = _label("diff.next", lang) + t("diff.next_measure", lang, folder=folder, ref=s["next"])
-        after = t("diff.next_after", lang, n=measure.MIN_COMPARE)
-        out += ([f"{cmd} {after}"] if brief.width(f"{cmd} {after}") <= brief.WIDTH else [cmd, indent + after])
+        out += next_lines(s["next"], lang, home)
     return out
 
 
@@ -483,7 +528,7 @@ def pin_cli(args, home: Path, lang: str) -> int:
 
 
 def diff_cli(args, home: Path, lang: str) -> int:
-    from .cli import out_in_scan
+    from .cli import DEFAULT_OUT, out_in_scan
     try:
         ref_a, ref_b, pinned = pick(args.out, args.runs, _folder(args))
         a, _row_a, _pa = resolve(args.out, ref_a)
@@ -500,8 +545,11 @@ def diff_cli(args, home: Path, lang: str) -> int:
         print(t("out.in_scan", lang, path=hit[0], root=hit[1]), file=sys.stderr)
         return 2
     c = compare(a, b, args.out)
-    c["sessions"] = sessions_of(b, c["applied"], args.out,
-                                (args.transcripts or home / ".claude" / "projects").expanduser(), Path.cwd().resolve())
+    claude_projects = home / ".claude" / "projects"
+    defaults = {"folder": Path.cwd().resolve(), "out": DEFAULT_OUT.expanduser().resolve(),
+                "transcripts": claude_projects.resolve()}
+    c["sessions"] = sessions_of(b, c["applied"], args.out, (args.transcripts or claude_projects).expanduser(),
+                                measured_folder(b, _folder(args)), defaults)
     color = brief.use_color(args.color, sys.stdout.isatty(), os.environ)
     text = lines(c, a, b, pinned, lang, home, (lambda s: f"\x1b[32m{s}\x1b[0m") if color else (lambda s: s))
     run_dir = runs.new_run_dir(args.out)
