@@ -10,8 +10,9 @@ walle context --compare <apply-id|date>
   The newest session since the split and the newest one before it: in the folder of --root (default: the
   current folder) when that folder has a session on both sides, and of the same model family when it can.
   For an apply, every row it changed with the sessions that loaded and used it, before and since (all
-  folders: a settings key acts on every folder). Then the measured first-call medians of the folder, one model
-  family per row (the same block as walle eve --around).
+  folders: a settings key acts on every folder), per surface when there are more, and whether the two sessions
+  loaded it. Then the measured first-call medians of the folder, one model family per row (the same block as
+  walle eve --around).
 
 Recorded bytes compare when both sides split the first call the same way (the counting revision of
 context.json). Estimated tokens compare only when, in addition, both sides used the same estimator. The
@@ -312,20 +313,48 @@ def _kind(row: dict) -> str | None:
     typ = (row.get("source") or {}).get("type") or ""
     if "skill" in typ:
         return "skill"
-    if typ == "plugin":
+    if "plugin" in typ:
         return "plugin"
     if "MCP server" in typ or "connector" in typ:
         return "server"
     return None
 
 
-def applied_rows(out: Path, split: dict, root: Path, cache: Path, rows: dict | None = None) -> list[dict]:
-    """Each row the apply changed: the sessions that loaded it and used it, before and since (all folders)."""
+def _source_of(keys, prow: dict | None) -> tuple[str | None, str | None]:
+    """(kind, name) of the source that a row changed. A settings key names it: enabledPlugins["<name>@<marketplace>"]
+    is the plugin <name>, skillOverrides["<name>"] is the skill <name>. Else the type of the plan row names it."""
+    keys = [str(k) for k in keys or []]
+    if len(keys) == 2 and keys[0] == "enabledPlugins":
+        return "plugin", keys[1].rsplit("@", 1)[0]
+    if len(keys) == 2 and keys[0] == "skillOverrides":
+        return "skill", keys[1]
+    src = (prow or {}).get("source") or {}
+    return (_kind(prow) if prow else None), src.get("key") or src.get("name")
+
+
+def _apply_record(out: Path, apply_id: str) -> dict:
+    """The apply.json of an apply: in its run folder, else at the path of its index line (a copied index)."""
+    row = next((r for r in runs.read_index(out) if r.get("kind") == "apply" and r.get("id") == apply_id), {})
+    for p in [out / apply_id / "apply.json", *([Path(row["path"])] if row.get("path") else [])]:
+        try:
+            return json.loads(p.read_text())
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+# The newest sessions before and since: (loaded before, loaded since) -> state.
+PAIR_STATES = {(True, True): "still_loaded", (True, False): "gone", (False, True): "new", (False, False): "not_loaded"}
+
+
+def applied_rows(out: Path, split: dict, root: Path, cache: Path, rows: dict | None = None,
+                 pair: tuple[str, str] | None = None) -> list[dict]:
+    """Each row the apply changed: the sessions that loaded it and used it, before and since (all folders), also per
+    surface (entrypoint). pair: the transcripts of the newest session before and since; the row tells whether each
+    loaded the source."""
     a = split.get("apply") or {}
-    try:
-        rec = json.loads((out / a["id"] / "apply.json").read_text())
-    except (OSError, ValueError, KeyError, TypeError):
-        rec = {}
+    rec = _apply_record(out, a["id"]) if a.get("id") else {}
+    keys = {r["id"]: r.get("keys") for r in rec.get("rows") or [] if r.get("id")}
     changed = [r["id"] for r in rec.get("rows") or [] if r.get("changed")] or list(a.get("rows") or [])
     plan_path = (rec.get("plan") or {}).get("path") or str(out / (a.get("parent_id") or "-") / "plan.json")
     try:
@@ -344,12 +373,13 @@ def applied_rows(out: Path, split: dict, root: Path, cache: Path, rows: dict | N
         e["files"].append(r)
         if r["main"]:
             e["main"] = r
+    ends = [sessions.get(f"{Path(p).parent.name}/{Path(p).stem}") for p in pair or ()]
     out_rows = []
     for rid, prow in want:
-        kind = _kind(prow) if prow else None
-        name = ((prow or {}).get("source") or {}).get("key") or ((prow or {}).get("source") or {}).get("name")
+        kind, name = _source_of(keys.get(rid) or ((prow or {}).get("change") or {}).get("keys"), prow)
         res = {"id": rid, "kind": kind, "name": name, "title": (prow or {}).get("title"),
-               "before": {"sessions": 0, "loaded": 0, "used": 0}, "after": {"sessions": 0, "loaded": 0, "used": 0}}
+               "before": {"sessions": 0, "loaded": 0, "used": 0}, "after": {"sessions": 0, "loaded": 0, "used": 0},
+               "surfaces": {}, "pair": None}
         for e in sessions.values():
             m = e["main"]
             sd = measure.side_of(m["start"], split) if m else None
@@ -358,33 +388,36 @@ def applied_rows(out: Path, split: dict, root: Path, cache: Path, rows: dict | N
             res[sd]["sessions"] += 1
             if kind is None:
                 continue
+            ep = m.get("entrypoint") or "unknown"
+            surface = res["surfaces"].setdefault(ep, {s: {"sessions": 0, "loaded": 0, "used": 0}
+                                                      for s in ("before", "after")})[sd]
+            surface["sessions"] += 1
             loaded, used = _loaded_used(kind, name, m, e["files"], names)
-            res[sd]["loaded"] += loaded
-            res[sd]["used"] += used
+            for x in (res[sd], surface):
+                x["loaded"] += loaded
+                x["used"] += used
+        res["surfaces"] = dict(sorted(res["surfaces"].items()))
+        if kind is not None and len(ends) == 2 and all(e and e["main"] for e in ends):
+            res["pair"] = {}
+            for sd, e in zip(("before", "after"), ends):
+                loaded, used = _loaded_used(kind, name, e["main"], e["files"], names)
+                res["pair"][sd] = {"session": e["main"]["session"], "entrypoint": e["main"].get("entrypoint") or "unknown",
+                                   "loaded": loaded, "used": used}
+            res["pair"]["state"] = PAIR_STATES[(res["pair"]["before"]["loaded"], res["pair"]["after"]["loaded"])]
         out_rows.append(res)
     return out_rows
 
 
 def _loaded_used(kind: str, name: str, m: dict, files: list[dict], names: dict) -> tuple[bool, bool]:
-    calls: dict[str, int] = {}
-    for f in files:
-        for tool, n in f["tools"].items():
-            calls[tool] = calls.get(tool, 0) + n
+    """Did a session load the source (its listing) and use it (its skill and MCP tool calls)? context.shows_source
+    is the rule for both, as for the status per entrypoint of walle trim --plan."""
     invoked = {k for f in files for k in [*f["skills"], *f["slash"]]}
-    if kind == "skill":
-        short = name.rsplit(":", 1)[-1]
-        return name in m["listed"], name in invoked or (short in invoked and ":" in name)
-    if kind == "plugin":
-        servers = {context.canonical(k, names) for k in [*m["servers"], *m["instr"]]}
-        loaded = any(x.startswith(name + ":") for x in m["listed"]) or any(k.startswith(f"plugin:{name}:") for k in servers)
-        used = any(k.startswith(name + ":") for k in invoked) or any(
-            t.startswith("mcp__") and context.canonical(transcript.server_key(t[5:].split("__", 1)[0]), names).startswith(f"plugin:{name}:")
-            for t in calls)
-        return loaded, used
+    if kind == "skill" and ":" in name and name.rsplit(":", 1)[-1] in invoked:
+        invoked.add(name)  # a call by the short name runs the same skill
+    called = {context.canonical(transcript.server_key(tool[5:].split("__", 1)[0]), names)
+              for f in files for tool in f["tools"] if tool.startswith("mcp__")}
     servers = {context.canonical(k, names) for k in [*m["servers"], *m["instr"]]}
-    used = any(t.startswith("mcp__") and context.canonical(transcript.server_key(t[5:].split("__", 1)[0]), names) == name
-               for t in calls)
-    return name in servers, used
+    return context.shows_source(kind, name, m["listed"], servers), context.shows_source(kind, name, invoked, called)
 
 
 # ---------------------------------------------------------------------- text
@@ -476,6 +509,17 @@ def lines(res: dict, lang: str = "en", home: Path = HOME) -> list[str]:
                 continue
             out += brief.wrap(t("compare.applied_line", lang, id=r["id"], what=what, la=x["loaded"], na=x["sessions"],
                                 lb=y["loaded"], nb=y["sessions"], ua=x["used"], ub=y["used"]), brief.WIDTH, "  ", "    ")
+            surfaces = r.get("surfaces") or {}
+            if len(surfaces) > 1:  # a key can act on one surface and not on another
+                for ep, s in surfaces.items():
+                    x, y = s["before"], s["after"]
+                    out += brief.wrap(t("compare.applied_surface", lang, ep=ep, la=x["loaded"], na=x["sessions"],
+                                        lb=y["loaded"], nb=y["sessions"], ua=x["used"], ub=y["used"]),
+                                      brief.WIDTH, "    ", "      ")
+            p = r.get("pair")
+            if p:
+                out += brief.wrap(t("compare.applied_pair", lang, state=t("compare.pair." + p["state"], lang),
+                                    ea=p["before"]["entrypoint"], eb=p["after"]["entrypoint"]), brief.WIDTH, "    ", "      ")
     if res.get("measure"):
         blk = res["measure"]
         out += ["", t("compare.measure_head", lang, folder=brief.shown(blk["folder"]["path"], None, home))]
@@ -558,7 +602,7 @@ def run_cli(args, home: Path = HOME) -> int:
             b = from_session(agent, root, Path(after.path).stem if agent == "claude" else _thread(after), estimator, names)
             res.update(split=split, same_folder=here, tags=[t("measure.side.before", lang), t("measure.side.after", lang)])
             if split["apply"] and agent == "claude":
-                res["applied"] = applied_rows(args.out, split, root, cache, usage)
+                res["applied"] = applied_rows(args.out, split, root, cache, usage, (before.path, after.path))
             res["measure"] = eve.measure_block(sessions, agent, folder, split)
             res["head"] = f"walle context --compare {refs[0]}  {agent}"
         elif len(refs) == 2:

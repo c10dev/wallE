@@ -712,11 +712,7 @@ def set_status(marks: list[tuple], since: str, spec: tuple[str, str], gone: bool
     kind, name = spec
 
     def listed(m) -> bool:
-        if kind == "skill":
-            return name in m[2]
-        if kind == "server":
-            return name in m[3]
-        return any(x.startswith(name + ":") for x in m[2]) or any(k.startswith(f"plugin:{name}:") for k in m[3])
+        return context.shows_source(kind, name, m[2], m[3])
 
     by: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     before: dict[str, bool] = defaultdict(bool)

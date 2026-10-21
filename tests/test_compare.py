@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sessions import claude_session, codex_rollout, slug  # noqa: E402
-from test_measure import APPLY, Home, day, fill  # noqa: E402
+from test_measure import APPLY, AT, Home, day, fill  # noqa: E402
 
 from walle import runs  # noqa: E402
 
@@ -203,7 +203,9 @@ class AroundApplyTest(unittest.TestCase):
         self.assertEqual(m["rows"][0]["family"], "opus 5.5")
         self.assertEqual((m["rows"][0]["before"]["sessions"], m["rows"][0]["after"]["sessions"]), (13, 12))
         self.assertIn("Applied rows: sessions that loaded and used each, before -> since (all folders).", out)
-        self.assertIn("  e94298 skill anthropic-skills:pptx: loaded 1 of 19 -> 1 of 17, used 0 -> 0", out)
+        self.assertIn("  e94298 skill anthropic-skills:pptx: loaded 1 of 19 -> 1 of 17, used 0 -> 0\n"
+                      "    newest sessions: gone (before claude-desktop, since claude-desktop)\n", out)
+        self.assertEqual(applied["e94298"]["pair"]["state"], "gone")
         self.assertIn("  f00001 server rea: loaded 1 of 19 -> 0 of 17, used 0 -> 0", out)
         self.assertIn("  f00002 - h: sessions do not show this row. See its check in the plan.", out)
         self.assertIn("Measured first call in ~/projects/app, one model family per row:", out)
@@ -219,6 +221,78 @@ class AroundApplyTest(unittest.TestCase):
     def test_no_session_since_yet(self):
         out, _ = self.h.cli("context", "--compare", "2026-11-30", "--transcripts", str(self.h.projects))
         self.assertIn("No session since", out)
+
+
+class PluginApplyTest(unittest.TestCase):
+    """--compare <apply-id> after enabledPlugins["p@synced"] = false and skillOverrides["s1"] = "name-only".
+
+    The apply.json and the plan are not in the runs folder: the index line has the path of the apply.json, as in a
+    runs folder that holds a copy of index.jsonl only. The plan row of the skill is missing: its key names it.
+    """
+
+    def setUp(self):
+        self.h = Home()
+        elsewhere = Path(self.h.tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "plan.json").write_text(json.dumps({"rows": [
+            {"id": "aa0001", "source": {"type": "claude.ai plugin", "key": "p", "name": "p"},
+             "title": "Turn off the claude.ai plugin p in Claude Code",
+             "change": {"kind": "settings_key", "keys": ["enabledPlugins", "p@synced"], "value": False}}]}))
+        (elsewhere / "apply.json").write_text(json.dumps({"rows": [
+            {"id": "aa0001", "changed": True, "keys": ["enabledPlugins", "p@synced"]},
+            {"id": "aa0002", "changed": True, "keys": ["skillOverrides", "s1"]}],
+            "plan": {"id": "20261021-041703", "path": str(elsewhere / "plan.json")}}))
+        runs.append_row(self.h.out, {"id": APPLY, "kind": "apply", "parent_id": "20261021-041703", "generated": AT,
+                                     "roots": [], "rows": ["aa0001", "aa0002"], "status": "applied",
+                                     "path": str(elsewhere / "apply.json")})
+        # Before: a cli session loads p by its MCP server and calls it; the desktop session lists the p:* skills.
+        claude_session(self.h.projects, "pc", self.h.app, day(20, 1), entrypoint="cli",
+                       servers={"plugin_p_srv": ["x"]}, calls=("mcp__plugin_p_srv__x",))
+        claude_session(self.h.projects, "pb", self.h.app, day(21, 1), skills=("p:a", "p:b", "s1"))
+        # Since: the cli session lists no p:* skill.
+        claude_session(self.h.projects, "qc", self.h.app, day(21, 10), entrypoint="cli", skills=("s1",))
+
+    def tearDown(self):
+        self.h.close()
+
+    def compare(self, since_skills: tuple) -> tuple[str, dict]:
+        claude_session(self.h.projects, "qd", self.h.app, day(21, 12), skills=since_skills)
+        out, _ = self.h.cli("context", "--compare", APPLY, "--root", str(self.h.app),
+                            "--transcripts", str(self.h.projects))
+        data = json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text())
+        self.assertEqual((data["a"]["session"]["id"], data["b"]["session"]["id"]), ("pb", "qd"))
+        self.assertTrue(all(len(x) <= 80 for x in out.splitlines()[:-1]), out)
+        return out, {r["id"]: r for r in data["applied"]}
+
+    def test_the_since_session_still_lists_the_plugin(self):
+        out, applied = self.compare(("p:a", "p:b", "s1"))
+        p = applied["aa0001"]
+        self.assertEqual((p["kind"], p["name"]), ("plugin", "p"))
+        self.assertEqual(p["before"], {"sessions": 2, "loaded": 2, "used": 1})
+        self.assertEqual(p["after"], {"sessions": 2, "loaded": 1, "used": 0})
+        self.assertEqual(p["surfaces"]["cli"], {"before": {"sessions": 1, "loaded": 1, "used": 1},
+                                                "after": {"sessions": 1, "loaded": 0, "used": 0}})
+        self.assertEqual(p["pair"]["state"], "still_loaded")
+        self.assertEqual((p["pair"]["before"]["entrypoint"], p["pair"]["after"]["entrypoint"]),
+                         ("claude-desktop", "claude-desktop"))
+        self.assertIn("  aa0001 plugin p: loaded 2 of 2 -> 1 of 2, used 1 -> 0\n"
+                      "    claude-desktop: loaded 1 of 1 -> 1 of 1, used 0 -> 0\n"
+                      "    cli: loaded 1 of 1 -> 0 of 1, used 1 -> 0\n"
+                      "    newest sessions: still loaded (before claude-desktop, since claude-desktop)\n", out)
+        s = applied["aa0002"]
+        self.assertEqual((s["kind"], s["name"]), ("skill", "s1"))
+        self.assertEqual((s["before"]["loaded"], s["after"]["loaded"]), (1, 2))
+        self.assertIn("  aa0002 skill s1: loaded 1 of 2 -> 2 of 2, used 0 -> 0\n", out)
+        self.assertNotIn("sessions do not show this row", out)
+
+    def test_the_since_session_lists_no_plugin_skill(self):
+        out, applied = self.compare(("s1",))
+        p = applied["aa0001"]
+        self.assertEqual((p["kind"], p["before"]["loaded"]), ("plugin", 2))
+        self.assertEqual(p["after"], {"sessions": 2, "loaded": 0, "used": 0})
+        self.assertEqual(p["pair"]["state"], "gone")
+        self.assertIn("  aa0001 plugin p: loaded 2 of 2 -> 0 of 2, used 1 -> 0\n", out)
+        self.assertIn("    newest sessions: gone (before claude-desktop, since claude-desktop)\n", out)
 
 
 class CodexPairTest(unittest.TestCase):

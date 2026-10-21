@@ -16,6 +16,8 @@ python3 bin/walle scan ~/projects --progress json  # 단계(collect, stack, clas
 python3 bin/walle eve --since 2026-10-01   # 세션 실측: 이 폴더, 모델 계열마다 한 행, 중앙값 [p25-p75]과 n
 python3 bin/walle eve --around <apply-id>  # apply 전후 비교(양쪽 10세션 이상일 때만 변화 판정)
 python3 bin/walle context --compare A B    # 두 세션의 첫 호출을 원천별로 비교(apply id 하나: 전후 최신 세션)
+                                           # apply id 하나: 적용한 행마다 실은 세션과 쓴 세션 수, 화면(entrypoint)이 둘 이상이면 화면별,
+                                           # 전후 최신 세션이 그 원천을 실었는지(아직 실림, 빠짐)와 각 세션의 화면
 python3 bin/walle context --agent codex    # Codex 세션 첫 호출을 원천별로 실측(--usage: 실린 것 대 쓴 것)
 python3 bin/walle context --usage --json    # context.json을 stdout에 출력(실행 기록은 그대로 씀, --compare와는 못 씀)
 python3 bin/walle diff                     # 기준 실행(고정, 없으면 직전 스캔) -> 이 폴더의 최신 스캔. last: 최근 두 스캔

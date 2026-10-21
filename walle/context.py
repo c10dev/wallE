@@ -290,6 +290,17 @@ def canonical(key: str, names: dict[str, str]) -> str:
     return v if v and v.startswith("claude.ai:") else key
 
 
+def shows_source(kind: str, name: str, skills, servers) -> bool:
+    """Does a session show a source? A skill by its name, an MCP server by its key, a plugin by a skill
+    "<name>:..." or an MCP server key "plugin:<name>:...". skills and servers are the names and server keys that
+    the session listed (it loaded the source) or called (it used the source)."""
+    if kind == "skill":
+        return name in skills
+    if kind == "server":
+        return name in servers
+    return any(x.startswith(name + ":") for x in skills) or any(k.startswith(f"plugin:{name}:") for k in servers)
+
+
 def display(key: str, names: dict[str, str]) -> str:
     c = canonical(key, names)
     if c in names and not names[c].startswith("claude.ai:"):
