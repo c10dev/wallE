@@ -241,6 +241,47 @@ class AroundTest(unittest.TestCase):
         self.assertIn("No session transcripts in ~/none.", out)
 
 
+class DeletedWorktreeTest(unittest.TestCase):
+    """Sessions of worktrees that are gone count for their repository (the desktop app's worktrees folder)."""
+
+    def setUp(self):
+        self.h = Home()
+        self.wts = self.h.home / "projects" / "worktrees"
+
+    def tearDown(self):
+        self.h.close()
+
+    def worktree(self, path: Path, repo: Path) -> Path:
+        path.mkdir(parents=True)
+        (repo / ".git" / "worktrees" / path.name).mkdir(parents=True)
+        (path / ".git").write_text(f"gitdir: {repo / '.git' / 'worktrees' / path.name}\n")
+        return path
+
+    def test_a_live_worktree_or_the_folder_name_names_the_repository(self):
+        box = self.wts / "app-0123456789abcdef"
+        self.worktree(box / "w1", self.h.app)
+        self.assertEqual(eve.folder_key(str(box / "w1")), "app")
+        self.assertEqual(eve.folder_key(str(box / "w2-deleted")), "app")
+        self.assertEqual(eve.folder_key(str(box / "w2-deleted" / "src")), "app")
+        # The <repo>-<16 hex> folder is gone too.
+        self.assertEqual(eve.folder_key(str(self.wts / "web-fedcba9876543210" / "w3")), "web")
+        # Worktrees of two repositories in one folder: a deleted one stays as it is.
+        mixed = self.wts / "mixed"
+        self.worktree(mixed / "a1", self.h.app)
+        self.worktree(mixed / "b1", self.h.web)
+        self.assertEqual(eve.folder_key(str(mixed / "gone")), str(mixed / "gone"))
+
+    def test_their_sessions_count_in_the_folder_rows(self):
+        box = self.wts / "app-0123456789abcdef"
+        self.worktree(box / "w1", self.h.app)
+        for i in range(5):
+            claude_session(self.h.projects, f"d{i}", box / f"gone-{i}", day(12, i), total=70000)
+        claude_session(self.h.projects, "l0", self.h.app, day(12, 9), total=70000)
+        _out, data = self.h.measure(str(self.h.app), "--across-folders")
+        self.assertEqual(data["measure"]["rows"][0]["period"]["sessions"], 6)
+        self.assertEqual({r["folder"] for r in data["measure"]["across"]}, {"app"})
+
+
 class CodexAroundTest(unittest.TestCase):
     def setUp(self):
         self.h = Home()

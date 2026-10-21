@@ -26,6 +26,7 @@ is "measure"; the files are eve.json and eve.md.
 
 from __future__ import annotations
 
+import functools
 import json
 import re
 import statistics
@@ -45,6 +46,7 @@ CHECK_RE = re.compile(
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 CACHE_VERSION = 4  # 4: entrypoint and resumed
 SCRATCH_ROOTS = (Path("/tmp"), Path("/var/tmp"))
+CONTAINER_RE = re.compile(r"^(.+)-[0-9a-f]{16}$")
 
 
 @dataclass
@@ -159,12 +161,64 @@ def load_sessions(transcripts: Path, cache_file: Path) -> list[Session]:
     return out
 
 
+@functools.lru_cache(maxsize=None)
+def _container_repo(container: str) -> str | None:
+    """The one repository whose linked worktrees sit in a folder that is outside every checkout, else None.
+
+    The worktrees still in the folder name it. When none is left, a folder named <repo>-<16 hex> names the
+    repository <repo> next to the worktrees folder.
+    """
+    repos = set()
+    try:
+        children = sorted(Path(container).iterdir())
+    except OSError:
+        return None
+    for c in children:
+        try:
+            if not (c / ".git").is_file():
+                continue
+        except OSError:
+            continue
+        checkout, repo, wt = find_checkout(c)
+        if wt and repo and checkout == c:
+            repos.add(str(repo))
+    if not repos:
+        # No worktree is left: the desktop app names the folder <repo>-<16 hex>, next to the repository's folder.
+        m = CONTAINER_RE.match(Path(container).name)
+        main = Path(container).parent.parent / m.group(1) if m else None
+        if main and (main / ".git").is_dir():
+            repos.add(str(main))
+    return repos.pop() if len(repos) == 1 else None
+
+
+def live_folder(folder: Path) -> Path:
+    """The folder, or for a deleted worktree in a worktrees folder outside its repository, the same path in the
+    main checkout. The worktrees that still exist next to it name the repository, else the name of a
+    <repo>-<16 hex> folder does. When neither names one repository, the folder stays as it is."""
+    if folder.exists():
+        return folder
+    existing = next((d for d in folder.parents if d.exists()), None)
+    if existing is None or find_checkout(existing)[0]:
+        return folder
+    rel = folder.relative_to(existing).parts
+    repo = _container_repo(str(existing))
+    if repo:
+        return Path(repo).joinpath(*rel[1:])
+    # The <repo>-<16 hex> folder is gone too: its name still names the repository next to the worktrees folder.
+    m = CONTAINER_RE.match(rel[0]) if len(rel) >= 2 else None
+    main = existing.parent / m.group(1) if m else None
+    if main and (main / ".git").is_dir():
+        return main.joinpath(*rel[2:])
+    return folder
+
+
 def group_key(cwd: str) -> tuple[str, bool]:
     """Group by the nearest folder with a project CLAUDE.md, mapped to the main repo."""
     folder = Path(cwd)
     if any(folder == r or r in folder.parents for r in SCRATCH_ROOTS):
         # Scratch and probe sessions are neither a project nor a fair control.
         return ("(scratch: /tmp)", False)
+    folder = live_folder(folder)
     home_claude = (HOME / ".claude" / "CLAUDE.md").resolve()
     # A deleted worktree still maps to its repository through the nearest folder that exists.
     existing = next((d for d in [folder, *folder.parents] if d.exists()), None)
@@ -197,6 +251,7 @@ def summarize(sessions: list[Session], since: str | None = None, before: str | N
         return (not since or s.start >= since) and (not before or s.start < before)
 
     keep = [s for s in sessions if in_range(s)]
+    _container_repo.cache_clear()  # worktrees come and go between runs
     for s in keep:
         s.group, s.control = group_key(s.cwd)
     control: dict[str, int] = {}
@@ -254,7 +309,7 @@ def folder_key(cwd: str, memo: dict | None = None) -> str:
         return memo[cwd]
     key, control = group_key(cwd)
     if control:
-        folder = Path(cwd)
+        folder = live_folder(Path(cwd))
         existing = next((d for d in [folder, *folder.parents] if d.exists()), None)
         checkout, repo, _wt = find_checkout(existing) if existing else (None, None, False)
         key = repo.name if checkout and repo else str(folder)
@@ -308,6 +363,7 @@ def measure_block(sessions: list[Session], agent: str, folder: Path, split: dict
     """The measure of one folder: one row per model family, a before and an after side when split is given,
     else one period side. With across, the same rows for every folder (reference only, never ranked)."""
     lo, hi = measure.parse_when(since), measure.parse_when(before)
+    _container_repo.cache_clear()  # worktrees come and go between runs
     memo: dict = {}
     key = folder_key(str(folder), memo)
     sides = ("before", "after") if split else ("period",)
