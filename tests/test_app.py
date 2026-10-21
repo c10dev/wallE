@@ -142,6 +142,8 @@ class HostOriginTest(Served):
         self.assertEqual(r.status, 403)
         r, _ = self.get("api/state", headers={"Sec-Fetch-Site": "cross-site"})
         self.assertEqual(r.status, 403)
+        r, _ = self.get("api/state", headers={"Sec-Fetch-Site": "same-site"})  # a page on another 127.0.0.1 port
+        self.assertEqual(r.status, 403)
         r, _ = self.get("api/state", headers={"Origin": f"http://localhost:{self.port}", "Sec-Fetch-Site": "same-origin"})
         self.assertEqual(r.status, 200)
 
@@ -281,6 +283,25 @@ class RunTest(Served):
         self.assertEqual(events[-1]["code"], 0, events)
         text = "\n".join(e.get("text", "") for e in events)
         self.assertIn(str(self.out / "index.jsonl"), text)
+
+    def test_bad_requests_run_nothing(self):
+        origin = {"Origin": f"http://127.0.0.1:{self.port}"}
+        with mock.patch("walle.app.subprocess.Popen") as popen:
+            # No body after these headers: the server answers before it reads one.
+            for length in ("0", str(appmod.BODY_CAP + 1), "x"):
+                r, _ = self.req("POST", f"/{self.token}/api/run",
+                                headers={**origin, "Content-Type": "application/json", "Content-Length": length})
+                self.assertEqual(r.status, 400, length)
+            for body in (b"not json", b'{"command": 1}', b'["walle runs"]'):
+                r, _ = self.req("POST", f"/{self.token}/api/run", body=body,
+                                headers={**origin, "Content-Type": "application/json"})
+                self.assertEqual(r.status, 400, body)
+            r, _ = self.req("POST", f"/{self.token}/api/x", headers=origin)
+            self.assertEqual(r.status, 404)
+            popen.assert_not_called()
+        for rest in ("api/folder", "api/folder?path=rel", f"api/folder?path={quote('../' + FX.app.name)}"):
+            r, _ = self.get(rest)
+            self.assertEqual(r.status, 400, rest)
 
 
 class EscapeTest(Served):
@@ -436,6 +457,26 @@ class CliTest(unittest.TestCase):
             p = walle(FX.home, FX.out, "app", "--no-open", "--allow-host", name)
             self.assertEqual(p.returncode, 2, name)
             self.assertIn("--allow-host takes a host name", p.stderr, name)
+
+    def test_allow_host_reaches_the_server(self):
+        from appfixture import child
+        name = "vocado-dev.tail82e74d.ts.net"
+        argv, env = child(FX.home, FX.out, "app", "--no-open", "--allow-host", name)
+        with subprocess.Popen(argv, cwd=str(FX.home), env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              text=True) as p:
+            try:
+                m = re.fullmatch(r"walle app: http://127\.0\.0\.1:(\d+)/([^/]+)/", p.stdout.readline().strip())
+                self.assertIsNotNone(m)
+                port, token = int(m[1]), m[2]
+                self.assertIn(f"https://{name}:{port}/{token}/", p.stdout.readline())
+                for host, status in ((f"{name}:{port}", 200), (f"other.tail82e74d.ts.net:{port}", 403)):
+                    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
+                    conn.request("GET", f"/{token}/api/state", headers={"Host": host})
+                    self.assertEqual(conn.getresponse().status, status, host)
+                    conn.close()
+            finally:
+                p.terminate()
+                p.wait(timeout=30)
 
 
 SILENT = [sys.executable, "-c", "import time; time.sleep(60)"]

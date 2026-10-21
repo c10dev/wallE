@@ -29,11 +29,16 @@ LABEL = '<script>alert("label")</script> & baseline'
 CHILD = "import sys; sys.path.insert(0, sys.argv.pop(1)); from walle.cli import main; sys.exit(main())"
 
 
+def child(home: Path, out: Path, *args) -> tuple[list[str], dict]:
+    """The argv and env that run the walle CLI of this checkout with the fake home."""
+    env = {**os.environ, "HOME": str(home), "NO_COLOR": "1", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
+    return [sys.executable, "-I", "-X", "utf8", "-c", CHILD, str(ROOT), "--out", str(out), *map(str, args)], env
+
+
 def walle(home: Path, out: Path, *args, cwd: Path | None = None) -> subprocess.CompletedProcess:
     """Run the walle CLI of this checkout with the fake home."""
-    env = {**os.environ, "HOME": str(home), "NO_COLOR": "1", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}
-    return subprocess.run([sys.executable, "-I", "-X", "utf8", "-c", CHILD, str(ROOT), "--out", str(out), *map(str, args)],
-                          cwd=str(cwd or home), env=env, capture_output=True, text=True, timeout=300)
+    argv, env = child(home, out, *args)
+    return subprocess.run(argv, cwd=str(cwd or home), env=env, capture_output=True, text=True, timeout=300)
 
 
 def _ok(p: subprocess.CompletedProcess) -> subprocess.CompletedProcess:
