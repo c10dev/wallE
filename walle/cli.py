@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import apply, brief, context, estimate, eve, judge, keep, report, report_html, runs, trim
+from . import apply, brief, context, estimate, eve, judge, keep, report, report_html, rundiff, runs, trim
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -204,10 +204,6 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--before", help="ISO date, sessions that start before it")
     e.add_argument("--transcripts", type=Path, default=HOME / ".claude" / "projects")
 
-    d = sub.add_parser("diff", help="compare two scan.json files")
-    d.add_argument("before", type=Path)
-    d.add_argument("after", type=Path)
-
     j = sub.add_parser("judge", help="hand conflict and cause-1 candidates to your agent, then import its verdicts")
     j.add_argument("scan", nargs="?", type=Path, help="scan.json (default: the newest run that has one)")
     j.add_argument("--import", dest="do_import", action="store_true",
@@ -227,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     trim.add_parser(sub, HOME / ".claude" / "projects")
     keep.add_parser(sub)
     apply.add_parser(sub)
+    rundiff.add_parsers(sub)
 
     argv = list(sys.argv[1:] if argv is None else argv)
     rest = [a for i, a in enumerate(argv) if not (a == "--out" or a.startswith("--out=")
@@ -247,6 +244,8 @@ def main(argv: list[str] | None = None) -> int:
         return keep.run_cli(args, HOME)
     if args.cmd in ("apply", "undo"):
         return apply.run_cli(args, HOME)
+    if args.cmd in ("runs", "pin", "diff"):
+        return rundiff.run_cli(args, HOME)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     if args.cmd == "scan":
         started = time.monotonic()
@@ -280,12 +279,6 @@ def main(argv: list[str] | None = None) -> int:
     elif args.cmd in ("eve", "measure"):
         data = eve.run(args.since, args.before, args.transcripts, args.out.parent / "cache")
         path = _write(args.out / stamp, "eve", data, report.render_eve(data))
-    else:
-        a = json.loads(args.before.read_text())
-        b = json.loads(args.after.read_text())
-        md = report.render_diff(a, b)
-        sys.stdout.write(md)
-        return 0
     if args.cmd == "scan":
         return brief.print_scan(args, data, path, fmt, time.monotonic() - started, HOME)
     print(path)

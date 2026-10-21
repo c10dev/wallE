@@ -751,10 +751,14 @@ class RunRecordTest(unittest.TestCase):
         ko = run("--out", str(inside), "scan", str(app), "--lang", "ko")[1]
         self.assertEqual(ko.count("\n"), 1)
         self.assertIn("이 명령이 스캔하는", ko)
-        # Other commands know no roots and keep working with any --out.
+        # walle diff writes a diff run: not into a folder that the two scans scanned.
         scan_json = sorted(self.h.projects.glob("runs/*/scan.json"))[-1]
+        code, err = run("--out", str(inside), "diff", str(scan_json), str(scan_json))
+        self.assertEqual(code, 2)
+        self.assertIn(f"walle: {inside} is inside {app},", err)
+        self.assertFalse(inside.exists())
+        # Other commands know no roots and keep working with any --out.
         with redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.main(["--out", str(inside), "diff", str(scan_json), str(scan_json)]), 0)
             self.assertEqual(cli.main(["--out", str(inside), "judge", str(scan_json), "--dry-run"]), 0)
 
     def test_rules_hash_follows_the_thresholds(self):
