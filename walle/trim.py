@@ -391,8 +391,11 @@ def server_rows(u: dict, home: Path, configured: dict[str, dict], plugins: dict[
                                  risk, undo, check, need))
                 continue
             need["source"] = "local MCP server"
-            rows.append(_row("server", key, name, "T2", title, change, "walle", where, per, sess, unused,
-                             risk, undo, check, need, {"used_in": used_in}))
+            row = _row("server", key, name, "T2", title, change, "walle", where, per, sess, unused,
+                       risk, undo, check, need, {"used_in": used_in})
+            if change["op"] == "remove":
+                row["_listed"] = ("server", key)
+            rows.append(row)
         elif kind == "connector":
             title = f"Disconnect the claude.ai connector {name}"
             change = {"kind": "app", "app": "claude.ai", "what": f"disconnect {name}"}
@@ -696,6 +699,8 @@ def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[di
     def listed(m) -> bool:
         if kind == "skill":
             return name in m[2]
+        if kind == "server":
+            return name in m[3]
         return any(x.startswith(name + ":") for x in m[2]) or any(k.startswith(f"plugin:{name}:") for k in m[3])
 
     by: dict[str, list[int]] = defaultdict(lambda: [0, 0])

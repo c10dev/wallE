@@ -443,6 +443,18 @@ class PluginRowsTest(unittest.TestCase):
 
 
 class GateTest(unittest.TestCase):
+    def test_set_status_per_entrypoint(self):
+        marks = [("2026-10-02T00:00:00", "cli", {"a:x"}, ["rea"]), ("2026-10-03T00:00:00", "cli", set(), []),
+                 ("2026-10-03T00:00:00", "claude-desktop", {"a:x"}, ["plugin:a:srv"]),
+                 ("2026-09-30T00:00:00", "sdk-cli", {"a:x"}, ["rea"])]
+        since = "2026-10-01T00:00:00"
+        st = {x["entrypoint"]: (x["state"], x["sessions"], x["listed"]) for x in trim.set_status(marks, since, ("server", "rea"))}
+        self.assertEqual(st, {"cli": ("still listed", 2, 1), "sdk-cli": ("not measured", 0, 0),
+                              "claude-desktop": ("acts", 1, 0)})
+        st = {x["entrypoint"]: x["state"] for x in trim.set_status(marks, since, ("plugin", "a"))}
+        self.assertEqual(st, {"cli": "still listed", "sdk-cli": "not measured", "claude-desktop": "still listed"})
+        self.assertEqual(trim._utc("2026-10-20T08:03:42.203Z"), "2026-10-20T08:03:42")
+
     def test_gate(self):
         self.assertTrue(trim.gate(464, 32, 310))  # Vercel
         self.assertFalse(trim.gate(582, 53, 788))  # Supabase: more calls than sessions
