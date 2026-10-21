@@ -311,6 +311,9 @@ class StaticTest(Served):
             self.assertNotIn(b"@import", body, rest)
             self.assertNotRegex(body.decode(), r"(src|href)=\"(https?:)?//", rest)
             self.assertNotIn(b"fonts.googleapis", body, rest)
+        r, body = self.get("favicon.svg")
+        self.assertEqual((r.status, r.getheader("Content-Type")), (200, "image/svg+xml"))
+        self.assertIn(b'href="favicon.svg"', self.get("")[1])  # the browser asks for no /favicon.ico without the token
         r, _ = self.get("fonts/IBMPlexMono-Latin-600.woff2")
         self.assertEqual((r.status, r.getheader("Content-Type")), (200, "font/woff2"))
 

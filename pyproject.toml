@@ -15,5 +15,5 @@ build-backend = "setuptools.build_meta"
 packages = ["walle"]
 
 [tool.setuptools.package-data]
-walle = ["report.html", "fonts/*.woff2", "fonts/OFL.txt", "appui/*.html", "appui/*.js", "appui/*.css", "appui/*.md",
+walle = ["report.html", "fonts/*.woff2", "fonts/OFL.txt", "appui/*.html", "appui/*.js", "appui/*.css", "appui/*.md", "appui/*.svg",
          "appui/vendor/*.js", "appui/vendor/REACT-LICENSE", "appui/vendor/walle-ds/*"]

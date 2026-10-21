@@ -347,11 +347,13 @@ def _what(r: dict) -> str:
         return f"{tokens_text(r.get('stack_sum'))} est. tokens in all stacks · {r.get('open', 0)} open"
     if k == "trim":
         a = r.get("applies") or {}
-        return f"{r.get('rows', 0)} rows (" + ", ".join(f"{v} {k2}" for k2, v in a.items()) + ")"
+        n = r.get("rows", 0)
+        return f"{n} row{'' if n == 1 else 's'} (" + ", ".join(f"{v} {k2}" for k2, v in a.items()) + ")"
     if k in ("apply", "undo"):
         return f"{r.get('status') or k} · {len(r.get('rows') or [])} rows · " + ", ".join(map(str, r.get("files") or []))
     if k == "measure":
-        return f"{r.get('rows', 0)} rows" + (f" around {r['around']}" if r.get("around") else "")
+        n = r.get("rows", 0)
+        return f"{n} row{'' if n == 1 else 's'}" + (f" around {r['around']}" if r.get("around") else "")
     if k == "context":
         return "usage" if r.get("usage") else f"first call of {r.get('session') or '-'}"
     return ""

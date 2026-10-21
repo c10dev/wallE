@@ -201,14 +201,14 @@
       m.sides.forEach(function (s, i) {
         var side = r.sides[s] || { cells: {} };
         body.push(h("tr", { key: r.family + s },
-          h("td", { "data-l": "Model" }, i === 0 ? h("code", null, r.family) : ""),
+          h("td", { "data-l": "Model" }, h("code", null, r.family)),
           m.split ? h("td", { "data-l": "Window" }, SIDE[s] || s) : null,
           h("td", { className: "app-num", "data-l": "n" }, num(side.sessions)),
           metrics.map(function (k) { return h("td", { key: k, className: "app-num", "data-l": METRIC[k] || k }, cellText(side.cells[k])); })));
       });
       if (m.split) {
         body.push(h("tr", { key: r.family + "change" },
-          h("td", null, ""), h("td", { "data-l": "Change" }, "Change"), h("td", null, ""),
+          h("td", { "data-l": "Model" }, h("code", null, r.family)), h("td", null, h("strong", null, "Change")), h("td", null, ""),
           metrics.map(function (k) {
             var c = r.change[k];
             return h("td", { key: k, className: "app-num", "data-l": METRIC[k] || k },
