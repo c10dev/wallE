@@ -7,8 +7,10 @@ rules hashes match, and token totals only when their estimators and their counti
 revisions match.
 
 Other runs also get an index line: trim (a plan), apply and undo (walle apply, walle
-undo: parent_id links them to the plan and to the apply), and diff. Code that reads the
-index for scans filters on kind "scan".
+undo: parent_id links them to the plan and to the apply), diff, context (walle context),
+measure (walle eve) and compare (walle context --compare). A measure or compare run around
+an apply has that apply as its parent_id. Code that reads the index for scans filters on
+kind "scan". After each line, history.py writes the page index.html next to the index.
 
 pins.json in the runs folder holds the baseline that `walle pin` fixed for a set of
 roots. Without a pin, the baseline of a scan is its parent.
@@ -190,10 +192,19 @@ def append_index(out: Path, data: dict, path: Path) -> dict:
 
 
 def append_row(out: Path, row: dict) -> dict:
-    """Add one line to the run index. A scan's line comes from summary(); other kinds write their own."""
+    """Add one line to the run index, then write the history page again (history.py).
+
+    A scan's line comes from summary(); other kinds write their own. A page that cannot be written does not
+    stop the run: the index line is the record.
+    """
     out.mkdir(parents=True, exist_ok=True)
     with open(out / INDEX, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    from . import history
+    try:
+        history.write(out)
+    except OSError:
+        pass
     return row
 
 

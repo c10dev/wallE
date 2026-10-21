@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>walle runs · ~/.walle/runs</title>
+<style>
+
+/* tokens of report.html */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 400 15px/24px var(--sans); }
+.page { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+a { color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+code, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+code { font-size: 13px; overflow-wrap: anywhere; }
+.muted { color: var(--muted); }
+.top { display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; min-height: 48px; }
+.wordmark { font: 600 18px/24px var(--mono); letter-spacing: .01em; }
+.meta { font: 400 12px/16px var(--mono); color: var(--muted); overflow-wrap: anywhere; }
+section { margin-top: 32px; }
+.sh { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; font: 600 12px/20px var(--mono); text-transform: uppercase; letter-spacing: .14em; }
+.sh::after { content: ""; flex: 1; height: 0; border-top: 1px solid var(--line); }
+.sh .shn { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.panelbox { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 16px; }
+.tblwrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; line-height: 20px; }
+.tbl th { font-weight: 600; text-align: left; color: var(--muted); font-size: 12px; line-height: 16px; padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.tbl td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.tbl .r { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl td.p { font-family: var(--mono); min-width: 12ch; }
+.tbl td.id { font-family: var(--mono); white-space: nowrap; }
+.tbl tr.div td { font: 600 11px/16px var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); border-bottom: 1px dashed var(--line-strong); padding-top: 12px; }
+.kind { font: 600 11px/16px var(--mono); text-transform: uppercase; letter-spacing: .1em; }
+.tag { display: inline-block; font: 600 11px/16px var(--mono); text-transform: uppercase; letter-spacing: .1em; border: 1px solid var(--line-strong); border-radius: 99px; padding: 0 8px; margin-left: 6px; }
+.gnote { font-size: 13px; line-height: 20px; color: var(--muted); margin: 8px 0 0; }
+.list { margin: 0; padding: 0; list-style: none; }
+.list > li { padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; line-height: 20px; }
+.list > li:first-child { border-top: 0; padding-top: 0; }
+.list .cmd { display: block; margin-top: 4px; }
+@media (max-width: 639px) {
+  .panelbox { padding: 12px; }
+  .tbl thead { display: none; }
+  .tbl, .tbl tbody, .tbl tr, .tbl td { display: block; width: 100%; }
+  .tbl tr { padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .tbl td, .tbl .r, .tbl td.id { border: 0; padding: 2px 0; text-align: left; white-space: normal; }
+  .tbl td.e { display: none; }
+  .tbl td[data-l]:not(.id)::before { content: attr(data-l) "  "; color: var(--muted); font: 400 12px/20px var(--sans); }
+  .tbl tr.div { border-bottom: 1px dashed var(--line-strong); }
+  .tbl tr.div td { padding: 8px 0 4px; }
+}
+</style>
+</head>
+<body>
+<div class="page">
+<header class="top"><span class="wordmark">walle</span><span class="meta">runs · ~/.walle/runs · 10 runs</span></header>
+<main>
+<section aria-labelledby="rh"><h2 class="sh" id="rh">Runs <span class="shn">10</span></h2><div class="panelbox"><div class="tblwrap"><table class="tbl"><thead><tr><th>Run</th><th>Kind</th><th>Label</th><th>Roots</th><th>Rules</th><th>Estimator</th><th class="r">Counting</th><th class="r">Stack sum</th><th class="r">Open</th><th class="r">Kept</th><th>Notes · report</th></tr></thead><tbody><tr><td data-l="Run" class="id">20261021-120000<br><span class="muted">2026-10-21 12:00</span></td><td data-l="Kind"><span class="kind">diff</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono e"><span class="muted">-</span></td><td data-l="Counting" class="r e"><span class="muted">-</span></td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n"><code>20261020-090000</code> -&gt; <code>20261020-110000</code> · <a href="20261021-120000/diff.md">diff.md</a></td></tr><tr><td data-l="Run" class="id">20261021-110000<br><span class="muted">2026-10-21 11:00</span></td><td data-l="Kind"><span class="kind">undo</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p e"><span class="muted">-</span></td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono e"><span class="muted">-</span></td><td data-l="Counting" class="r e"><span class="muted">-</span></td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n">undo of <code>20261021-090000</code>: restored</td></tr><tr><td data-l="Run" class="id">20261021-100500<br><span class="muted">2026-10-21 10:05</span></td><td data-l="Kind"><span class="kind">compare</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono">bytes-v2</td><td data-l="Counting" class="r">1</td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n"><code>20261021-090000</code> · claude · <a href="20261021-100500/compare.md">compare.md</a></td></tr><tr><td data-l="Run" class="id">20261021-100000<br><span class="muted">2026-10-21 10:00</span></td><td data-l="Kind"><span class="kind">measure</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono">measured</td><td data-l="Counting" class="r e"><span class="muted">-</span></td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n">around <code>20261021-090000</code> · claude · <a href="20261021-100000/eve.md">eve.md</a></td></tr><tr><td data-l="Run" class="id">20261021-091000<br><span class="muted">2026-10-21 09:10</span></td><td data-l="Kind"><span class="kind">context</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p e"><span class="muted">-</span></td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono">bytes-v2</td><td data-l="Counting" class="r">1</td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n">session <code>630f787e</code> · claude · <a href="20261021-091000/context.md">context.md</a></td></tr><tr><td data-l="Run" class="id">20261021-090000<br><span class="muted">2026-10-21 09:00</span></td><td data-l="Kind"><span class="kind">apply</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p e"><span class="muted">-</span></td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono e"><span class="muted">-</span></td><td data-l="Counting" class="r e"><span class="muted">-</span></td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n">plan <code>20261020-120000</code>: 2 changed, applied · measure <code>20261021-100000</code> · compare <code>20261021-100500</code> · undo <code>20261021-110000</code> · <a href="20261021-090000/apply.md">apply.md</a></td></tr><tr><td data-l="Run" class="id">20261020-120000<br><span class="muted">2026-10-20 12:00</span></td><td data-l="Kind"><span class="kind">trim</span></td><td data-l="Label">first trim</td><td data-l="Roots" class="p e"><span class="muted">-</span></td><td data-l="Rules" class="mono e"><span class="muted">-</span></td><td data-l="Estimator" class="mono">bytes-v2</td><td data-l="Counting" class="r e"><span class="muted">-</span></td><td data-l="Stack sum" class="r e"><span class="muted">-</span></td><td data-l="Open" class="r e"><span class="muted">-</span></td><td data-l="Kept" class="r e"><span class="muted">-</span></td><td data-l="Notes" class="n">61 rows · <a href="20261020-120000/plan.md">plan.md</a></td></tr><tr class="div"><td colspan="11">estimator changed bytes-v2 -&gt; bytes-v1: token totals not comparable</td></tr><tr><td data-l="Run" class="id">20261020-110000<br><span class="muted">2026-10-20 11:00</span></td><td data-l="Kind"><span class="kind">scan</span></td><td data-l="Label">&lt;script&gt;x&lt;/script&gt;</td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono">bbbb</td><td data-l="Estimator" class="mono">bytes-v1</td><td data-l="Counting" class="r">3</td><td data-l="Stack sum" class="r">~16,100</td><td data-l="Open" class="r">3</td><td data-l="Kept" class="r">1</td><td data-l="Notes" class="n e"><span class="muted">-</span></td></tr><tr class="div"><td colspan="11">rules changed aaaa -&gt; bbbb: open counts not comparable</td></tr><tr><td data-l="Run" class="id">20261020-100000<br><span class="muted">2026-10-20 10:00</span></td><td data-l="Kind"><span class="kind">scan</span></td><td data-l="Label" class="e"><span class="muted">-</span></td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono">bbbb</td><td data-l="Estimator" class="mono">bytes-v2</td><td data-l="Counting" class="r">3</td><td data-l="Stack sum" class="r">~31,000</td><td data-l="Open" class="r">3</td><td data-l="Kept" class="r">1</td><td data-l="Notes" class="n"><a href="20261020-100000/scan.md">scan.md</a></td></tr><tr><td data-l="Run" class="id">20261020-090000<br><span class="muted">2026-10-20 09:00</span></td><td data-l="Kind"><span class="kind">scan</span></td><td data-l="Label">baseline</td><td data-l="Roots" class="p">~/<wbr>projects/<wbr>app</td><td data-l="Rules" class="mono">aaaa</td><td data-l="Estimator" class="mono">bytes-v2</td><td data-l="Counting" class="r">3</td><td data-l="Stack sum" class="r">~31,000</td><td data-l="Open" class="r">4</td><td data-l="Kept" class="r">1</td><td data-l="Notes" class="n"><span class="tag">pinned</span> · <a href="20261020-090000/scan.html">scan.html</a></td></tr></tbody></table></div><p class="gnote">Open counts compare only between runs with the same rules. Token counts compare only between runs with the same estimator and counting revision. A counting revision belongs to its kind: scans count instruction files, context runs split a first call. Stack sums are est. tokens.</p><p class="gnote">All runs: <code>~/.walle/runs/index.jsonl</code></p></div></section>
+<section aria-labelledby="ah"><h2 class="sh" id="ah">Applies</h2><div class="panelbox"><ul class="list"><li><code>20261021-090000</code> · plan <code>20261020-120000</code> · 2 rows changed (e94298, 9bd380) · applied<span class="cmd"><code>walle context --compare 20261021-090000</code> · <code>walle eve --around 20261021-090000</code> (after 10 sessions)</span><span class="cmd"><a href="20261021-100000/eve.md">measure 20261021-100000</a> · <a href="20261021-100500/compare.md">compare 20261021-100500</a></span></li></ul><p class="gnote">Measured values compare one folder and one model family at a time, with at least 10 sessions on each side.</p></div></section>
+<section aria-labelledby="ph"><h2 class="sh" id="ph">Pins</h2><div class="panelbox"><ul class="list"><li><code>20261020-090000</code> · ~/projects/app</li></ul></div></section>
+</main>
+</div>
+</body>
+</html>

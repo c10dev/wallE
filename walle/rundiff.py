@@ -283,6 +283,8 @@ def add_parsers(sub) -> None:
     r = sub.add_parser("runs", help="list the runs: scans, trim plans, applies, undos and diffs")
     r.add_argument("--root", type=Path, help="only scans and diffs whose roots include this folder")
     r.add_argument("--limit", type=int, default=30, help="the newest N runs (0: all)")
+    r.add_argument("--html", action="store_true",
+                   help="write the history page index.html in the runs folder again and print its path")
     r.add_argument("--lang", choices=("en", "ko"))
     p = sub.add_parser("pin", help="fix a scan as the baseline of its roots for walle diff")
     p.add_argument("run", nargs="?", help="a scan run id")
@@ -321,10 +323,24 @@ def _note(r: dict, pins: set[str], lang: str) -> str:
         return t("runs.note.undo", lang, apply=r.get("parent_id"), status=r.get("status"))
     if kind == "diff":
         return t("runs.note.diff", lang, a=r.get("baseline_id"), b=r.get("parent_id"))
+    if kind == "context":
+        if r.get("usage"):
+            return t("runs.note.context_usage", lang, agent=r.get("agent") or "-")
+        return t("runs.note.context", lang, agent=r.get("agent") or "-", session=(r.get("session") or "-")[:8])
+    if kind == "measure":
+        if r.get("around"):
+            return t("runs.note.measure", lang, agent=r.get("agent") or "-", ref=r["around"])
+        return t("runs.note.measure_period", lang, agent=r.get("agent") or "-")
+    if kind == "compare":
+        return t("runs.note.compare", lang, agent=r.get("agent") or "-", refs=" ".join(r.get("refs") or []))
     return ""
 
 
 def runs_cli(args, home: Path, lang: str) -> int:
+    if getattr(args, "html", False):
+        from . import history
+        print(history.write(args.out, home) if (args.out / runs.INDEX).is_file() else t("runs.empty", lang, path=args.out))
+        return 0
     rows = runs.read_index(args.out)
     if args.root:
         folder = str(args.root.expanduser().resolve())
