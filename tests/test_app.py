@@ -418,6 +418,9 @@ class ViewTest(Served):
         self.assertEqual(t["saving"], sum(r["saving"]["unused_tokens_min"] for r in v["trim"]["rows"]
                                           if r["group"] == "source" and r["counted"]))
         self.assertEqual(v["applies"], [])
+        self.assertEqual(e["session"]["composition"]["total"], e["session"]["total"])
+        self.assertEqual(t["savings"]["rows"][0]["period_tokens"], max(r["period_tokens"] for r in t["savings"]["rows"]))
+        self.assertEqual(t["savings"]["priced_as"], "claude-opus-5-5")
         self.assertEqual(e["next"], {"text": f"Apply the top trim row in a terminal: {t['top'][0]['title']}.",
                                      "command": t["top"][0]["command"], "run": False})
 
@@ -837,6 +840,37 @@ class DataTest(unittest.TestCase):
         measure = {"id": "m", "generated": "", "around": "x", "split": {}, "sides": ["before", "after"], "rows": rows}
         f = appdata.efficiency_view(None, measure, {}, None, [])["first_call"]
         self.assertEqual((f["family"], f["sessions"], f["first_call"]), ("opus 5.5", 13, cell))
+
+    def test_the_first_call_composition_is_largest_first_with_the_rest(self):
+        src = [{"source": f"s{i}", "label": f"S{i}", "tokens_est": 100 * (i + 1), "on_disk": {"mark": "on disk"}} for i in range(8)]
+        data = {"first_call": {"measured": {"total": 10000}, "sources": src + [{"source": "zero", "tokens_est": 0}]}}
+        c = appdata.composition(data)
+        self.assertEqual(c["estimated"], 3600)
+        self.assertEqual([x["source"] for x in c["parts"]], ["s7", "s6", "s5", "s4", "s3", "s2", "other", "residual"])
+        self.assertEqual((c["parts"][6]["tokens"], c["parts"][7]["tokens"]), (300, 6400))  # s1 + s0, total - estimates
+        self.assertEqual(c["parts"][0]["share"], 8.0)
+        self.assertIsNone(appdata.composition({"first_call": {"measured": {"total": 0}, "sources": src}}))
+        self.assertIsNone(appdata.composition(None))
+
+    def test_savings_are_largest_first_with_who_and_a_month(self):
+        def row(i, applies, per, unused, **kw):
+            return dict({"id": i, "title": f"Turn off {i}", "applies": applies, "already": False, "counted": True,
+                         "command": None, "where": "w", "check": "c", "undo": "u", "risk": None,
+                         "saving": {"tokens_per_session_min": per, "unused_sessions": unused // per,
+                                    "unused_tokens_min": unused}}, **kw)
+        rows = [row("a", "walle", 100, 1000), row("b", "manual", 9000, 90000), row("c", "patch", 50, 500),
+                row("d", "walle", 10, 100, already=True), row("e", "manual", 10, 100, counted=False),
+                row("f", "walle", 10, 0)]
+        period = {"sessions": 40, "first": "2026-09-21T00:00:00Z", "last": "2026-10-21T00:00:00Z"}
+        s = appdata.savings(rows, period, "claude-opus-5-5-20261001")
+        self.assertEqual([r["id"] for r in s["rows"]], ["b", "a", "c"])
+        self.assertEqual((s["n"], s["total"], s["days"], s["priced_as"]), (3, 91500, 30.0, "claude-opus-5-5"))
+        b = s["rows"][0]
+        self.assertEqual((b["who"], b["per_session"], b["sessions"], b["month_tokens"]), ("You, in claude.ai or the app", 9000, 10, 90000))
+        self.assertEqual(b["month_usd"], round(90000 * 0.20 / 1e6, 4))  # cache-read price of opus 5.5
+        self.assertEqual(s["share"], {"manual": 98, "walle": 1, "patch": 1})
+        s = appdata.savings(rows, {"sessions": 1}, "claude-next-9")
+        self.assertEqual((s["days"], s["rows"][0]["month_tokens"], s["rows"][0]["month_usd"], s["priced_as"]), (None, None, None, None))
 
     def test_a_median_has_dollars_only_for_one_priced_model(self):
         cells = {"first_call": {"median": 120000}, "first_call_billed": {"median": 20000}}

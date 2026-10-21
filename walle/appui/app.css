@@ -134,3 +134,18 @@ a { color: var(--link); }
   .app-table.is-stack tr.is-here { box-shadow: inset 3px 0 0 var(--eve); padding-left: var(--space-3); }
 }
 @media (prefers-reduced-motion: reduce) { .app-side { transition: none; } }
+
+/* Efficiency: first-call composition bar and the savings list */
+.app-comp { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; }
+.app-comp-bar { display: flex; height: 18px; border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--line); }
+.app-comp-bar > span { display: block; min-width: 2px; }
+.app-comp-bar > span.is-rest, .app-comp-key i.is-rest { background-image: repeating-linear-gradient(45deg, transparent 0 4px, var(--line) 4px 6px) !important; }
+.app-comp-key { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-4); }
+.app-comp-key li { display: flex; align-items: center; gap: var(--space-1); font: 13px/18px var(--font-sans); min-width: 0; }
+.app-comp-key i { width: 10px; height: 10px; border-radius: var(--radius-xs); flex: none; border: 1px solid var(--line); }
+.app-sav { margin-bottom: var(--space-4); }
+.app-sav-n { font: 600 15px/20px var(--font-mono); min-width: 4.5em; }
+.app-sav-title { font: 600 14px/20px var(--font-sans); flex: 1 1 12em; overflow-wrap: anywhere; }
+.app-trim > li.is-done { opacity: .6; }
+.app-steps { margin: var(--space-2) 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-1); overflow-wrap: anywhere; }
+.app-check { display: flex; align-items: center; gap: var(--space-2); font: 13px/18px var(--font-sans); cursor: pointer; }

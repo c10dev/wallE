@@ -413,6 +413,69 @@
           command: a.compare_command, label: "Measure since", onRun: p.onRun, running: p.running }));
   }
 
+  // The measured first call of the newest session as one bar: what fills it, largest part first.
+  var PART_COLOR = ["var(--eve)", "var(--trim)", "var(--lean)", "var(--rust)", "var(--link)", "var(--line-strong)", "var(--muted)"];
+  function CompositionBar(p) {
+    var c = p.c, i = 0;
+    var parts = c.parts.map(function (x) {
+      return Object.assign({ color: x.source === "residual" ? "var(--sunk)" : PART_COLOR[i++ % PART_COLOR.length] }, x);
+    });
+    return h("div", { className: "app-comp" },
+      h("div", { className: "app-comp-bar", role: "img", "aria-label": "First call of " + num(c.total) + " tokens: " +
+        parts.map(function (x) { return x.label + " " + x.share + "%"; }).join(", ") },
+        parts.map(function (x) {
+          return h("span", { key: x.source, className: x.source === "residual" ? "is-rest" : null,
+            style: { width: Math.max(x.share, 0.5) + "%", background: x.color }, title: x.label + ": " + num(x.tokens) + " tokens (" + x.share + "%)" });
+        })),
+      h("ul", { className: "app-comp-key" }, parts.map(function (x) {
+        return h("li", { key: x.source },
+          h("i", { className: x.source === "residual" ? "is-rest" : null, style: { background: x.color } }),
+          h("span", null, x.label), h("span", { className: "app-src" }, kTokens(x.tokens) + " · " + x.share + "%"));
+      })),
+      h("p", { className: "app-src" }, num(c.total) + " tokens measured; walle's estimates per source add up to " + num(c.estimated) +
+        ". The rest is framing and estimate error."));
+  }
+
+  // The open trim rows as savings, largest first, with who can do each. A manual row opens its steps; its
+  // checkbox is a note in this browser only, the next plan says if the source is still loaded.
+  var DONE_KEY = "walle.done.";
+  function readDone(id) { try { return localStorage.getItem(DONE_KEY + id) === "1"; } catch (e) { return false; } }
+  function writeDone(id, v) { try { if (v) localStorage.setItem(DONE_KEY + id, "1"); else localStorage.removeItem(DONE_KEY + id); } catch (e) { /* no storage */ } }
+  function monthText(r) {
+    if (r.month_tokens == null) return "";
+    return " · " + kTokens(r.month_tokens) + " a month" + (r.month_usd != null ? " (" + (r.month_usd >= 0.01 ? "$" + r.month_usd.toFixed(2) : "under $0.01") + ")" : "");
+  }
+  function SavingRow(p) {
+    var r = p.row, a = APPLIES[r.applies] || [r.applies || "-", "neutral"];
+    var st = useState(function () { return readDone(r.id); }), done = st[0], setDone = st[1];
+    return h("li", { className: done ? "is-done" : null },
+      h("div", { className: "app-row" },
+        h("span", { className: "app-sav-n" }, kTokens(r.per_session)),
+        h("span", { className: "app-sav-title" }, r.title),
+        h(W.Badge, { tone: a[1] }, r.who)),
+      h("div", { className: "app-src" }, "est. tokens per session that loads it · " + plural(r.sessions, "session") + " loaded it and did not use it" + monthText(r)),
+      r.applies === "walle" && r.command ? h(Copy, { text: r.command }) : null,
+      h("details", { className: "app-details" }, h("summary", null, r.applies === "walle" ? "What it changes, check and undo" : r.applies === "manual" ? "How to turn it off" : "How to change it"),
+        h("ol", { className: "app-steps" },
+          r.applies === "walle" ? h("li", null, "Run the command above in a terminal. It changes: ", r.where || "-")
+            : h(React.Fragment, null, r.where ? h("li", null, "Open: ", r.where) : null,
+              h("li", null, "Make the change: ", r.title.charAt(0).toLowerCase() + r.title.slice(1), ".")),
+          r.check ? h("li", null, "Check: ", r.check) : null),
+        r.undo ? h("p", { className: "app-src" }, "Undo: " + r.undo) : null,
+        r.risk ? h("p", { className: "app-src" }, "Risk " + r.risk.level + ": " + r.risk.why) : null,
+        r.applies !== "walle" ? h("label", { className: "app-check" }, h("input", { type: "checkbox", checked: done, onChange: function (ev) { setDone(ev.target.checked); writeDone(r.id, ev.target.checked); } }),
+          " I did this (a note in this browser; the next plan shows if it still loads)") : null));
+  }
+  function Savings(p) {
+    var s = p.s, shares = Object.keys(s.share).sort(function (x, y) { return s.share[y] - s.share[x]; });
+    return h("div", { className: "app-sav" },
+      h("p", { className: "app-p" }, plural(s.n, "open saving") + ", largest first" +
+        (shares.length ? ". Of the tokens they save: " + shares.map(function (k) { return s.share[k] + "% " + ((APPLIES[k] || [k])[0]).toLowerCase(); }).join(", ") : "") + "."),
+      h("ol", { className: "app-trim" }, s.rows.map(function (r) { return h(SavingRow, { key: r.id, row: r }); })),
+      h("p", { className: "app-src" }, "Per session is walle's low estimate. A month is the plan's " + (s.days ? num(s.days) + " days" : "period") + " scaled to 30 days" +
+        (s.priced_as ? "; dollars at the cache-read list price of " + s.priced_as + " (" + s.prices_as_of + "), the low end, since a trimmed prefix is mostly read from the cache." : ".")));
+  }
+
   function EfficiencyView(p) {
     var d = p.data, e = d.efficiency, applies = d.applies || [];
     var ss = e.session, t = e.trim, s = e.stack;
@@ -436,6 +499,7 @@
           h("p", { className: "app-src" }, "walle eve run ", h("code", null, d.measure.id), " · " + d.measure.generated + ". The billed column weights cache reads and writes by price: it is what a trim of cached tokens saves."),
           d.measure.rows.length ? h(MeasureTable, { m: d.measure }) : h("p", { className: "app-p app-muted" }, "No sessions of this folder in the period."))
           : h(None, { text: "No measure run of this folder yet.", command: "walle eve .", label: "Measure", onRun: p.onRun, running: p.running }),
+        ss && ss.composition ? h(CompositionBar, { c: ss.composition }) : null,
         ss ? h("p", { className: "app-src" }, "Newest session " + (ss.session || "-") + " (walle context run ", h("code", null, ss.id), ", " + ss.generated + ", " + ss.cwd + (ss.here ? "" : ", not this folder") + "): " +
           num(ss.total) + " tokens in the first call" + (ss.billed ? ", billed " + num(ss.billed.input_equiv) + " input-equivalent" +
             (usdText(ss.billed) ? ", " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") : "") + ".") : null,
@@ -446,10 +510,11 @@
       h("section", { className: "app-sec" },
         h("h2", { className: "app-h" }, "3 · Trim"),
         t ? h(React.Fragment, null,
-          h("p", { className: "app-p" }, t.to_apply ? plural(t.to_apply, "row") + " that walle can apply, largest saving first. Copy a command and run it in a terminal; each row has its undo and check."
+          t.savings && t.savings.n ? h(Savings, { s: t.savings }) : null,
+          h("p", { className: "app-p" }, t.to_apply ? plural(t.to_apply, "row") + " that walle can apply. Copy a command and run it in a terminal; each row has its undo and check."
             : "No row of this plan is left for walle to apply."),
           t.applied_since ? h("p", { className: "app-src" }, plural(t.applied_since, "row") + " of this plan changed by an apply after it are left out. A new plan shows them as already set.") : null,
-          t.top.length ? h("ol", { className: "app-trim" }, t.top.map(function (r) { return h(TrimRow, { key: r.id, row: r }); })) : null,
+          t.top.length && !(t.savings && t.savings.n) ? h("ol", { className: "app-trim" }, t.top.map(function (r) { return h(TrimRow, { key: r.id, row: r }); })) : null,
           t.already_rows.length ? h("details", { className: "app-details" }, h("summary", null, plural(t.already, "row") + " already set: status per surface"),
             h("ul", { className: "app-status" }, t.already_rows.map(function (r) {
               return h("li", { key: r.id }, r.title, r.set_status.map(function (x) { return h("div", { key: x.entrypoint, className: "app-src" }, h("code", null, x.entrypoint), " " + x.text); }));
