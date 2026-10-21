@@ -235,6 +235,22 @@ class CodexPairTest(unittest.TestCase):
             self.assertEqual(rows["agents_md"]["delta_bytes"], -440)
             self.assertEqual(data["compare"]["estimator"], ["bytes-v1", "bytes-v1"])
             self.assertEqual(data["compare"]["measured"]["delta"], -1000)
+            # The environment context and the skill bodies a prompt invoked change with each thread: starred.
+            env = "<environment_context>\n  <cwd>{}</cwd>\n  <current_date>{}</current_date>\n</environment_context>"
+            c = "00000000-0000-7000-8000-000000000503"
+            d = "00000000-0000-7000-8000-000000000504"
+            codex_rollout(h.codex, c, h.app, day(20, 2), total=33000, context=(
+                env.format(h.app, "2026-10-20"), "<skill>\n<name>foo</name>\n" + "Step one of foo.\n" * 80 + "</skill>"))
+            codex_rollout(h.codex, d, h.app, day(21, 2), total=30000, context=(env.format(h.web, "2026-10-21"),))
+            out, _ = h.cli("context", "--compare", c, d, "--agent", "codex", "--transcripts", str(h.codex))
+            data = json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text())
+            rows = {r["source"]: r for r in data["compare"]["sources"]}
+            self.assertTrue(rows["skill_bodies"]["per_session"] and rows["environment"]["per_session"])
+            self.assertLess(rows["skill_bodies"]["delta_bytes"], -1000)
+            self.assertIn("Skill bodies the prompt invoked *", out)
+            self.assertIn("Environment context *", out)
+            settings = [r["source"] for r in data["compare"]["sources"] if not r["per_session"]]
+            self.assertNotIn("skill_bodies", settings)
             # A Claude session and a Codex thread do not compare.
             claude_session(h.projects, "c1", h.app, day(20, 1))
             c, _ = h.cli("context", "--session", "c1", "--transcripts", str(h.projects))

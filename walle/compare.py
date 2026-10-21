@@ -15,8 +15,9 @@ walle context --compare <apply-id|date>
 
 Recorded bytes compare when both sides split the first call the same way (the counting revision of
 context.json). Estimated tokens compare only when, in addition, both sides used the same estimator. The
-measured first call always compares when the model family is the same. The first prompt and hook output
-change with every session: they are not settings, and the text marks them.
+measured first call always compares when the model family is the same. The first prompt, hook output and a
+Codex thread's environment context and invoked skill bodies change with every session (PER_SESSION): they are
+not settings, and the text marks them.
 
 These are measured values. They never enter the instruction-stack verdict, Start here or the alarm (brief
 2.1, L4). The result goes to a new run folder (kind compare) as compare.json and compare.md.
@@ -33,7 +34,9 @@ from . import __version__, brief, codex_context, context, estimate, eve, measure
 from .collect import HOME
 from .strings import resolve_lang, t
 
-PER_SESSION = ("first_prompt", "hook_context", "history")
+# Sources that change with each session or prompt, not with the settings: the first prompt, hook output, a
+# Codex thread's history, the skill bodies its first prompt invoked and its environment context (folder, date).
+PER_SESSION = ("first_prompt", "hook_context", "history", "skill_bodies", "environment")
 NAMES_SHOWN = 6
 INSIDE_SHOWN = 4
 LABEL_COLS = 34

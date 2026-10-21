@@ -52,8 +52,9 @@ def claude_session(projects: Path, sid: str, cwd: Path, start: str, *, model: st
 
 def codex_rollout(codex: Path, thread: str, cwd: Path, start: str, *, model: str = "gpt-5.1-codex",
                   total: int = 30000, originator: str = "Codex Desktop", agents_md: str = "", resumed: bool = False,
-                  forked: bool = False, subagent: bool = False) -> Path:
-    """One rollout file with a session_meta, a turn_context, one user message and one token_count."""
+                  forked: bool = False, subagent: bool = False, context: tuple = ()) -> Path:
+    """One rollout file with a session_meta, a turn_context, one user message and one token_count.
+    context: more user messages before the prompt, such as an <environment_context> or a <skill> block."""
     meta = {"id": thread, "timestamp": start, "cwd": str(cwd), "originator": originator, "cli_version": "0.50.0"}
     if resumed:
         meta["history_base"] = {"thread_id": "00000000-0000-7000-8000-00000000ffff"}
@@ -66,6 +67,9 @@ def codex_rollout(codex: Path, thread: str, cwd: Path, start: str, *, model: str
     if agents_md:
         items.append({"type": "response_item", "payload": {"type": "message", "role": "user", "content": [
             {"type": "input_text", "text": f"# AGENTS.md instructions for {cwd}\n\n<INSTRUCTIONS>\n{agents_md}\n</INSTRUCTIONS>"}]}})
+    for text in context:
+        items.append({"type": "response_item", "payload": {"type": "message", "role": "user",
+                                                           "content": [{"type": "input_text", "text": text}]}})
     items.append({"type": "response_item", "payload": {"type": "message", "role": "user",
                                                        "content": [{"type": "input_text", "text": "do the task"}]}})
     items.append({"type": "event_msg", "payload": {"type": "token_count", "info": {"last_token_usage": {

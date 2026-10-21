@@ -138,7 +138,7 @@ These commands close the loop after `walle apply`: did the context of new sessio
 - Each source shows its recorded bytes on both sides and the change in estimated tokens. The largest changes inside a source (MCP servers, tools, instruction files) follow the table.
 - Bytes compare only when both sides split the first call in the same way (the same `counting_revision`). Estimated tokens compare only when both sides also used the same estimator.
 - The measured first-call tokens compare when both sessions have the same model family. One session on each side is not a median.
-- The first prompt and hook output change with every session. The table marks them with `*`.
+- The first prompt and hook output change with every session, and so do a Codex thread's environment context and the skill bodies its prompt invoked. The table marks them with `*`, and the changes inside a source leave them out.
 - The MCP servers and skills that only one side loaded follow, with their calls.
 
 `walle context --compare <apply-id|date>` takes the newest session before the split and the newest session since it. It takes them from `--root` (default: the current folder) when that folder has a session on both sides. Then it lists each row that the apply changed, with the sessions that loaded and used it before and since, in all folders. Last, it gives the measured first-call medians of the folder, as `walle eve --around` does.
