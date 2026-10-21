@@ -24,6 +24,8 @@ walle finds the second kind, so you can cut it and measure the effect.
 | `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
 | `walle diff old/scan.json new/scan.json` | What changed after you trimmed: stack tokens, rule counts, flags. |
 | `walle check [folder] [--max-tokens N] [--estimator v1\|v2]` | Exit 1 when a stack is over budget. Use it in CI. |
+| `walle trim --plan [--since D] [--before D]` | A plan to take unused sources out of every session's context: claude.ai connectors, MCP servers, plugins, skills, hook output, and lines that a scan found loaded twice. One row per action: the change (a settings key, a patch or a place in an app), who makes it, the expected saving as a lower bound in bytes-v2 tokens per session, the sessions that loaded and used the source, the risk, the undo and the check. Writes `plan.json`, `plan.md`, `patches/` and judge batch files in a new run folder. `walle trim --import` reads the judge answers into the plan. It changes nothing. |
+| `walle keep <id> [--why W]`, `walle keep --list`, `walle unkeep <id>`, `walle keep --print <id>` | Leave a line or a source as it is. A kept item leaves the verdict, Start here and the trim plan. If its lines change, the next scan says `keep released: line changed` once and counts it again. `--print` gives the line for a team's `.wallekeep`. |
 | `walle judge [scan.json] [--dry-run \| --import]` | Hands the conflict pairs (drift, topic, protocol) and cause-1 candidates of a scan to your coding agent as batch files with a short rubric. The agent writes a verdict per item: real or not, which line to keep, and a one-line fix. `--import` reads the answers and writes `judge.md` and `judge.json` next to `scan.json`. `--dry-run` lists the items with file:line and the estimated tokens, and writes nothing. |
 
 The four causes:
@@ -92,6 +94,18 @@ walle does not call a model and needs no API key. Your agent does the judging, w
 
 The cache key is a hash of the rule text and the rubric version. The next export holds only rules whose text changed.
 Caches go to the `cache/` folder next to the runs folder (`--out`), by default `~/.walle/cache/`. A rule that only moved to another line keeps its judgment.
+
+### Trim plan and keep
+
+`walle trim --plan` reads the sessions of a period (as `walle context --usage` does) and the newest scan in the runs folder. A source is proposed when it loaded in at least 10 sessions, sessions used it in fewer than 10% of them, and it had fewer calls than sessions that loaded it. A skill is proposed when no session called it.
+
+- **walle** rows change one settings key: `enabledPlugins`, `skillOverrides` or an `mcpServers` key of `~/.claude.json`. `walle apply` (plan step C5) is not built yet, so you change them by hand.
+- **manual** rows are in an app: claude.ai connectors and plugins that claude.ai syncs.
+- **patch** rows are patch files in `patches/`, or a change your agent writes (hook output, a section to move). walle never edits an instruction file.
+
+Rows that need "does this user's work need it?" go to judge batch files with their own rubric; `walle trim --import` reads the answers. The judge cache is `cache/trim-judge.json`.
+
+`walle keep` writes `keep.json` next to the runs folder (`~/.walle/keep.json` by default). A team keeps lines in `.wallekeep` at the repository root: one team key per line, then `# ` and a note. The team key uses the remote URL and the path in the repository, so every clone has the same key. walle reads `.wallekeep` and never writes it. A repository without a remote has no team key.
 
 ## scan.json
 

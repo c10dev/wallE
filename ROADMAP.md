@@ -39,15 +39,16 @@ Every surface gives the same answer in the same order: one verdict word, at most
 - Done: one table of display strings in English and Korean (`walle/strings.py`): verdicts, verbs, item labels, fixed terms, reasons and empty states.
   An unknown key fails a test. The command name stays `walle eve`; `walle measure` stays its alias.
 - Next: the terminal brief as the default TTY output of `walle scan`, `--lang en|ko` (default from `LANG`), `walle show`, and Markdown for agents (`--format brief-md`).
-- Next: `walle keep` (personal `~/.walle/keep.json`, team `.wallekeep`), then `walle runs`, `walle pin` and `walle diff` without arguments.
-  Item ids use the path on this machine, so a team file needs a key that is the same in every clone (for example the remote URL and the path in the repository).
+- Done: `walle keep` (personal `keep.json` next to the runs folder, team `.wallekeep`). A kept item leaves the verdict, Start here and the trim plan; a changed line releases its keep once.
+  The team key uses the remote URL and the path in the repository, so it is the same in every clone. A repository without a remote has no team key yet.
+- Next: `walle runs`, `walle pin` and `walle diff` without arguments.
 - Next: judge verdicts in the items. A term clash that the judge calls real becomes a conflict (PICK ONE); "no conflict" moves an item to its own folded group.
 - Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
   The badge (`walle check --badge`) will follow the `--out` rule: walle will refuse a badge path inside a folder that it scans.
 
 ## 0.3 — trim and measure
 
-- `walle trim --plan`: a plan of trim actions with the expected saving, the risk, the undo and the check for each. Instruction-file changes are patches in the run folder.
+- Done: `walle trim --plan`: a plan of trim actions with the expected saving, the risk, the undo and the check for each. Instruction-file changes are patches in the run folder. Rows that need a judgment go to judge batch files (`walle trim --import`).
 - `walle apply <run> --only <id>` and `walle undo <apply-id>`: walle changes only the settings keys the user picks, after a backup, and `walle undo` puts them back. It changes instruction files only as patches in the run folder. It writes nothing into the project folders it scans.
 - `walle ablate`: run the same prompt with and without a block of rules (`claude -p`, fixed effort), then compare steps and pass/fail. This is the before/after check the vendor guides recommend.
 

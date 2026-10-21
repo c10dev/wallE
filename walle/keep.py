@@ -171,7 +171,7 @@ def resolve(out: Path, ref: str, cwd: Path) -> tuple[dict | None, dict | None, s
 def where(e: dict, home: Path) -> str:
     from .brief import shown
     if e.get("kind") == "source":
-        return f"{e.get('source')}: {e.get('name') or e.get('key')}"
+        return str(e.get("name") or e.get("key"))
     return f"{shown(e.get('file'), None, home)}:{e.get('line')}"
 
 

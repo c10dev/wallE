@@ -172,9 +172,10 @@ def _user_skill(name: str, home: Path, folders: set[str]) -> str | None:
 def _row(kind: str, key: str, name: str, action: str | None, title: str, change: dict, applies: str,
          where: str, per_session: int, sessions: dict, unused_sessions: int, risk: tuple[str, str],
          undo: str, check: str, need: dict | None, extra: dict | None = None) -> dict:
+    """One plan row. The id comes from kind and key, so a kept row matches the next plan's row."""
     row = {
         "id": row_id(kind, key), "group": "source", "action": action,
-        "source": {"type": kind, "key": key, "name": name},
+        "source": {"type": (need or {}).get("source") or kind, "key": key, "name": name},
         "title": title, "change": change, "applies": applies, "where": where,
         "saving": {"tokens_per_session_min": per_session, "unused_sessions": unused_sessions,
                    "unused_tokens_min": per_session * unused_sessions,
@@ -489,7 +490,8 @@ def instruction_rows(scan: dict, run_dir: Path, home: Path) -> list[dict]:
                 "sessions": None, "stacks": stacks,
                 "risk": {"level": "low", "why": why + "."},
                 "undo": f"git -C {change.get('base', '<checkout>')} apply -R {change.get('patch') or '<patch>'}",
-                "check": f"`walle scan` again: item {it['id']} is gone and the stack is ~{per:,} est. tokens smaller.",
+                "check": f"`walle scan` again: item {it['id']} is gone and the stack is at least {_approx(per)} "
+                         "est. tokens smaller.",
                 "judge": {"needed": False, "verdict": None}, "item": item, "stale": stale,
             })
         elif it.get("label") == "large_layer":
@@ -697,7 +699,7 @@ def render(data: dict) -> str:
     rows = data["rows"]
     p = data["period"]
     md = ["# walle trim --plan", ""]
-    md.append(f"{_n(p.get('sessions'))} main sessions, {p.get('first', '-')} to {p.get('last', '-')}. "
+    md.append(f"{_n(p.get('sessions'))} main sessions, {(p.get('first') or '-')[:10]} to {(p.get('last') or '-')[:10]}. "
               f"Scan: {data['run']['scan'] or 'none'}. Estimator: bytes-v2; savings use the low end of each rate.")
     md.append("")
     by = defaultdict(int)

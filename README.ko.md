@@ -18,7 +18,15 @@ python3 bin/walle check . --max-tokens 15000  # CI용, 넘으면 종료 코드 1
 python3 bin/walle judge --dry-run          # 판정할 항목(파일:줄)과 추정 토큰
 python3 bin/walle judge                    # 후보를 배치 파일로 내보냄 → 에이전트가 답 파일을 씀
 python3 bin/walle judge --import           # 답을 읽어 judge.md 작성
+python3 bin/walle trim --plan              # 안 쓰는 커넥터·플러그인·스킬·훅을 덜어낼 계획(바꾸지 않음)
+python3 bin/walle trim --import            # 계획의 판단 배치 답을 읽어 계획에 넣음
+python3 bin/walle keep <id> --why "이유"   # 줄이나 원천을 남김. 판정, 여기부터, 계획에서 빠짐
+python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unkeep <id>
 ```
+
+`walle trim --plan`은 기간의 세션(`walle context --usage`와 같은 자료)과 runs 폴더의 최신 스캔을 읽는다. 동작마다 한 행이다: 바꿀 것(설정 키, patch, 앱 안의 자리), 누가 하는지(walle, 수동, patch), 세션당 절감 하한(bytes-v2 토큰), 실린 세션과 쓴 세션, 위험, 되돌리기, 나중 세션의 확인 방법. 지시 파일 변경은 실행 폴더의 `patches/`에 patch 파일로만 쓴다. "이 사용자에게 필요한가"를 판단할 행은 judge 배치 파일로 낸다. 아무것도 바꾸지 않는다. `walle apply`는 계획 단계 C5다.
+
+`walle keep`은 runs 폴더 옆 `keep.json`(기본 `~/.walle/keep.json`)에 쓴다. 남긴 줄이 바뀌면 다음 스캔이 `keep released: line changed`를 한 번 보이고 다시 센다. 팀은 저장소 루트의 `.wallekeep`에 팀 키를 한 줄씩 둔다. 팀 키는 원격 URL과 저장소 안 경로로 만들어서 모든 클론에서 같다. walle는 `.wallekeep`을 읽기만 한다. `walle keep --print <id>`가 붙일 줄을 낸다.
 
 리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`과 `walle check`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다. `~/.walle` 아래는 예외다.
 
