@@ -242,6 +242,7 @@ STRINGS: dict[str, tuple[str, str]] = {
     "measure.side.change": ("change", "변화"),
     "measure.too_few_cell": ("too few sessions ({n} of {need})", "세션이 적다 ({need}개 중 {n}개)"),
     "measure.few": ("(few sessions)", "(세션 적음)"),
+    "measure.few_mark": ("* few sessions: 5 to 9.", "* 세션 적음: 5-9개."),
     "measure.too_few_rows": ("Too few sessions for a value:", "값을 내기에 세션이 적다:"),
     "measure.skipped": ("Skipped {zstd} compressed rollouts (install zstd to read them) and {other} unreadable files.",
                         "압축된 기록 {zstd}개(zstd를 설치하면 읽는다)와 읽지 못한 파일 {other}개를 건너뛰었다."),

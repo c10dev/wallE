@@ -250,6 +250,11 @@ class AroundTest(unittest.TestCase):
         out, data = self.h.measure(str(self.h.app), "--around", APPLY, "--across-folders")
         self.assertEqual(sorted({r["folder"] for r in data["measure"]["across"]}), ["app", "web"])
         self.assertIn("Folders differ in model, connectors and task mix. Do not rank folders by this.", out)
+        # A long folder path is cut from the left, so every line stays within 80 columns.
+        claude_session(self.h.projects, "long", self.h.home / "projects" / ("deep-" * 12) / "leaf", day(12, 1))
+        out, _ = self.h.measure(str(self.h.app), "--around", APPLY, "--across-folders")
+        self.assertIn("...", out)
+        self.assertTrue(all(len(x) <= 80 for x in out.splitlines()[:-1]), out)
 
     def test_same_transcripts_give_the_same_output(self):
         a_out, a = self.h.measure(str(self.h.app), "--around", APPLY, "--across-folders")
@@ -314,6 +319,10 @@ class DeletedWorktreeTest(unittest.TestCase):
         self.worktree(mixed / "a1", self.h.app)
         self.worktree(mixed / "b1", self.h.web)
         self.assertEqual(eve.folder_key(str(mixed / "gone")), str(mixed / "gone"))
+        # A folder of checkouts with one worktree in it is not a worktrees folder.
+        projects = self.h.home / "projects"
+        self.worktree(projects / "app-wt", self.h.app)
+        self.assertEqual(eve.folder_key(str(projects / "gone")), str(projects / "gone"))
 
     def test_their_sessions_count_in_the_folder_rows(self):
         box = self.wts / "app-0123456789abcdef"

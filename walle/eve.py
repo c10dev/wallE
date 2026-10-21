@@ -47,6 +47,8 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 CACHE_VERSION = 4  # 4: entrypoint and resumed
 SCRATCH_ROOTS = (Path("/tmp"), Path("/var/tmp"))
 CONTAINER_RE = re.compile(r"^(.+)-[0-9a-f]{16}$")
+FOLDER_COLS = 18  # the folder and model columns of the across-folders table keep a line within 80 columns
+FAMILY_COLS = 16
 
 
 @dataclass
@@ -163,32 +165,36 @@ def load_sessions(transcripts: Path, cache_file: Path) -> list[Session]:
 
 @functools.lru_cache(maxsize=None)
 def _container_repo(container: str) -> str | None:
-    """The one repository whose linked worktrees sit in a folder that is outside every checkout, else None.
+    """The one repository whose linked worktrees fill a folder that is outside every checkout, else None.
 
-    The worktrees still in the folder name it. When none is left, a folder named <repo>-<16 hex> names the
-    repository <repo> next to the worktrees folder.
+    Every folder in it must be a linked worktree of that repository: a folder that also holds checkouts or
+    other folders (~/projects, for example) is not a worktrees folder. When no worktree is left, a folder named
+    <repo>-<16 hex> names the repository <repo> next to the worktrees folder.
     """
-    repos = set()
+    repos, other = set(), False
     try:
         children = sorted(Path(container).iterdir())
     except OSError:
         return None
     for c in children:
         try:
-            if not (c / ".git").is_file():
+            if not c.is_dir():
                 continue
+            if (c / ".git").is_file():
+                checkout, repo, wt = find_checkout(c)
+                if wt and repo and checkout == c:
+                    repos.add(str(repo))
+                    continue
         except OSError:
-            continue
-        checkout, repo, wt = find_checkout(c)
-        if wt and repo and checkout == c:
-            repos.add(str(repo))
-    if not repos:
-        # No worktree is left: the desktop app names the folder <repo>-<16 hex>, next to the repository's folder.
-        m = CONTAINER_RE.match(Path(container).name)
-        main = Path(container).parent.parent / m.group(1) if m else None
-        if main and (main / ".git").is_dir():
-            repos.add(str(main))
-    return repos.pop() if len(repos) == 1 else None
+            pass
+        other = True
+    if len(repos) == 1 and not other:
+        return repos.pop()
+    m = CONTAINER_RE.match(Path(container).name)
+    main = Path(container).parent.parent / m.group(1) if m else None
+    if main and (main / ".git").is_dir() and repos <= {str(main)}:
+        return str(main)
+    return None
 
 
 def live_folder(folder: Path) -> Path:
@@ -461,14 +467,16 @@ def _rows(block: dict, rows: list[dict], metrics: list[str], lang: str, folder_c
     for r in rows:
         for n, side in enumerate(block["sides"]):
             v = r[side]
-            lead = ([r["folder"] if n == 0 else ""] if folder_col else []) + [r["family"] if n == 0 else "",
-                                                                               t(f"measure.side.{side}", lang), str(v["sessions"])]
+            few = v["first_call"]["few"]
+            count = str(v["sessions"]) + ("*" if few and folder_col else "")
+            lead = ([_folder_cell(r["folder"]) if n == 0 else ""] if folder_col else []) + [
+                _clip(r["family"], FAMILY_COLS) if n == 0 else "", t(f"measure.side.{side}", lang), count]
             if v["sessions"] < measure.MIN_SHOW:
                 spans.add(len(table))
                 table.append(lead + [t("measure.too_few_cell", lang, n=v["sessions"], need=measure.MIN_COMPARE)])
                 continue
             cells = [cell(v[m], m, v["sessions"], lang) for m in metrics]
-            if v["first_call"]["few"]:
+            if few and not folder_col:  # the across-folders table marks the count with * and a legend line
                 cells[-1] += "  " + t("measure.few", lang)
                 spans.add(len(table))
             table.append(lead + cells)
@@ -499,6 +507,15 @@ def _mix_line(label: str, block: dict, field: str, lang: str) -> list[str]:
     return out
 
 
+def _clip(s: str, cols: int) -> str:
+    return s if brief.width(s) <= cols else s[:cols - 3] + "..."
+
+
+def _folder_cell(key: str) -> str:
+    """A folder key in the across-folders table: ~/... under home, cut from the left to FOLDER_COLS columns."""
+    return brief._clip_left(brief.shown(key, None, HOME), FOLDER_COLS)
+
+
 def _shown_rows(block: dict, rows: list[dict]) -> tuple[list[dict], list[dict]]:
     """Rows with a value on some side, and rows with too few sessions on every side (one summary line)."""
     shown = [r for r in rows if any(r[s]["sessions"] >= measure.MIN_SHOW for s in block["sides"])]
@@ -511,7 +528,7 @@ def _too_few_line(block: dict, rows: list[dict], lang: str, folder_col: bool = F
     items = []
     for r in rows:
         counts = ", ".join(f"{r[s]['sessions']} {t('measure.side.' + s, lang)}" for s in block["sides"])
-        items.append(f"{r['folder'] + ' ' if folder_col else ''}{r['family']} ({counts})")
+        items.append(f"{_folder_cell(r['folder']) + ' ' if folder_col else ''}{_clip(r['family'], 28)} ({counts})")
     return brief.wrap_list(t("measure.too_few_rows", lang) + " ", items, "  ")
 
 
@@ -573,6 +590,8 @@ def lines(block: dict, lang: str = "en", home: Path = HOME) -> list[str]:
         shown, few = _shown_rows(block, block["across"])
         if shown:
             out += _table(*_rows(block, shown, ["first_call"], lang, True))
+            if any(r[x]["first_call"]["few"] for r in shown for x in block["sides"]):
+                out.append(t("measure.few_mark", lang))
         out += _too_few_line(block, few, lang, True)
     out.append(t("measure.not_proof", lang))
     return out
