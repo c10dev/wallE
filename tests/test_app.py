@@ -86,7 +86,7 @@ class Served(unittest.TestCase):
 
 class TokenTest(Served):
     def test_a_request_without_the_token_gets_403(self):
-        for path in ("/", "/api/state", "/app.js", "/wrong/api/state", f"/{self.token[:-1]}/api/state",
+        for path in ("/", "/api/state", "/app.js", "/favicon.ico", "/favicon.svg", "/wrong/api/state", f"/{self.token[:-1]}/api/state",
                      f"/{self.token}x/api/state", f"/x/{self.token}/api/state"):
             r, _ = self.req("GET", path)
             self.assertEqual(r.status, 403, path)
