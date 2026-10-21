@@ -64,6 +64,11 @@ Every surface gives the same answer in the same order: one verdict word, at most
 - **VS Code / Cursor extension:** inline hints on CLAUDE.md and AGENTS.md lines (duplicate of X, dated, vague).
 - **More agents:** load rules for Gemini CLI, Cursor and Copilot when their docs or transcripts confirm them.
 
+## Maintenance
+
+- Done: CI runs the unit tests on Python 3.11 and 3.13 for every push to main and every pull request (`.github/workflows/test.yml`).
+- Done: format checks on every session fixture (`tests/test_formats.py`). A new Claude Code or Codex version gets an anonymized fixture; a record kind no fixture had before, or a parser that finds no system prompt or zero tokens, fails the test.
+
 ## Adoption
 
 - One-line install for each surface (pipx, plugin marketplace, Action).
