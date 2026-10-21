@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -28,12 +29,26 @@ LISTING = ("- pptx-like: Make slide decks from notes and outlines.\n"
            "- loop: Run a prompt again and again.\n"
            "- design:ux-copy: Write or review microcopy, error messages and empty states.\n"
            "- legal:review-contract: Review a contract against the playbook of the team.\n"
-           "- anthropic-skills:pdf-like: Read, merge, split and fill PDF files of every kind.")
+           "- anthropic-skills:pdf-like: Read, merge, split and fill PDF files of every kind.\n"
+           "- anthropic-skills:xlsx-like: Read, clean and chart spreadsheet files of every kind.\n"
+           "- anthropic-skills:learn-like: Teach a topic step by step with short quizzes.")
 NAMES = ["pptx-like", "sales:call-prep", "typesafe:typesafe-ai", "secret-redact:redact", "loop", "design:ux-copy",
-         "legal:review-contract", "anthropic-skills:pdf-like"]
-# skillOverrides keys in the fake settings: two plugin skills (no effect) and a skill without a plugin.
-OVERRIDES = {"anthropic-skills:pdf-like": "user-invocable-only", "sales:call-prep": "user-invocable-only",
-             "loop": "user-invocable-only"}
+         "legal:review-contract", "anthropic-skills:pdf-like", "anthropic-skills:xlsx-like",
+         "anthropic-skills:learn-like"]
+# skillOverrides keys in the fake settings: two synced claude.ai skills (learn-like is not in the current
+# bucket), a skill of a real plugin (no row) and a skill without a plugin.
+OVERRIDES = {"anthropic-skills:pdf-like": "user-invocable-only", "anthropic-skills:learn-like": "user-invocable-only",
+             "sales:call-prep": "user-invocable-only", "loop": "user-invocable-only"}
+# The entrypoint (surface) of each fake session: 8 cli, 2 sdk-cli, 2 claude-desktop.
+SURFACE = ["cli"] * 8 + ["sdk-cli"] * 2 + ["claude-desktop"] * 2
+
+
+def listing(n: int) -> tuple[str, list[str]]:
+    """The skill listing of session n. The sdk-cli sessions (8, 9) no longer list anthropic-skills:pdf-like."""
+    if SURFACE[n] != "sdk-cli":
+        return LISTING, NAMES
+    return ("\n".join(x for x in LISTING.split("\n") if "pdf-like" not in x),
+            [x for x in NAMES if x != "anthropic-skills:pdf-like"])
 
 
 class Fixture:
@@ -45,10 +60,12 @@ class Fixture:
         self.out = self.h.root / "walle" / "runs"
         self.tx = self.home / ".claude" / "projects"
         for n in range(12):
-            lines = [prompt("hi", ts=f"2026-10-{n + 1:02d}T00:00:00Z"),
+            text, names = listing(n)
+            lines = [line(type="user", timestamp=f"2026-10-{n + 1:02d}T00:00:00Z", cwd="/w", entrypoint=SURFACE[n],
+                          message={"role": "user", "content": "hi"}),
                      att("deferred_tools_delta", addedNames=VERCEL + SUPA + REA, addedLines=VERCEL + SUPA + REA),
                      att("mcp_instructions_delta", addedNames=["claude.ai Vercel"], addedBlocks=["## Vercel\n" + "x" * 400]),
-                     att("skill_listing", content=LISTING, names=NAMES, skillCount=len(NAMES))]
+                     att("skill_listing", content=text, names=names, skillCount=len(names))]
             if n == 0:
                 lines.append(call("m1", (VERCEL[0], {})))
                 lines.append(call("m2", *[(SUPA[1], {})] * 40))
@@ -93,6 +110,11 @@ class Fixture:
         (sales / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "sales"}))
         (sales / "skills" / "call-prep").mkdir(parents=True)
         (sales / "skills" / "call-prep" / "SKILL.md").write_text("---\nname: call-prep\ndescription: Prepare.\n---\n")
+        # The synced claude.ai skills of the current bucket: pdf-like and xlsx-like, not learn-like.
+        skills_bucket = self.home / ".claude" / "skills" / "synced" / "org1_acct1"
+        for name in ("pdf-like", "xlsx-like"):
+            (skills_bucket / name).mkdir(parents=True)
+            (skills_bucket / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {name}.\n---\n")
         # One repository with a line loaded twice: the repo copy is the one to delete.
         self.same = f"- Keep commit messages short: {words('same')}."
         self.h.write(".claude/CLAUDE.md", f"# Global\n\n{self.same}\n")
@@ -275,7 +297,7 @@ class PlanRowsTest(unittest.TestCase):
 
 
 class PluginRowsTest(unittest.TestCase):
-    """claude.ai plugins, plugin skills and skillOverrides keys that have no effect (fake home only)."""
+    """claude.ai plugins, plugin skills, synced claude.ai skills and keys that are already set (fake home only)."""
 
     def setUp(self):
         self.f = Fixture()
@@ -299,6 +321,10 @@ class PluginRowsTest(unittest.TestCase):
             self.assertIn(text, d["risk"]["why"])
         self.assertEqual(d["change"]["sha256"], trim.file_sha256(self.f.home / ".claude" / "settings.json"))
         self.assertFalse(d["change"]["already"])
+        # The saving floor counts cli and sdk-cli sessions; claude-desktop is a separate, unconfirmed number.
+        sv = d["saving"]
+        self.assertEqual((sv["unused_sessions"], sv["unconfirmed"]["sessions"]), (10, {"claude-desktop": 2}))
+        self.assertIn("claude-desktop is not confirmed", sv["unconfirmed"]["why"])
         # An installed plugin keeps its own key, and a plugin of an older sync bucket is not a synced plugin.
         self.assertEqual(self.rows(data)["typesafe"]["change"]["keys"], ["enabledPlugins", "typesafe@typesafe-ai"])
         cat = trim.plugin_catalog(self.f.home)
@@ -325,50 +351,95 @@ class PluginRowsTest(unittest.TestCase):
         self.assertNotIn(trim.UNCONFIRMED, sales["where"])
         self.assertNotIn("sha256", sales["change"])
 
-    def test_plugin_skills_get_the_plugin_row_not_skill_overrides(self):
+    def test_plugin_skills_get_the_plugin_row_and_synced_skills_get_skill_overrides(self):
         data, run_dir = self.f.plan()
         rows = self.rows(data)
         cat = trim.plugin_catalog(self.f.home)
         hide = [r for r in data["rows"] if r["change"].get("op") == "set" and r["change"]["keys"][0] == "skillOverrides"]
-        self.assertEqual([r["source"]["name"] for r in hide], ["pptx-like"])
+        self.assertEqual(sorted(r["source"]["name"] for r in hide),
+                         ["anthropic-skills:learn-like", "anthropic-skills:pdf-like", "anthropic-skills:xlsx-like",
+                          "pptx-like"])
         self.assertFalse(any(trim.plugin_skill(r["source"]["name"], cat) for r in hide))
-        for name in ("design:ux-copy", "anthropic-skills:pdf-like", "legal:review-contract"):
+        # A skill of a real plugin gets no skillOverrides row, even with a key set (sales:call-prep).
+        for name in ("design:ux-copy", "legal:review-contract", "sales:call-prep"):
             self.assertNotIn(trim.row_id("skill", name), {r["id"] for r in data["rows"]})
-        # The claude.ai skills are one manual row: walle does not set syncClaudeAiSkills.
-        a = rows["anthropic-skills"]
-        self.assertEqual((a["action"], a["applies"], a["source"]["type"]), ("T3", "manual", "claude.ai skills"))
-        self.assertIn("syncClaudeAiSkills: false", a["where"])
-        self.assertIn(trim.DOC_SKILL_OVERRIDES, a["where"])
-        self.assertIn("go together", a["risk"]["why"])
-        self.assertTrue(trim.plugin_skill("anthropic-skills:pdf-like", cat))
+            self.assertTrue(trim.plugin_skill(name, cat))
+        self.assertNotIn("anthropic-skills", rows)  # the synced skills are not one plugin row
+        self.assertFalse(trim.plugin_skill("anthropic-skills:pdf-like", cat))
         self.assertFalse(trim.plugin_skill("atc:status", cat))  # a subfolder skill, no plugin of that name
         self.assertFalse(trim.plugin_skill("loop", cat))
+        # No row deletes a key.
+        self.assertFalse([r for r in data["rows"] if r["change"].get("op") not in (None, "set", "remove", "move")])
 
-    def test_a_skill_overrides_key_of_a_plugin_skill_is_set_no_effect(self):
+    def test_a_synced_skill_saving_counts_only_cli_and_sdk_cli(self):
+        data, run_dir = self.f.plan()
+        x = self.rows(data)["anthropic-skills:xlsx-like"]
+        self.assertEqual((x["action"], x["applies"], x["source"]["type"]), ("T5", "walle", "claude.ai skill"))
+        self.assertFalse(x["change"]["already"])
+        self.assertEqual(x["sessions"]["by_entrypoint"], {"claude-desktop": {"loaded": 2, "used": 0},
+                                                          "cli": {"loaded": 8, "used": 0},
+                                                          "sdk-cli": {"loaded": 2, "used": 0}})
+        sv, per = x["saving"], x["saving"]["tokens_per_session_min"]
+        self.assertEqual((sv["unused_sessions"], sv["unused_tokens_min"]), (10, 10 * per))
+        self.assertEqual((sv["unconfirmed"]["sessions"], sv["unconfirmed"]["unused_tokens_min"]),
+                         ({"claude-desktop": 2}, 2 * per))
+        self.assertIn("2.1.299, 2026-10-21", sv["unconfirmed"]["why"])
+        self.assertIn("no cli or sdk-cli session has confirmed it yet", x["note"])
+        # The docs link is only for real plugin skills: never on a synced skill row.
+        self.assertNotIn(trim.DOC_SKILL_OVERRIDES, json.dumps(x))
+        md = (run_dir / "plan.md").read_text()
+        self.assertIn("10 sessions on cli and sdk-cli loaded it without using it", md)
+        self.assertIn("- Unconfirmed, not in the saving: 2 sessions (claude-desktop 2)", md)
+        self.assertIn("on confirmed surfaces", md)
+        self.assertIn("more on unconfirmed surfaces", md)
+        conf, other = trim.totals(data["rows"])
+        self.assertGreaterEqual(other, 2 * per)
+
+    def test_a_key_that_is_set_gets_a_status_per_entrypoint(self):
+        settings = self.f.home / ".claude" / "settings.json"
+        # learn-like: no walle apply record, so the file's modification time (2026-10-10 12:00 UTC) is the set time.
+        t = datetime(2026, 10, 10, 12, tzinfo=timezone.utc).timestamp()
+        os.utime(settings, (t, t))
+        # pdf-like: the earliest walle apply record that set it (2026-10-08 12:00 UTC, written in local time).
+        local = datetime(2026, 10, 8, 12, tzinfo=timezone.utc).astimezone().replace(tzinfo=None).isoformat()
+        rec = self.f.out / "20261008-120000"
+        rec.mkdir(parents=True)
+        (rec / "apply.json").write_text(json.dumps({"generated": local, "rows": [
+            {"id": "x", "file": "~/.claude/settings.json", "changed": True,
+             "keys": ["skillOverrides", "anthropic-skills:pdf-like"]}]}))
+        (self.f.out / "index.jsonl").write_text(json.dumps({"id": "20261008-120000", "kind": "apply", "generated": local,
+                                                            "path": str(rec / "apply.json")}) + "\n")
         data, run_dir = self.f.plan()
         rows = self.rows(data)
-        idle = [r for r in data["rows"] if r.get("state") == trim.NO_EFFECT]
-        self.assertEqual(sorted(r["source"]["name"] for r in idle), ["anthropic-skills:pdf-like", "sales:call-prep"])
-        r = rows["anthropic-skills:pdf-like"]
-        self.assertEqual((r["applies"], r["change"]["op"], r["change"]["keys"]),
-                         ("walle", "unset", ["skillOverrides", "anthropic-skills:pdf-like"]))
-        self.assertFalse(r["change"]["already"])
-        self.assertEqual((r["saving"]["tokens_per_session_min"], r["saving"]["unused_tokens_min"]), (0, 0))
-        self.assertFalse(r["judge"]["needed"])
-        self.assertIn(f"That row is {rows['anthropic-skills']['id']}.", r["note"])
-        self.assertEqual(r["id"], trim.row_id("override", "anthropic-skills:pdf-like"))
-        # A key of a skill without a plugin is not one: "loop" has no row (a session called it).
-        self.assertNotIn("loop", rows)
-        # The rows come last among the sources, and plan.md does not count them as "already".
-        src = [x["id"] for x in data["rows"] if x["group"] == "source"]
-        self.assertEqual(set(src[-2:]), {x["id"] for x in idle})
+        pdf = rows["anthropic-skills:pdf-like"]
+        self.assertTrue(pdf["change"]["already"])
+        self.assertEqual(pdf["change"]["set_at"], {"time": "2026-10-08T12:00:00", "from": "walle apply 20261008-120000"})
+        st = {x["entrypoint"]: x for x in pdf["set_status"]}
+        # Sessions 8-11 started after: the sdk-cli ones no longer list it, the desktop ones still do, no cli one.
+        self.assertEqual(st["sdk-cli"]["state"], "acts")
+        self.assertEqual(st["claude-desktop"]["text"],
+                         "set, still listed on claude-desktop (2 sessions since 2026-10-08T12:00:00 UTC)")
+        self.assertEqual(st["cli"]["text"], "set, not measured on cli")
+        self.assertEqual((pdf["saving"]["counted"], pdf["saving"]["unused_tokens_min"]), (False, 0))
+        self.assertEqual(pdf["saving"]["unconfirmed"]["unused_tokens_min"], 0)
+        self.assertEqual(pdf["change"]["op"], "set")  # the row never deletes the key
+        learn = rows["anthropic-skills:learn-like"]
+        self.assertEqual(learn["change"]["set_at"]["from"], "the modification time of ~/.claude/settings.json")
+        st = {x["entrypoint"]: x["state"] for x in learn["set_status"]}
+        self.assertEqual(st, {"cli": "not measured", "sdk-cli": "not measured", "claude-desktop": "still listed"})
+        # learn-like is not in the current bucket: its loaded count is past.
+        self.assertTrue(learn["past"])
+        self.assertIn("is not in the current bucket", learn["note"])
         md = (run_dir / "plan.md").read_text()
-        self.assertIn("(2 set, no effect)", md)
-        self.assertNotIn("already set in the file", md)
-        self.assertIn("| walle (set, no effect) |", md)
-        self.assertIn("- In the file: set, no effect.", md)
-        self.assertIn("- Saving: not counted: the skill still loads.", md)
-        self.assertIn('remove skillOverrides["sales:call-prep"] from ~/.claude/settings.json', md)
+        self.assertIn("(past sessions: the skill is not in the current bucket)", md)
+        self.assertIn("| 12 (past) |", md)
+        self.assertIn("- Saving: not counted: the key is already set.", md)
+        self.assertIn("  - set, still listed on claude-desktop (2 sessions since 2026-10-08T12:00:00 UTC)", md)
+        self.assertNotIn("still loads", md)
+        self.assertIn("(2 already set in the file)", md)
+        # Rows whose key is set count no saving, so they come last among the sources.
+        src = [x for x in data["rows"] if x["group"] == "source"]
+        self.assertEqual(src, sorted(src, key=lambda r: -r["saving"]["unused_tokens_min"]))
 
 
 class GateTest(unittest.TestCase):

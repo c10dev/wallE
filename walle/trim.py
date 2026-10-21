@@ -30,10 +30,10 @@ import json
 import re
 import sys
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, context, estimate, judge, keep, skills
+from . import __version__, context, estimate, judge, keep, runs, skills
 from .collect import HOME, find_checkout
 from .triage import _id, norm_id
 
@@ -68,7 +68,19 @@ DOC_PLUGIN_DISABLE = "https://code.claude.com/docs/en/plugins/loading#control-wh
 DOC_SKILL_OVERRIDES = "https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings"
 DOC_ORG_PLUGINS = "https://claude.com/docs/plugins/admin"
 SYNCED_KEY = "synced"  # enabledPlugins key of a claude.ai plugin in Claude Code: "<name>@synced"
-NO_EFFECT = "set, no effect"
+# Surfaces are the "entrypoint" of a session's transcript. For synced claude.ai skills and synced plugins, the
+# saving floor counts only CONFIRMED surfaces; the other surfaces are a separate, unconfirmed number.
+CONFIRMED = ("cli", "sdk-cli")
+DESKTOP = "claude-desktop"
+SURFACES = (*CONFIRMED, DESKTOP)
+SKILL_DESKTOP = ("claude-desktop loads the synced claude.ai skills as a plugin. Measured on claude-desktop 2.1.299, "
+                 "2026-10-21: a skill was still listed after its skillOverrides key was set (14 keys set at 03:10, "
+                 "still listed in the 3 desktop sessions started after 03:11).")
+SYNCED_SKILL_NOTE = ("cli and sdk-cli load the synced claude.ai skills as user skills, where skillOverrides applies. "
+                     "This comes from reading the Claude Code 2.1.303 code; no cli or sdk-cli session has confirmed it "
+                     "yet. " + SKILL_DESKTOP + " The saving counts only cli and sdk-cli sessions.")
+PLUGIN_DESKTOP = ("the docs and the Claude Code code confirm enabledPlugins[\"<name>@synced\"] for cli and sdk-cli; "
+                  "its effect on claude-desktop is not confirmed.")
 JUDGE_CACHE = "trim-judge.json"
 RUBRIC_VERSION = 1
 RUBRIC = """You decide, for one user, whether a source that loads into their coding agent's sessions is worth what it costs.
@@ -142,7 +154,7 @@ def already_set(c: dict, doc: dict) -> bool:
     now = _at(doc, [str(k) for k in c["keys"]])
     if c["op"] == "set":
         return now is not _ABSENT and now == c["value"] and type(now) is type(c["value"])
-    if c["op"] in ("remove", "unset"):
+    if c["op"] == "remove":
         return now is _ABSENT
     return now is _ABSENT and _at(doc, [str(k) for k in c["to"]]) is not _ABSENT
 
@@ -152,7 +164,8 @@ def record_targets(rows: list[dict], home: Path) -> dict[str, str | None]:
 
     walle apply refuses a target whose hash differs: the plan was made for that file as it was.
     A row whose key already has the planned state gets "already": true. The sessions of the period
-    can be older than that change, so the row stays in the plan; its check tells whether it acts.
+    can be older than that change, so the row stays in the plan; mark_set_keys gives its status per
+    entrypoint from the sessions after the change.
     """
     targets: dict[str, str | None] = {}
     docs: dict[str, dict] = {}
@@ -268,20 +281,15 @@ def plugin_catalog(home: Path) -> dict[str, dict]:
 
 
 def plugin_skill(name: str, plugins: dict[str, dict]) -> bool:
-    """name is a skill of a plugin: a claude.ai skill (anthropic-skills:*) or <plugin>:* of a plugin on disk.
+    """name is a skill of a real plugin: <plugin>:* of a plugin on disk that is not the claude.ai skill sync.
 
-    A subfolder skill ("atc:status") also has a prefix, but no plugin of that name.
+    A synced claude.ai skill (anthropic-skills:*) is not one. A subfolder skill ("atc:status") also has a
+    prefix, but no plugin of that name.
     """
     if ":" not in name:
         return False
     prefix = name.split(":", 1)[0]
-    return prefix == skills.SYNCED_SKILL_PREFIX or prefix in plugins
-
-
-def skill_overrides(home: Path) -> set[str]:
-    """The skill names that skillOverrides of ~/.claude/settings.json sets (key names only)."""
-    so = _json(home / ".claude" / "settings.json").get("skillOverrides")
-    return {str(k) for k in so} if isinstance(so, dict) else set()
+    return prefix != skills.SYNCED_SKILL_PREFIX and prefix in plugins
 
 
 def _user_skill(name: str, home: Path, folders: set[str]) -> str | None:
@@ -427,15 +435,8 @@ def _common_folder(folders: list[str]) -> str | None:
     return str(Path(*common)) if len(common) > 1 else None
 
 
-def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
-    """One row per plugin: its skills and MCP servers go together.
-
-    An installed plugin and a claude.ai plugin synced to Claude Code are one enabledPlugins key (walle).
-    The claude.ai skills (anthropic-skills:*), a plugin that only the desktop app keeps, and a plugin that
-    the organization requires are manual. walle never offers skillOverrides for a plugin skill: Claude Code
-    does not apply it to plugin skills (DOC_SKILL_OVERRIDES).
-    """
-    n = u["sessions"]
+def _plugin_parts(u: dict) -> dict[str, dict]:
+    """Plugin name -> its listed skills and loaded MCP servers in a usage block."""
     by_name: dict[str, dict] = defaultdict(lambda: {"skills": [], "servers": []})
     for s in u["skills"]:
         if ":" in s["skill"]:
@@ -443,17 +444,54 @@ def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
     for s in u["servers"]:
         if s["key"].startswith("plugin:"):
             by_name[s["key"].split(":")[1]]["servers"].append(s)
+    return by_name
+
+
+def _plugin_counts(parts: dict | None) -> tuple[int, int, int]:
+    """(sessions that loaded the plugin, sessions that used it, calls) of one plugin's parts."""
+    sks, svs = (parts or {}).get("skills") or [], (parts or {}).get("servers") or []
+    sessions = max([s["sessions_listed"] for s in sks] + [s["sessions_loaded"] for s in svs] + [0])
+    calls = sum(s["calls"] for s in sks) + sum(s["calls"] for s in svs)
+    used = min(sessions, sum(s["sessions_used"] for s in sks) + sum(s["sessions_used"] for s in svs))
+    return sessions, used, calls
+
+
+def split_saving(row: dict, per: int, counts: dict[str, tuple[int, int]], why: str) -> None:
+    """Count the saving floor only on the confirmed surfaces (cli, sdk-cli).
+
+    counts is entrypoint -> (sessions that loaded the source, sessions that used it). The sessions of the other
+    surfaces (claude-desktop and any other entrypoint) are a separate, unconfirmed number with its reason.
+    """
+    conf = sum(max(0, n - k) for ep, (n, k) in counts.items() if ep in CONFIRMED)
+    other = {ep: n - k for ep, (n, k) in sorted(counts.items()) if ep not in CONFIRMED and n - k > 0}
+    sv = row["saving"]
+    sv["unused_sessions"], sv["unused_tokens_min"] = conf, per * conf
+    sv["confirmed_surfaces"] = list(CONFIRMED)
+    total = sum(other.values())
+    sv["unconfirmed"] = {"sessions": other, "unused_sessions": total, "unused_tokens_min": per * total, "why": why}
+    row["sessions"]["by_entrypoint"] = {ep: {"loaded": n, "used": k} for ep, (n, k) in sorted(counts.items())}
+
+
+def plugin_rows(u: dict, plugins: dict[str, dict], by_ep: dict[str, dict] | None = None) -> list[dict]:
+    """One row per plugin: its skills and MCP servers go together.
+
+    An installed plugin and a claude.ai plugin synced to Claude Code are one enabledPlugins key (walle).
+    A plugin that only the desktop app keeps and a plugin that the organization requires are manual.
+    walle never offers skillOverrides for a plugin skill: Claude Code does not apply it to plugin skills
+    (DOC_SKILL_OVERRIDES). The synced claude.ai skills (anthropic-skills:*) are not a plugin here: each one
+    has its own skill row (skill_rows).
+    """
+    n = u["sessions"]
+    by_name = _plugin_parts(u)
+    ep_parts = {ep: _plugin_parts(ub) for ep, ub in (by_ep or {}).items()}
     rows = []
     for name, parts in sorted(by_name.items()):
-        if name in PROTECTED_PLUGINS:
-            continue  # safety plugins stay
-        synced_skills = name == skills.SYNCED_SKILL_PREFIX
-        if name not in plugins and not parts["servers"] and not synced_skills:
+        if name == skills.SYNCED_SKILL_PREFIX or name in PROTECTED_PLUGINS:
+            continue  # claude.ai skills get one row each; safety plugins stay
+        if name not in plugins and not parts["servers"]:
             continue  # a subfolder skill ("atc/controller:tick"): it loads on demand
         sks, svs = parts["skills"], parts["servers"]
-        sessions = max([s["sessions_listed"] for s in sks] + [s["sessions_loaded"] for s in svs] + [0])
-        calls = sum(s["calls"] for s in sks) + sum(s["calls"] for s in svs)
-        used = min(sessions, sum(s["sessions_used"] for s in sks) + sum(s["sessions_used"] for s in svs))
+        sessions, used, calls = _plugin_counts(parts)
         if not gate(sessions, used, calls):
             continue
         skill_tok = sum(s["line_bytes_median"] * LOW["prose_ascii"] * s["sessions_listed"] for s in sks)
@@ -475,23 +513,11 @@ def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
                             "mcp_servers": [s["server"] for s in svs]}}
         with_used = f", with the skills that sessions used ({', '.join(used_skills[:5])})" if used_skills else ""
         whole = (f"the whole plugin goes: its {_count(len(sks), 'skill')}, {_count(len(svs), 'MCP server')} and any "
-                 f"hooks{with_used}. walle cannot turn off one skill of a plugin: skillOverrides does not act on "
-                 "plugin skills.")
+                 f"hooks{with_used}. walle cannot turn off one skill of a plugin: Claude Code does not apply "
+                 f"skillOverrides to plugin skills ({DOC_SKILL_OVERRIDES}).")
         level = "high" if used_skills and calls >= 10 else "medium"
         key = cat["key"]
-        if synced_skills:
-            need["source"] = "claude.ai skills"
-            whole = (f"all {_count(len(sks), 'claude.ai skill')} go together{with_used}. walle cannot turn off "
-                     "one of them: skillOverrides does not act on them.")
-            where = (f"walle cannot turn off one claude.ai skill: Claude Code does not apply skillOverrides to them "
-                     f"({DOC_SKILL_OVERRIDES}). In Claude Code, syncClaudeAiSkills: false in {SETTINGS} stops every "
-                     f"synced claude.ai skill at once; walle does not set that key. To drop only some, turn them off "
-                     f"or delete them in claude.ai's skill settings ({UNCONFIRMED}).")
-            change = {"kind": "app", "app": "claude.ai", "what": "turn off the claude.ai skills (anthropic-skills:*)"}
-            rows.append(_row("plugin", name, name, "T3", "Turn off the claude.ai skills (anthropic-skills:*)", change,
-                             "manual", where, per, sess, sessions - used, (level, whole),
-                             "Turn them on again in the same place (or delete syncClaudeAiSkills).", check, need))
-        elif key and ("plugin" in cat["sources"] or (cat["synced"] and not required(cat["preference"]))):
+        if key and ("plugin" in cat["sources"] or (cat["synced"] and not required(cat["preference"]))):
             change = {"kind": "settings_key", "file": SETTINGS, "op": "set", "keys": ["enabledPlugins", key],
                       "value": False}
             where = f'{SETTINGS} enabledPlugins["{key}"] = false'
@@ -502,11 +528,16 @@ def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
                 where += (f": the key that `claude plugin disable {key}` and the /plugin Installed tab write "
                           f"({DOC_PLUGIN_DISABLE}).")
                 whole += (" An organization-required plugin ignores the key. The docs do not confirm that the key "
-                          "survives the next sync, nor that the desktop app's Code tab honours it: check with "
-                          "walle context --last.")
-                check += " Check a session of the desktop app's Code tab too."
-            rows.append(_row("plugin", name, name, "T4", title, change, "walle", where, per, sess, sessions - used,
-                             (level, whole), f'Set enabledPlugins["{key}"] back to true, or walle undo.', check, need))
+                          "survives the next sync. The docs and the Claude Code code confirm the key for cli and "
+                          "sdk-cli; its effect on claude-desktop is not confirmed: check with walle context --last.")
+                check += " Check a claude-desktop session too: its effect there is not confirmed."
+            row = _row("plugin", name, name, "T4", title, change, "walle", where, per, sess, sessions - used,
+                       (level, whole), f'Set enabledPlugins["{key}"] back to true, or walle undo.', check, need)
+            row["_listed"] = ("plugin", name)
+            if cat["synced"]:
+                counts = {ep: _plugin_counts(p.get(name))[:2] for ep, p in ep_parts.items()}
+                split_saving(row, per, counts, PLUGIN_DESKTOP)
+            rows.append(row)
         else:
             if cat["synced"]:  # required by the organization
                 where = (f"Your organization requires {name}: Claude Code refuses to turn it off, and only the "
@@ -526,16 +557,21 @@ def plugin_rows(u: dict, plugins: dict[str, dict]) -> list[dict]:
     return rows
 
 
-def skill_rows(u: dict, plugins: dict[str, dict], home: Path, folders: set[str]) -> list[dict]:
-    """A skill that no session called: skillOverrides hides it from the model (a user or built-in skill).
+def skill_rows(u: dict, plugins: dict[str, dict], home: Path, folders: set[str],
+               by_ep: dict[str, dict] | None = None) -> list[dict]:
+    """A skill that no session called: skillOverrides hides it from the model.
 
-    A plugin skill (anthropic-skills:* or <plugin>:*) gets no skillOverrides row: Claude Code does not apply
-    skillOverrides to plugin skills. The plugin's row takes it out with the whole plugin. A duplicate
-    claude.ai skill ("<name>-2") is a manual row. Keys already set for plugin skills: override_rows.
+    A user skill, a built-in skill and a synced claude.ai skill (anthropic-skills:*) get a skillOverrides row.
+    A skill of a real plugin (<plugin>:* of a plugin that is not the claude.ai skill sync) gets none: Claude
+    Code does not apply skillOverrides to plugin skills (DOC_SKILL_OVERRIDES); the plugin's row takes it out.
+    The saving of a synced claude.ai skill counts only cli and sdk-cli sessions (SYNCED_SKILL_NOTE).
+    A duplicate claude.ai skill ("<name>-2") is a manual row.
     """
     n = u["sessions"]
     listed = {s["skill"] for s in u["skills"]}
     found = {sk.name: sk.description for sk in skills.discover(None, home)}
+    bucket = {sk.name for sk in skills.discover(None, home, sources=("synced",))}
+    ep_skills = {ep: {s["skill"]: s for s in ub["skills"]} for ep, ub in (by_ep or {}).items()}
     rows = []
     for s in u["skills"]:
         nm = s["skill"]
@@ -562,51 +598,151 @@ def skill_rows(u: dict, plugins: dict[str, dict], home: Path, folders: set[str])
                              s["sessions_listed"], ("low", "the first copy stays."),
                              "Add the skill again in claude.ai.", check, need))
             continue
-        if prefix:
-            continue  # a claude.ai skill: the row of the claude.ai skills (plugin_rows)
-        need["source"] = "user skill" if _user_skill(nm, home, folders) else "built-in skill"
+        need["source"] = "claude.ai skill" if prefix else ("user skill" if _user_skill(nm, home, folders) else "built-in skill")
         change = {"kind": "settings_key", "file": SETTINGS, "op": "set", "keys": ["skillOverrides", nm],
                   "value": SKILL_OVERRIDE}
-        rows.append(_row("skill", nm, nm, "T5", f"Hide the skill {nm} from the model", change, "walle",
-                         f'{SETTINGS} skillOverrides["{nm}"] = "{SKILL_OVERRIDE}"', per, sess, s["sessions_listed"],
-                         ("low", f"the model no longer calls {nm} by itself; /{short} still works."),
-                         f'Delete skillOverrides["{nm}"].', check, need))
-    return rows
-
-
-def override_rows(u: dict, plugins: dict[str, dict], home: Path) -> list[dict]:
-    """A skillOverrides key of ~/.claude/settings.json that names a plugin skill: set, no effect.
-
-    Claude Code does not apply skillOverrides to plugin skills (DOC_SKILL_OVERRIDES), so the skill still
-    loads. The row removes the key (op "unset"), so the file says what acts. It saves nothing: its saving
-    is 0 and it needs no judge. The plugin's row is the change that takes the skill out.
-    """
-    n = u["sessions"]
-    by = {s["skill"]: s for s in u["skills"]}
-    rows = []
-    for nm in sorted(skill_overrides(home)):
-        if not plugin_skill(nm, plugins):
-            continue
-        s = by.get(nm) or {"sessions_listed": 0, "sessions_used": 0, "calls": 0}
-        prefix = nm.split(":", 1)[0]
-        owner = ("the claude.ai skills (anthropic-skills:*)" if prefix == skills.SYNCED_SKILL_PREFIX
-                 else f"the plugin {prefix}")
-        sess = {"period": n, "loaded": s["sessions_listed"], "used": s["sessions_used"], "calls": s["calls"]}
-        change = {"kind": "settings_key", "file": SETTINGS, "op": "unset", "keys": ["skillOverrides", nm]}
-        risk = ("low", f"{nm} belongs to {owner}, and Claude Code does not apply skillOverrides to plugin skills "
-                       f"({DOC_SKILL_OVERRIDES}). If a surface did apply it, {nm} shows there again; walle undo puts "
-                       "the key back.")
-        check = (f"In a session started after the change, `walle context --last` lists {nm} as before: the key "
-                 "had no effect.")
-        row = _row("override", nm, nm, "T5", f'Delete skillOverrides["{nm}"]: set, no effect', change, "walle",
-                   f'{SETTINGS} skillOverrides["{nm}"]: delete the key', 0, sess, 0, risk,
-                   f'Set skillOverrides["{nm}"] to "{SKILL_OVERRIDE}" again, or walle undo.', check, None,
-                   {"state": NO_EFFECT, "plugin": prefix,
-                    "note": f"The saving is not counted: {nm} still loads. The row of {owner} takes it out, "
-                            "with the whole plugin."})
-        row["source"]["type"] = "skillOverrides key"
+        extra = {}
+        if prefix:
+            check = (f"In a cli or sdk-cli session started after the change, `walle context --last` shows a skill "
+                     f"list without {nm}, and /{short} still works. A claude-desktop session may still list it.")
+            extra["note"] = SYNCED_SKILL_NOTE
+            if nm not in bucket:
+                extra["past"] = True
+                extra["note"] = (f"{nm} is not in the current bucket (~/.claude/skills/synced): a new cli or sdk-cli "
+                                 "session does not get it from the sync, so its loaded count is from past sessions. "
+                                 "claude-desktop gets the synced skills from its own plugin copies; the status per "
+                                 "entrypoint tells whether it still lists the skill. " + SYNCED_SKILL_NOTE)
+        row = _row("skill", nm, nm, "T5", f"Hide the skill {nm} from the model", change, "walle",
+                   f'{SETTINGS} skillOverrides["{nm}"] = "{SKILL_OVERRIDE}"', per, sess, s["sessions_listed"],
+                   ("low", f"the model no longer calls {nm} by itself; /{short} still works."),
+                   f'Delete skillOverrides["{nm}"], or walle undo.', check, need, extra)
+        row["_listed"] = ("skill", nm)
+        if prefix:
+            counts = {ep: ((sk := ep_skills[ep].get(nm)) and (sk["sessions_listed"], sk["sessions_used"])) or (0, 0)
+                      for ep in ep_skills}
+            split_saving(row, per, counts, SKILL_DESKTOP)
+            if extra.get("past"):
+                _not_counted(row, "not in the current bucket")
         rows.append(row)
     return rows
+
+
+def _not_counted(row: dict, why: str) -> None:
+    """The row saves nothing that walle can count: the saving stays as a size, not a saving."""
+    sv = row["saving"]
+    sv.update(counted=False, not_counted=why, unused_sessions=0, unused_tokens_min=0)
+    if sv.get("unconfirmed"):
+        sv["unconfirmed"].update(unused_sessions=0, unused_tokens_min=0)
+
+
+def usage_by_surface(rows_u: dict[str, dict], since: str | None, before: str | None) -> dict[str, dict]:
+    """entrypoint -> context.usage of the sessions of that surface. A session without one is "unknown"."""
+    eps = {f"{r['slug']}/{r['session']}": r.get("entrypoint") or "unknown" for r in rows_u.values() if r["main"]}
+    groups: dict[str, dict] = defaultdict(dict)
+    for k, r in rows_u.items():
+        ep = eps.get(f"{r['slug']}/{r['session']}")
+        if ep:
+            groups[ep][k] = r
+    return {ep: context.usage(g, since, before) for ep, g in sorted(groups.items())}
+
+
+# ---------------------------------------------------------------------- keys that are already set
+def _utc(ts: str) -> str:
+    """A time as YYYY-MM-DDTHH:MM:SS in UTC. A time without a zone is local (walle apply writes those)."""
+    try:
+        t = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if t.tzinfo is None:
+        t = t.astimezone()
+    return t.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def apply_set_times(out: Path) -> dict[tuple, tuple[str, str]]:
+    """(file, keys) -> (UTC time, the apply id) of the earliest walle apply record that changed that key."""
+    found: dict[tuple, tuple[str, str]] = {}
+    for line in runs.read_index(out):
+        if line.get("kind") != "apply" or not line.get("path"):
+            continue
+        try:
+            rec = json.loads(Path(line["path"]).read_text())
+        except (OSError, ValueError):
+            continue
+        when = _utc(rec.get("generated") or line.get("generated") or "")
+        if not when or not isinstance(rec, dict):
+            continue
+        for x in rec.get("rows") or []:
+            if isinstance(x, dict) and x.get("changed"):
+                k = (x.get("file"), tuple(str(y) for y in x.get("keys") or []))
+                if k not in found or when < found[k][0]:
+                    found[k] = (when, str(line.get("id")))
+    return found
+
+
+def _session_marks(rows_u: dict[str, dict]) -> list[tuple[str, str, set, list]]:
+    """(UTC start, entrypoint, listed skills, MCP server keys) of every main session."""
+    out = []
+    for r in rows_u.values():
+        if r.get("main") and r.get("start"):
+            out.append((_utc(r["start"]), r.get("entrypoint") or "unknown", set(r.get("listed") or []),
+                        list(r.get("servers") or [])))
+    return out
+
+
+def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[dict]:
+    """Per entrypoint: does a session that started after `since` still list the source of a key that is set?"""
+    kind, name = spec
+
+    def listed(m) -> bool:
+        if kind == "skill":
+            return name in m[2]
+        return any(x.startswith(name + ":") for x in m[2]) or any(k.startswith(f"plugin:{name}:") for k in m[3])
+
+    by: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    for m in marks:
+        if m[0] and m[0] >= since:
+            by[m[1]][0] += 1
+            by[m[1]][1] += listed(m)
+    out = []
+    for ep in [*SURFACES, *sorted(set(by) - set(SURFACES))]:
+        n, k = by.get(ep, (0, 0))
+        if not n:
+            state, text = "not measured", f"set, not measured on {ep}"
+        elif k:
+            state, text = "still listed", f"set, still listed on {ep} ({k} sessions since {since} UTC)"
+        else:
+            state, text = "acts", f"already set on {ep}: none of {n} sessions since {since} UTC lists it"
+        out.append({"entrypoint": ep, "state": state, "sessions": n, "listed": k, "text": text})
+    return out
+
+
+def mark_set_keys(rows: list[dict], rows_u: dict[str, dict], out: Path) -> None:
+    """For a row whose key is already set: its status per entrypoint, from the sessions after the key was set.
+
+    The set time is the earliest walle apply record that changed the key, else the modification time of the
+    file (every session after it saw the file as it is). The row never deletes the key, and its saving is not
+    counted.
+    """
+    times = apply_set_times(out)
+    marks = _session_marks(rows_u)
+    for r in rows:
+        spec = r.pop("_listed", None)
+        c = r["change"]
+        if spec is None or not c.get("already"):
+            continue
+        hit = times.get((c["file"], tuple(str(k) for k in c["keys"])))
+        if hit:
+            at = {"time": hit[0], "from": f"walle apply {hit[1]}"}
+        else:
+            try:
+                mtime = Path(c["path"]).stat().st_mtime
+            except (OSError, KeyError):
+                continue
+            at = {"time": datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+                  "from": f"the modification time of {c['file']}"}
+        c["set_at"] = at
+        r["set_status"] = set_status(marks, at["time"], spec)
+        _not_counted(r, "the key is already set")
 
 
 def _description(name: str, found: dict[str, str], home: Path, folders: set[str]) -> str:
@@ -782,10 +918,9 @@ def build(args, run_dir: Path) -> dict:
     folders = {r["cwd"] for r in rows_u.values() if r.get("cwd")}
     configured = configured_servers(home, folders)
     plugins = plugin_catalog(home)
+    by_ep = usage_by_surface(rows_u, args.since, args.before)
     srv, report_only = server_rows(u, home, configured, plugins)
-    rows = (srv + plugin_rows(u, plugins) + skill_rows(u, plugins, home, folders) + hook_rows(u)
-            + override_rows(u, plugins, home))
-    rows.sort(key=lambda r: (r.get("state") == NO_EFFECT, -r["saving"]["unused_tokens_min"], r["id"]))
+    rows = srv + plugin_rows(u, plugins, by_ep) + skill_rows(u, plugins, home, folders, by_ep) + hook_rows(u)
 
     scan_path = args.scan.expanduser().resolve() if args.scan else judge.latest_scan(out)
     scan = None
@@ -803,11 +938,11 @@ def build(args, run_dir: Path) -> dict:
     kept_ids = keep.source_ids(keep.path_for(out))
     kept = [{"id": r["id"], "name": r["source"]["name"], "type": r["source"]["type"]} for r in rows if r["id"] in kept_ids]
     rows = [r for r in rows if r["id"] not in kept_ids]
-    ids = {r["id"] for r in rows}
-    for r in rows:
-        if r.get("state") == NO_EFFECT and row_id("plugin", r["plugin"]) in ids:
-            r["note"] += f" That row is {row_id('plugin', r['plugin'])}."
     targets = record_targets(rows, home)
+    mark_set_keys(rows, rows_u, out)
+    src = [r for r in rows if r["group"] == "source"]
+    src.sort(key=lambda r: (-r["saving"]["unused_tokens_min"], r["id"]))
+    rows = src + [r for r in rows if r["group"] != "source"]
 
     items = _need_items(rows)
     for it in items:
@@ -854,11 +989,19 @@ NOTES = [
     "A source is proposed when it loaded in at least 10 sessions, sessions used it in fewer than 10% of them, "
     "and it had fewer calls than sessions that loaded it. A skill is proposed when no session called it.",
     "A plugin's skills and MCP servers are one row. Subfolder skills load on demand and are not proposed.",
-    "walle offers no skillOverrides key for a plugin skill (anthropic-skills:* or <plugin>:*): Claude Code does not "
-    f"apply it to plugin skills ({DOC_SKILL_OVERRIDES}). The plugin's row takes the skill out with the whole "
-    f"plugin. A key that is set for one is \"{NO_EFFECT}\": its row deletes the key and saves nothing.",
+    "walle offers no skillOverrides key for a skill of a real plugin (<plugin>:* of a plugin that is not the "
+    f"claude.ai skill sync): Claude Code does not apply it to plugin skills ({DOC_SKILL_OVERRIDES}). The plugin's "
+    "row takes the skill out with the whole plugin.",
+    "A synced claude.ai skill (anthropic-skills:*) gets a skillOverrides row. " + SYNCED_SKILL_NOTE,
+    "Surfaces are the entrypoint of each session (cli, sdk-cli, claude-desktop). For synced claude.ai skills and "
+    "synced plugins, the saving counts cli and sdk-cli sessions; the other surfaces are a separate, unconfirmed "
+    "number.",
+    "A key that is already set gets a status per entrypoint from the sessions that started after it was set (the "
+    "earliest walle apply record that set it, else the modification time of the settings file): already set, "
+    "still listed, or not measured. Its saving is not counted. No row deletes a key.",
     "A claude.ai plugin synced to Claude Code is the key enabledPlugins[\"<name>@synced\"] = false, the key that "
-    f"`claude plugin disable` writes ({DOC_PLUGIN_DISABLE}). A plugin that only the desktop app keeps is manual: "
+    f"`claude plugin disable` writes ({DOC_PLUGIN_DISABLE}); " + PLUGIN_DESKTOP + " A plugin that only the desktop "
+    "app keeps is manual: "
     f"on claude.ai, members turn off \"Installed by default\" plugins; \"Required\" needs the Owner ({DOC_ORG_PLUGINS}).",
     "Rows that walle can apply change one settings key. Manual rows change a place in an app. Patch rows are "
     "patch files in patches/ (or a change the agent writes); walle never edits an instruction file.",
@@ -939,12 +1082,15 @@ def render(data: dict) -> str:
     for r in rows:
         by[r["applies"]] += 1
     done = sum(1 for r in rows if r["change"].get("already"))
-    idle = sum(1 for r in rows if r.get("state") == NO_EFFECT)
-    marks = ([f"{done} already set in the file"] if done else []) + ([f"{idle} {NO_EFFECT}"] if idle else [])
     md.append(f"{len(rows)} rows: walle can apply {by['walle']}"
-              + (f" ({', '.join(marks)})" if marks else "")
+              + (f" ({done} already set in the file)" if done else "")
               + f", manual {by['manual']}, patch {by['patch']}. "
               f"Kept and left out: {len(data['kept'])} (walle keep --list). Nothing here is applied.")
+    md.append("")
+    conf, other = totals(rows)
+    md.append(f"Saving over the period, rows not yet set (min est. tokens): {_approx(conf)} on confirmed surfaces "
+              f"({', '.join(CONFIRMED)} for synced skills and plugins; every surface for the other rows), and "
+              f"{_approx(other)} more on unconfirmed surfaces (claude-desktop and others; see each row).")
     md.append("")
     src = [r for r in rows if r["group"] == "source"]
     ins = [r for r in rows if r["group"] == "instruction"]
@@ -957,7 +1103,7 @@ def render(data: dict) -> str:
             used = "-" if s.get("used") is None else f"{_n(s['used'])} ({_n(s['calls'])})"
             md.append("| " + " | ".join(_cell(x) for x in [
                 r["id"], f"{r['source']['type']}: {r['source']['name']}", r["title"], _applies(r),
-                _approx(r["saving"]["tokens_per_session_min"]), _n(s["loaded"]), used, r["risk"]["level"],
+                _saving_cell(r), _n(s["loaded"]) + (" (past)" if r.get("past") else ""), used, r["risk"]["level"],
                 _verdict(r)]) + " |")
         md.append("")
     if ins:
@@ -978,27 +1124,41 @@ def render(data: dict) -> str:
             md.append(f"- Change: {_change_text(r)}")
             md.append(f"- Where: {r['where']}")
             md.append(f"- Who: {WHO[r['applies']]}")
-            if r["change"].get("already"):
-                md.append("- In the file: the key already has this state. Sessions of the period before that change "
-                          "still count here; the check tells whether it acts.")
-            if r.get("state") == NO_EFFECT:
-                md.append(f"- In the file: {NO_EFFECT}. The key is set, but Claude Code does not apply skillOverrides "
-                          f"to a plugin skill ({DOC_SKILL_OVERRIDES}).")
-                md.append("- Saving: not counted: the skill still loads.")
+            c = r["change"]
+            if c.get("already"):
+                at = c.get("set_at")
+                md.append("- In the file: the key already has this state"
+                          + (f" (set {at['time']} UTC, from {at['from']})" if at else "")
+                          + ". The row never deletes it.")
+                for st in r.get("set_status") or []:
+                    md.append(f"  - {st['text']}")
+            if r["saving"] and r["saving"].get("counted") is False:
+                md.append(f"- Saving: not counted: {r['saving']['not_counted']}. Size: at least "
+                          f"{_approx(r['saving']['tokens_per_session_min'])} est. tokens per {r['saving']['per']}.")
             elif r["saving"]:
                 sv = r["saving"]
                 line = f"- Saving: at least {_approx(sv['tokens_per_session_min'])} est. tokens per {sv['per']}"
                 if sv.get("unused_sessions") is not None:
-                    line += (f"; {_n(sv['unused_sessions'])} sessions loaded it without using it "
+                    on = f" on {' and '.join(sv['confirmed_surfaces'])}" if sv.get("confirmed_surfaces") else ""
+                    line += (f"; {_n(sv['unused_sessions'])} sessions{on} loaded it without using it "
                              f"(at least {_approx(sv['unused_tokens_min'])} est. tokens in all)")
                 md.append(line + ".")
+                un = sv.get("unconfirmed")
+                if un and un["unused_sessions"]:
+                    parts = ", ".join(f"{ep} {_n(k)}" for ep, k in un["sessions"].items())
+                    md.append(f"- Unconfirmed, not in the saving: {_n(un['unused_sessions'])} sessions ({parts}), "
+                              f"at least {_approx(un['unused_tokens_min'])} est. tokens: {un['why']}")
             else:
                 md.append(f"- Size: the section is {_approx(r['size']['tokens_est'])} est. tokens "
                           f"(the layer {_approx(r['size']['layer_tokens_est'] or 0)}). A move is not a saving.")
             s = r.get("sessions")
             if s:
                 used = "" if s.get("used") is None else f", used in {_n(s['used'])} ({_n(s['calls'])} calls)"
-                md.append(f"- Sessions: loaded in {_n(s['loaded'])} of {_n(s['period'])}{used}.")
+                past = " (past sessions: the skill is not in the current bucket)" if r.get("past") else ""
+                md.append(f"- Sessions: loaded in {_n(s['loaded'])} of {_n(s['period'])}{past}{used}.")
+                if s.get("by_entrypoint"):
+                    md.append("- By entrypoint (loaded, used): " + ", ".join(
+                        f"{ep} {_n(v['loaded'])}, {_n(v['used'])}" for ep, v in s["by_entrypoint"].items()) + ".")
             elif r.get("stacks"):
                 md.append(f"- Stacks: {', '.join(r['stacks'])}.")
             md.append(f"- Risk: {r['risk']['level']}: {r['risk']['why']}")
@@ -1047,9 +1207,25 @@ WHO = {"walle": "`walle apply <run> --only <id>` changes this settings key after
        "patch": "your agent applies the patch in the repository (or writes it, when there is no patch file)."}
 
 
+def totals(rows: list[dict]) -> tuple[int, int]:
+    """(saving on confirmed surfaces, saving on unconfirmed surfaces) of the source rows, min est. tokens."""
+    conf = other = 0
+    for r in rows:
+        sv = r.get("saving") or {}
+        if r["group"] != "source" or sv.get("counted") is False:
+            continue
+        conf += sv.get("unused_tokens_min") or 0
+        other += (sv.get("unconfirmed") or {}).get("unused_tokens_min") or 0
+    return conf, other
+
+
+def _saving_cell(r: dict) -> str:
+    if r["saving"].get("counted") is False:
+        return "not counted"
+    return _approx(r["saving"]["tokens_per_session_min"])
+
+
 def _applies(r: dict) -> str:
-    if r.get("state") == NO_EFFECT:
-        return f"{r['applies']} ({NO_EFFECT})"
     return f"{r['applies']} (already)" if r["change"].get("already") else r["applies"]
 
 
@@ -1058,7 +1234,7 @@ def _change_text(r: dict) -> str:
     if c["kind"] == "settings_key":
         if c["op"] == "set":
             return f"set {_keys(c['keys'])} to {json.dumps(c['value'])} in {c['file']}"
-        if c["op"] in ("remove", "unset"):
+        if c["op"] == "remove":
             return f"remove {_keys(c['keys'])} from {c['file']}"
         return f"move {_keys(c['keys'])} to {_keys(c['to'])} in {c['file']}"
     if c["kind"] == "app":

@@ -325,8 +325,8 @@ class ApplyUndoTest(unittest.TestCase):
         data, run_dir = self.f.plan()
         self.assertTrue(self.f.rows(data)["typesafe"]["change"]["already"])
         md = (run_dir / "plan.md").read_text()
-        self.assertIn("(1 already set in the file, 2 set, no effect)", md)
-        self.assertIn("- In the file: the key already has this state.", md)
+        self.assertIn("(3 already set in the file)", md)
+        self.assertIn("- In the file: the key already has this state (set ", md)
         out, _ = self.f.cli("apply", run_dir.name, "--only", ts["id"])
         self.assertIn(f"already  {ts['id']}", out)
         self.assertIn("Nothing to write", out)
@@ -334,7 +334,7 @@ class ApplyUndoTest(unittest.TestCase):
 
 
 class PluginKeysTest(unittest.TestCase):
-    """enabledPlugins["<name>@synced"] and the skillOverrides keys that have no effect (fake home only)."""
+    """enabledPlugins["<name>@synced"], synced claude.ai skill keys, and changes walle refuses (fake home only)."""
 
     def setUp(self):
         self.f = ApplyFixture()
@@ -357,36 +357,31 @@ class PluginKeysTest(unittest.TestCase):
         self.f.cli("undo", apply_id)
         self.assertEqual(self.f.settings.read_bytes(), before)
 
-    def test_keys_that_have_no_effect_are_deleted_and_undo_puts_them_back(self):
+    def test_a_synced_skill_key_is_set_and_undone(self):
         before = self.f.settings.read_bytes()
         projects = tree_hash(self.f.home / "projects")
         data, run_dir = self.f.plan()
-        rows = self.f.rows(data)
-        ids = [rows["anthropic-skills:pdf-like"]["id"], rows["sales:call-prep"]["id"]]
-        out, _ = self.f.cli("apply", run_dir.name, "--only", ",".join(ids), "--dry-run")
-        self.assertIn(f'would    {ids[0]}  ~/.claude/settings.json skillOverrides["anthropic-skills:pdf-like"]: '
-                      '"user-invocable-only" -> (none)', out)
-        self.assertEqual(self.f.settings.read_bytes(), before)
-        out, err = self.f.cli("apply", run_dir.name, "--only", ",".join(ids))
+        x = self.f.rows(data)["anthropic-skills:xlsx-like"]
+        out, err = self.f.cli("apply", run_dir.name, "--only", x["id"])
         self.assertEqual(err, "")
-        self.assertIn(f'changed  {ids[1]}  ~/.claude/settings.json skillOverrides["sales:call-prep"]: '
-                      '"user-invocable-only" -> (none)', out)
+        self.assertIn(f'changed  {x["id"]}  ~/.claude/settings.json skillOverrides["anthropic-skills:xlsx-like"]: '
+                      '(none) -> "user-invocable-only"', out)
         doc = json.loads(self.f.settings.read_text())
-        self.assertEqual(doc["skillOverrides"], {"loop": "user-invocable-only"})
-        self.assertEqual(doc["enabledPlugins"]["typesafe@typesafe-ai"], True)
+        self.assertEqual(doc["skillOverrides"], {**OVERRIDES, "anthropic-skills:xlsx-like": "user-invocable-only"})
         apply_id = runs.read_index(self.f.out)[-1]["id"]
         self.assertEqual((self.f.backups / apply_id / "before" / "1-settings.json").read_bytes(), before)
         self.assertEqual(stat.S_IMODE((self.f.backups / apply_id).stat().st_mode), 0o700)
-        # The next plan has no row for a key that is gone; applying the old plan again is refused by the hash.
+        # The next plan finds the apply record: the key is set, its time is the apply's, and no saving counts.
         again, _ = self.f.plan()
-        self.assertFalse([r for r in again["rows"] if r.get("state")])
-        _out, err = self.f.cli("apply", run_dir.name, "--only", ids[0], code=1)
-        self.assertIn("changed since plan", err)
+        x2 = self.f.rows(again)["anthropic-skills:xlsx-like"]
+        self.assertTrue(x2["change"]["already"])
+        self.assertEqual(x2["change"]["set_at"]["from"], f"walle apply {apply_id}")
+        self.assertEqual(x2["saving"]["counted"], False)
         self.f.cli("undo", apply_id)
         self.assertEqual(self.f.settings.read_bytes(), before)
         self.assertEqual(tree_hash(self.f.home / "projects"), projects)
 
-    def test_plugin_and_unset_changes_that_walle_does_not_make(self):
+    def test_changes_that_walle_does_not_make(self):
         data, run_dir = self.f.plan()
         rows = self.f.rows(data)
         plan = json.loads((run_dir / "plan.json").read_text())
@@ -396,9 +391,11 @@ class PluginKeysTest(unittest.TestCase):
             ("design", {"file": "~/.claude/settings.local.json"}),  # the user-level settings file only
             ("design", {"file": "~/projects/app/.claude/settings.json"}),
             ("design", {"op": "unset"}),  # deleting an enabledPlugins key turns the plugin on again
-            ("sales:call-prep", {"keys": ["permissions", "allow"]}),
-            ("sales:call-prep", {"keys": ["skillOverrides", "x", "y"]}),
-            ("sales:call-prep", {"file": "~/.claude.json"}),
+            ("anthropic-skills:xlsx-like", {"op": "unset"}),  # no row deletes a key, a skillOverrides key included
+            ("anthropic-skills:xlsx-like", {"op": "delete"}),
+            ("anthropic-skills:xlsx-like", {"keys": ["permissions", "allow"]}),
+            ("anthropic-skills:xlsx-like", {"keys": ["skillOverrides", "x", "y"]}),
+            ("anthropic-skills:xlsx-like", {"file": "~/.claude.json"}),
             ("pptx-like", {"value": False}),  # skillOverrides takes the skill mode, nothing else
         ]
         for name, change in cases:
@@ -413,9 +410,13 @@ class PluginKeysTest(unittest.TestCase):
         self.assertFalse(self.f.backups.exists())
         for c in ({"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
                    "keys": ["enabledPlugins", "design@synced"], "value": False},
-                  {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "unset",
-                   "keys": ["skillOverrides", "anthropic-skills:pdf"]}):
+                  {"kind": "settings_key", "file": "~/.claude/settings.json", "op": "set",
+                   "keys": ["skillOverrides", "anthropic-skills:pdf"], "value": "user-invocable-only"}):
             self.assertIsNone(apply.check_change(c))
+        for op in ("unset", "delete", None):
+            c = {"kind": "settings_key", "file": "~/.claude/settings.json", "op": op,
+                 "keys": ["skillOverrides", "anthropic-skills:pdf"]}
+            self.assertEqual(apply.check_change(c), "apply.key_not_allowed", op)
 
 
 class PartsTest(unittest.TestCase):
