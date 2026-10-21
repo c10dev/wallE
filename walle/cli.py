@@ -42,15 +42,38 @@ def _budget(args) -> int:
     return args.max_tokens if args.max_tokens is not None else estimate.budget(args.estimator)
 
 
-def _scan(roots: list[Path], budget: int, estimator: str = estimate.DEFAULT, kept: dict | None = None) -> dict:
-    # scan(roots) stays the call for the default budget and estimator with nothing kept: callers and tests
-    # replace scan() with a one-argument function.
+def _scan(roots: list[Path], budget: int, estimator: str = estimate.DEFAULT, kept: dict | None = None,
+          progress=None) -> dict:
+    # scan(roots) stays the call for the default budget and estimator with nothing kept and no progress:
+    # callers and tests replace scan() with a one-argument function.
     estimator = estimate.name(estimator)
+    extra = {"progress": progress} if progress else {}
     if budget == BUDGET and estimator == estimate.DEFAULT and not (kept or {}).get("items"):
-        return scan(roots)
+        return scan(roots, **extra)
     if not (kept or {}).get("items"):
-        return scan(roots, budget=budget, estimator=estimator)
-    return scan(roots, budget=budget, estimator=estimator, keep=kept)
+        return scan(roots, budget=budget, estimator=estimator, **extra)
+    return scan(roots, budget=budget, estimator=estimator, keep=kept, **extra)
+
+
+def _json_progress(started: float):
+    """A scan progress callback that writes one JSON object per line to stderr, the function for the last
+    event, and the function for a note (a line that walle prints on stderr otherwise). t is the seconds since
+    started (time.monotonic)."""
+    def emit(event: dict) -> None:
+        sys.stderr.write(json.dumps({**event, "t": round(time.monotonic() - started, 3)}) + "\n")
+        sys.stderr.flush()
+
+    def step(name: str, state: str, **counts) -> None:
+        emit({"event": "step", "step": name, "state": state, **counts})
+
+    def done(data: dict, path: Path) -> None:
+        emit({"event": "done", "files": data.get("artifact_count", 0), "pairs": len(data.get("pairs", [])),
+              "items": len(data.get("items", [])), "scan": str(path.with_name("scan.json"))})
+
+    def note(text: str) -> None:
+        emit({"event": "note", "text": text})
+
+    return step, done, note
 
 
 def _inside(path: Path, folder: Path) -> bool:
@@ -188,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--color", choices=["auto", "always", "never"], default="auto",
                    help="auto: color in a terminal unless NO_COLOR is set")
     s.add_argument("-q", "--quiet", action="store_true", help="no progress line on stderr")
+    s.add_argument("--progress", choices=["json"],
+                   help="json: one JSON object per line on stderr for each scan step (collect, stack, classify, "
+                        "pairs, triage) as it starts and ends, then a done event. It replaces the progress line")
     s.add_argument("--lang", choices=LANGS, help="en or ko (default: from LC_ALL, LC_MESSAGES or LANG)")
 
     c = sub.add_parser("check", help="exit 1 when a stack is over budget (for CI)")
@@ -252,11 +278,13 @@ def main(argv: list[str] | None = None) -> int:
         if _refuse_out(args, roots):
             return 2
         keep_file = keep.path_for(args.out)
-        data = _scan(roots, _budget(args), args.estimator, keep.for_scan(keep_file))
+        progress, done, note = (_json_progress(started) if args.progress == "json"
+                                else (None, None, lambda text: print(text, file=sys.stderr)))
+        data = _scan(roots, _budget(args), args.estimator, keep.for_scan(keep_file), progress)
         # A kept line that changed is open again: say so once, then the entry is gone.
         lang = resolve_lang(args.lang)
         for e in keep.release(keep_file, data.get("triage", {}).get("keep_released") or []):
-            print(t("keep.released.at", lang, id=e["id"], where=keep.where(e, HOME)), file=sys.stderr)
+            note(t("keep.released.at", lang, id=e["id"], where=keep.where(e, HOME)))
         run_dir = runs.new_run_dir(args.out)
         data.setdefault("run", runs.run_block(roots, [], args.estimator))
         data["run"].update(id=run_dir.name, label=args.label,
@@ -266,6 +294,9 @@ def main(argv: list[str] | None = None) -> int:
         # scan.html first: the history page that append_index writes links it.
         (run_dir / "scan.html").write_text(report_html.render(data, args.out), encoding="utf-8")
         runs.append_index(args.out, data, run_dir / "scan.json")
+        if done:
+            done(data, path)
+            args.quiet = True  # stderr holds only JSON lines after the done event
     elif args.cmd == "check":
         roots = [r.expanduser().resolve() for r in args.roots]
         if _refuse_out(args, roots):

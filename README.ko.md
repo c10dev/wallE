@@ -12,6 +12,7 @@ CLAUDE.md, AGENTS.md, 스킬, MEMORY.md, Cursor·Copilot·Gemini·Windsurf·Clin
 
 ```bash
 python3 bin/walle scan ~/projects --html   # 정적 점검
+python3 bin/walle scan ~/projects --progress json  # 단계(collect, stack, classify, pairs, triage)의 시작과 끝마다 stderr에 JSON 한 줄. 끝 이벤트에 files, pairs, items, 마지막에 done. keep released 줄은 note 이벤트
 python3 bin/walle eve --since 2026-10-01   # 세션 실측: 이 폴더, 모델 계열마다 한 행, 중앙값 [p25-p75]과 n
 python3 bin/walle eve --around <apply-id>  # apply 전후 비교(양쪽 10세션 이상일 때만 변화 판정)
 python3 bin/walle context --compare A B    # 두 세션의 첫 호출을 원천별로 비교(apply id 하나: 전후 최신 세션)
