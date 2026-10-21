@@ -30,6 +30,11 @@ class ClaudeCostTest(unittest.TestCase):
     def test_without_the_split_every_write_is_a_5_minute_write(self):
         self.assertEqual(cost.claude({"input": 0, "cache_creation": 800, "cache_read": 0}, "x")["input_equiv"], 1000)
 
+    def test_usd_prices_input_equivalent_tokens(self):
+        self.assertEqual(cost.usd(10000, "claude-opus-5-5-20261001"), round(10000 * 4.0 / 1e6, 4))
+        self.assertEqual(cost.usd(10000, "claude-haiku-5-5", 100001), round(10000 * 0.10 * 5 / 1e6, 4))
+        self.assertIsNone(cost.usd(10000, "claude-next-9"))
+
     def test_a_long_haiku_prompt_costs_the_higher_tier(self):
         short = cost.claude({"input": 100000}, "claude-haiku-5-5")
         long = cost.claude({"input": 100001}, "claude-haiku-5-5")

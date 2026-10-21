@@ -98,6 +98,13 @@ a { color: var(--link); }
 .app-details dt { font: 700 11px/18px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; }
 .app-details dd { margin: 0; overflow-wrap: anywhere; color: var(--fg); }
 
+/* Efficiency */
+.app-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
+.app-tile { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); min-width: 0; }
+.app-next { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); background: var(--eve-soft); min-width: 0; }
+.app-next .app-copy code { background: var(--surface); }
+.app-measured { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--line); min-width: 0; }
+
 /* Command output */
 .app-out-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
 .app-out-head code { font: 600 13px/20px var(--font-mono); overflow-wrap: anywhere; min-width: 0; }

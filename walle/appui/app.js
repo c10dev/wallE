@@ -5,7 +5,7 @@
   var React = window.React, ReactDOM = window.ReactDOM, W = window.WallE, h = React.createElement;
   var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef;
   var BASE = location.pathname.replace(/[^/]*$/, "");
-  var VIEWS = [["scan", "Scan"], ["measure", "Measure"], ["trim", "Trim"], ["runs", "Runs"], ["keep", "Keep"]];
+  var VIEWS = [["efficiency", "Efficiency"], ["scan", "Scan"], ["measure", "Measure"], ["trim", "Trim"], ["runs", "Runs"], ["keep", "Keep"]];
   var VERDICT_TONE = { "OVER BUDGET": "walle", "TRIM": "trim", "LEAN": "leaf" };
   var VERDICT_SHORT = { "OVER BUDGET": ["Over", "over"], "TRIM": ["Trim", "trim"], "LEAN": ["Lean", "lean"] };
   var VERB_TONE = { "DELETE": "walle", "PICK ONE": "walle", "REWRITE": "trim", "MOVE": "trim" };
@@ -330,6 +330,138 @@
       t.notes.length ? h("p", { className: "app-src" }, t.notes.join(" ")) : null);
   }
 
+  // ------------------------------------------------------------------ efficiency view
+  var STATUS = { applied: ["Applied", "eve"], failed: ["Failed", "walle"], lost: ["Lost", "walle"], writing: ["Writing", "trim"] };
+  var PAIR_TONE = { gone: "leaf", still_loaded: "walle", "new": "walle", not_loaded: "neutral" };
+
+  function usdText(x) { return x && x.usd != null ? "$" + Number(x.usd).toFixed(4) : null; }
+
+  function Tile(p) {
+    return h("div", { className: "app-tile" },
+      h("span", { className: "app-agent" }, p.k),
+      h("div", { className: "app-verdict" }, p.badge || null, h("span", { className: "app-big" }, p.value), p.tag || null),
+      p.sub ? h("p", { className: "app-src" }, p.sub) : null);
+  }
+
+  function NextStep(p) {
+    var n = p.next;
+    return h("div", { className: "app-next" },
+      h("div", { className: "app-row" }, h(W.Badge, { tone: "eve" }, "Next step"), h("span", { className: "app-p" }, n.text)),
+      n.run ? h("div", { className: "app-row" },
+        h("code", { className: "app-src" }, n.command),
+        h(W.Button, { variant: "primary", onClick: function () { p.onRun(n.command); }, disabled: p.running }, "Run"))
+        : h(React.Fragment, null, h(Copy, { text: n.command }),
+          h("p", { className: "app-src" }, "This command changes a settings file: run it in a terminal. walle keeps a backup, and walle undo puts it back.")));
+  }
+
+  function EffTiles(p) {
+    var e = p.e, s = e.stack, f = e.first_call, t = e.trim, ss = e.session;
+    var tiles = [];
+    tiles.push(s ? h(Tile, { key: "s", k: "Instruction files", badge: h(W.Badge, { tone: VERDICT_TONE[s.verdict] || "neutral" }, s.verdict_text),
+      value: s.tokens_text, sub: "est. tokens before the first prompt · budget " + num(s.budget) + " · " + plural(s.start_here_n, "Start here item") })
+      : h(Tile, { key: "s", k: "Instruction files", value: "-", sub: "No scan of this folder yet." }));
+    tiles.push(f && f.first_call ? h(Tile, { key: "f", k: "First call", value: num(f.first_call.median),
+      tag: f.change ? h(W.Badge, { tone: CHANGE_TONE[f.change.state] || "neutral" }, f.change.state === "too_few" ? "too few" : f.change.text) : null,
+      sub: "tokens, median [" + num(f.first_call.p25) + "-" + num(f.first_call.p75) + "] of " + plural(f.sessions, "session") + " · " + f.family +
+        (f.side === "after" && f.around ? " · since " + f.around : "") })
+      : h(Tile, { key: "f", k: "First call", value: "-", sub: "No measure run of this folder yet." }));
+    var billed = f && f.billed && f.billed.median != null ? f.billed : null;
+    tiles.push(billed ? h(Tile, { key: "b", k: "Billed first call", value: num(billed.median),
+      sub: "input-equivalent tokens, median, cache reads and writes weighted by price" +
+        (f.usd ? " · " + usdText(f.usd) + " at " + f.usd.model + " list prices of " + f.usd.prices_as_of : "") })
+      : ss && ss.billed ? h(Tile, { key: "b", k: "Billed first call", value: num(ss.billed.input_equiv),
+        sub: "input-equivalent tokens of the newest session" + (usdText(ss.billed) ? " · " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") })
+      : h(Tile, { key: "b", k: "Billed first call", value: "-", sub: "No billed count yet: walle eve measures it for Claude Code sessions." }));
+    tiles.push(t ? h(Tile, { key: "t", k: "Trim", value: t.saving_text,
+      sub: "est. tokens over " + plural(t.sessions || 0, "session") + " in rows not yet set · " + num(t.to_apply) + " walle can apply, " +
+        num(t.manual) + " manual, " + num(t.patch) + " patches, " + num(t.already + t.applied_since) + " already set" })
+      : h(Tile, { key: "t", k: "Trim", value: "-", sub: "No trim plan yet." }));
+    return h("div", { className: "app-tiles" }, tiles);
+  }
+
+  function AppliedCard(p) {
+    var a = p.apply, m = a.measured, st = a.undone ? ["Undone", "neutral"] : (STATUS[a.status] || [a.status || "-", "neutral"]);
+    var firsts = m && m.measure ? m.measure.metrics.filter(function (k) { return k.indexOf("first_call") === 0; }) : [];
+    return h("li", null,
+      h("div", { className: "app-row" },
+        h(W.Badge, { tone: st[1] }, st[0]), h("code", null, a.id),
+        h("span", { className: "app-src" }, a.generated + (a.plan_id ? " · plan " + a.plan_id : "") + (a.files.length ? " · " + a.files.join(", ") : ""))),
+      h("ul", { className: "app-status" }, a.rows.map(function (r) {
+        return h("li", { key: r.id }, h("code", null, r.id), " " + (r.title || r.what || "-"));
+      })),
+      a.undo_command ? h(Copy, { text: a.undo_command }) : null,
+      m ? h("div", { className: "app-measured" },
+        h("p", { className: "app-src" }, "Measured by walle context --compare run ", h("code", null, m.id), " · " + m.generated +
+          (m.folder ? " · first call of " + m.folder + (m.here ? "" : " (another folder)") : "")),
+        m.applied.length ? h("ul", { className: "app-status" }, m.applied.map(function (r) {
+          return h("li", { key: r.id },
+            r.pair ? h(W.Badge, { tone: PAIR_TONE[r.pair.state] || "neutral" }, r.pair.state.replace("_", " ")) : null, " ", r.text,
+            r.pair ? h("div", { className: "app-src" }, r.pair.text) : null,
+            r.surfaces.map(function (s) { return h("div", { key: s.entrypoint, className: "app-src" }, s.text); }));
+        })) : null,
+        m.newest ? h("p", { className: "app-src" }, "Newest session before and since: " + num(m.newest.before) + " -> " + num(m.newest.since) + " tokens" +
+          (m.newest.same_family && m.newest.delta != null ? " (" + (m.newest.delta > 0 ? "+" : "") + num(m.newest.delta) + ")" : " (model families differ)") +
+          (m.newest.billed ? "; billed " + num(m.newest.billed.before.input_equiv) + " -> " + num(m.newest.billed.since.input_equiv) +
+            (usdText(m.newest.billed.before) && usdText(m.newest.billed.since) ? " (" + usdText(m.newest.billed.before) + " -> " + usdText(m.newest.billed.since) + ")" : "") : "") +
+          ". One session on each side is not a median.") : null,
+        m.measure && m.measure.rows.length && firsts.length ? h(MeasureTable, { m: { metrics: firsts, sides: m.measure.sides, split: true, rows: m.measure.rows } }) : null,
+        h("div", { className: "app-row" }, h(W.Button, { onClick: function () { p.onRun(a.compare_command); }, disabled: p.running }, "Measure again")))
+        : h(None, { text: "Not measured yet. walle context --compare compares the sessions before this apply and since it.",
+          command: a.compare_command, label: "Measure since", onRun: p.onRun, running: p.running }));
+  }
+
+  function EfficiencyView(p) {
+    var d = p.data, e = d.efficiency, applies = d.applies || [];
+    var ss = e.session, t = e.trim, s = e.stack;
+    return h(React.Fragment, null,
+      h("section", { className: "app-sec" },
+        h("h1", { className: "app-title" }, d.display),
+        h("p", { className: "app-lead" }, "Measure, trim, measure again. The page reads the runs of this folder and changes nothing."),
+        h(NextStep, { next: e.next, onRun: p.onRun, running: p.running }),
+        h(EffTiles, { e: e })),
+      h("section", { className: "app-sec" },
+        h("h2", { className: "app-h" }, "1 · Instruction files"),
+        s ? h(React.Fragment, null,
+          s.lead.length ? h("p", { className: "app-p" }, s.lead.join(" ")) : null,
+          s.start_here.length ? h("ol", { className: "app-items is-numbered" }, s.start_here.map(function (it) { return h(Item, { key: it.id, item: it }); })) : null,
+          h("p", { className: "app-src" }, "Scan ", h("code", null, s.scan_id), " · " + s.generated + " · the stack with the highest verdict of " + plural(s.stacks, "stack") + ". ",
+            h("button", { type: "button", className: "app-more", onClick: function () { p.onView("scan"); } }, "Open Scan")))
+          : h(None, { text: "No scan of this folder yet.", command: "walle scan .", label: "Scan", onRun: p.onRun, running: p.running })),
+      h("section", { className: "app-sec" },
+        h("h2", { className: "app-h" }, "2 · Measured first call"),
+        d.measure ? h(React.Fragment, null,
+          h("p", { className: "app-src" }, "walle eve run ", h("code", null, d.measure.id), " · " + d.measure.generated + ". The billed column weights cache reads and writes by price: it is what a trim of cached tokens saves."),
+          d.measure.rows.length ? h(MeasureTable, { m: d.measure }) : h("p", { className: "app-p app-muted" }, "No sessions of this folder in the period."))
+          : h(None, { text: "No measure run of this folder yet.", command: "walle eve .", label: "Measure", onRun: p.onRun, running: p.running }),
+        ss ? h("p", { className: "app-src" }, "Newest session " + (ss.session || "-") + " (walle context run ", h("code", null, ss.id), ", " + ss.generated + ", " + ss.cwd + (ss.here ? "" : ", not this folder") + "): " +
+          num(ss.total) + " tokens in the first call" + (ss.billed ? ", billed " + num(ss.billed.input_equiv) + " input-equivalent" +
+            (usdText(ss.billed) ? ", " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") : "") + ".") : null,
+        h("div", { className: "app-row" },
+          d.measure ? h(W.Button, { onClick: function () { p.onRun("walle eve ."); }, disabled: p.running }, "Measure again") : null,
+          h(W.Button, { onClick: function () { p.onRun("walle context --last --json"); }, disabled: p.running }, "Break down the newest session"),
+          h("button", { type: "button", className: "app-more", onClick: function () { p.onView("measure"); } }, "Open Measure"))),
+      h("section", { className: "app-sec" },
+        h("h2", { className: "app-h" }, "3 · Trim"),
+        t ? h(React.Fragment, null,
+          h("p", { className: "app-p" }, t.to_apply ? plural(t.to_apply, "row") + " that walle can apply, largest saving first. Copy a command and run it in a terminal; each row has its undo and check."
+            : "No row of this plan is left for walle to apply."),
+          t.applied_since ? h("p", { className: "app-src" }, plural(t.applied_since, "row") + " of this plan changed by an apply after it are left out. A new plan shows them as already set.") : null,
+          t.top.length ? h("ol", { className: "app-trim" }, t.top.map(function (r) { return h(TrimRow, { key: r.id, row: r }); })) : null,
+          t.already_rows.length ? h("details", { className: "app-details" }, h("summary", null, plural(t.already, "row") + " already set: status per surface"),
+            h("ul", { className: "app-status" }, t.already_rows.map(function (r) {
+              return h("li", { key: r.id }, r.title, r.set_status.map(function (x) { return h("div", { key: x.entrypoint, className: "app-src" }, h("code", null, x.entrypoint), " " + x.text); }));
+            }))) : null,
+          h("p", { className: "app-src" }, "walle trim --plan run ", h("code", null, t.plan_id), " · " + t.generated + ". ",
+            h("button", { type: "button", className: "app-more", onClick: function () { p.onView("trim"); } }, "Open Trim for every row")))
+          : h(None, { text: "No trim plan yet. A plan reads the sessions of the period and lists what they load and do not use. It changes nothing.", command: "walle trim --plan", label: "Make a plan", onRun: p.onRun, running: p.running })),
+      h("section", { className: "app-sec" },
+        h("h2", { className: "app-h" }, "4 · Applied"),
+        applies.length ? h(React.Fragment, null,
+          h("p", { className: "app-p" }, plural(e.applies.standing, "apply") .replace("applys", "applies") + " in place, " + num(e.applies.measured) + " measured since. A settings key acts on every folder, so every apply is listed."),
+          h("ol", { className: "app-trim" }, applies.map(function (a) { return h(AppliedCard, { key: a.id, apply: a, onRun: p.onRun, running: p.running }); })))
+          : h("p", { className: "app-p app-muted" }, "No apply yet. walle apply runs in a terminal: it takes a backup first, and walle undo puts the file back.")));
+  }
+
   // ------------------------------------------------------------------ runs and keep
   function RunsView(p) {
     var rows = p.data.runs || [], here = rows.filter(function (r) { return r.here; }).length;
@@ -388,7 +520,7 @@
   function App() {
     var hash = readHash();
     var s1 = useState(null), state = s1[0], setState = s1[1];
-    var s2 = useState(hash.view && VIEWS.some(function (v) { return v[0] === hash.view; }) ? hash.view : "scan"), view = s2[0], setView = s2[1];
+    var s2 = useState(hash.view && VIEWS.some(function (v) { return v[0] === hash.view; }) ? hash.view : "efficiency"), view = s2[0], setView = s2[1];
     var s3 = useState(hash.folder || null), folder = s3[0], setFolder = s3[1];
     var s4 = useState(null), data = s4[0], setData = s4[1];
     var s5 = useState(null), error = s5[0], setError = s5[1];
@@ -402,7 +534,8 @@
         setState(st);
         setFolder(function (f) {
           if (f && st.folders.some(function (x) { return x.path === f; })) return f;
-          var first = st.folders.find(function (x) { return x.launch && x.has_scan; }) || st.folders.find(function (x) { return x.has_scan; }) || st.folders[0];
+          // The folder the app started in comes first, with a scan or without one.
+          var first = st.folders.find(function (x) { return x.launch; }) || st.folders.find(function (x) { return x.has_scan; }) || st.folders[0];
           return first ? first.path : null;
         });
       }).catch(function (e) { setError(String(e.message || e)); });
@@ -487,7 +620,8 @@
       }, h(W.Button, { onClick: function () { setRun(Object.assign({}, run, { dismissed: true })); loadFolder(folderRef.current); } }, "Show results"));
     } else if (!data) {
       body = error ? h("p", { className: "app-p app-err" }, "walle app: " + error) : h("p", { className: "app-src" }, "Loading " + f.display);
-    } else if (view === "scan") body = h(ScanView, { data: data, folder: f, onRun: start, running: running });
+    } else if (view === "efficiency") body = h(EfficiencyView, { data: data, onRun: start, running: running, onView: setView });
+    else if (view === "scan") body = h(ScanView, { data: data, folder: f, onRun: start, running: running });
     else if (view === "measure") body = h(MeasureView, { data: data, onRun: start, running: running });
     else if (view === "trim") body = h(TrimView, { data: data, onRun: start, running: running });
     else if (view === "runs") body = h(RunsView, { data: data, out: state.out });

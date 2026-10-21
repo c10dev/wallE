@@ -401,11 +401,32 @@ class ViewTest(Served):
         self.assertGreater(v["context"]["usage"]["data"]["usage"]["sessions"], 0)
         self.assertEqual(v["keep"][0]["id"], "86ac3d")
 
+    def test_efficiency_of_atc(self):
+        v = json.loads(self.get("api/folder?path=" + str(FX.app))[1])
+        e = v["efficiency"]
+        self.assertEqual(e["stack"]["scan_id"], v["scan"]["id"])
+        f = e["first_call"]
+        self.assertEqual((f["side"], f["family"]), ("after", "opus 5.5"))  # the side since the split
+        self.assertEqual(f["first_call"], v["measure"]["rows"][0]["sides"]["after"]["cells"]["first_call"])
+        self.assertGreater(f["billed"]["median"], f["first_call"]["median"])  # synthetic sessions write the cache
+        self.assertEqual(f["usd"]["model"], "claude-opus-5-5")
+        self.assertEqual(f["change"]["text"], v["measure"]["rows"][0]["change"]["first_call"]["text"])
+        self.assertEqual(e["session"]["billed"]["input_equiv"],
+                         v["context"]["first_call"]["data"]["first_call"]["measured"]["cost"]["input_equiv"])
+        t = e["trim"]
+        self.assertEqual(t["plan_id"], v["trim"]["id"])
+        self.assertEqual(t["saving"], sum(r["saving"]["unused_tokens_min"] for r in v["trim"]["rows"]
+                                          if r["group"] == "source" and r["counted"]))
+        self.assertEqual(v["applies"], [])
+        self.assertEqual(e["next"], {"text": f"Apply the top trim row in a terminal: {t['top'][0]['title']}.",
+                                     "command": t["top"][0]["command"], "run": False})
+
     def test_a_folder_without_a_scan(self):
         v = json.loads(self.get("api/folder?path=/nowhere/at/all")[1])
         self.assertIsNone(v["scan"])
         self.assertIsNone(v["judge"])
         self.assertIsNone(v["measure"])
+        self.assertEqual(v["efficiency"]["next"]["command"], "walle scan .")
 
     def test_apply_command_of_a_claude_json_row(self):
         row = {"id": "c12dc3", "applies": "walle", "change": {"file": "~/.claude.json"}}
@@ -686,6 +707,126 @@ class DataTest(unittest.TestCase):
         self.assertEqual(rows[0]["command"], f"walle apply {rid} --only c12dc3 --app-closed")
         self.assertTrue(rows[0]["counted"])
         self.assertEqual((rows[1]["counted"], rows[1]["not_counted"]), (False, "not in the current bucket"))
+
+    def write(self, rid: str, name: str, data: dict) -> str:
+        (self.out / rid).mkdir(exist_ok=True)
+        (self.out / rid / name).write_text(json.dumps(data))
+        return str(self.out / rid / name)
+
+    def applied_runs(self) -> None:
+        """A plan, three applies (one undone by a restore, one failed) and two compares of the first apply."""
+        plan = {"generated": "2026-10-21T05:27:05", "period": {"sessions": 900}, "rows": [
+            {"id": "df10f5", "title": "Turn off the plugin marketing", "group": "source", "applies": "walle",
+             "change": {"file": "~/.claude/settings.json"}, "saving": {"tokens_per_session_min": 800, "unused_tokens_min": 4000}},
+            {"id": "557199", "title": "Turn off the plugin design", "group": "source", "applies": "walle",
+             "change": {"file": "~/.claude/settings.json"}, "saving": {"tokens_per_session_min": 900, "unused_tokens_min": 9000}}]}
+        side = lambda n, l, u: {"sessions": n, "loaded": l, "used": u}  # noqa: E731
+        cell = lambda m: {"n": 12, "median": m, "p25": m - 100, "p75": m + 100, "few": False}  # noqa: E731
+        old = {"generated": "2026-10-21T05:40:00", "run": {"folder": "/p/app"}, "applied": [
+            {"id": "df10f5", "kind": "plugin", "name": "marketing", "before": side(2, 2, 0), "after": side(5, 5, 0),
+             "surfaces": {"claude-desktop": {"before": side(2, 2, 0), "after": side(5, 5, 0)}}}],
+            "measure": None, "compare": {"measured": {"a": 40000, "b": 41000, "same_family": True, "delta": 1000}}}
+        new = {"generated": "2026-10-21T07:30:00", "run": {"folder": "/p/app"}, "applied": [
+            {"id": "df10f5", "kind": "plugin", "name": "marketing", "before": side(12, 12, 0), "after": side(12, 0, 0),
+             "surfaces": {"claude-desktop": {"before": side(6, 6, 0), "after": side(6, 0, 0)},
+                          "cli": {"before": side(6, 6, 0), "after": side(6, 0, 0)}},
+             "pair": {"state": "gone", "before": {"entrypoint": "claude-desktop"}, "after": {"entrypoint": "cli"}}},
+            {"id": "zz0000", "kind": None, "name": None}],
+            "measure": {"folder": {"path": "/p/app"}, "sides": ["before", "after"], "metrics": ["first_call", "first_call_billed"],
+                        "rows": [{"family": "opus 5.5", "models": {"before": {"claude-opus-5-5": 12}, "after": {"claude-opus-5-5": 12}},
+                                  "before": {"sessions": 12, "first_call": cell(48000), "first_call_billed": cell(9000)},
+                                  "after": {"sessions": 12, "first_call": cell(41000), "first_call_billed": cell(7000)},
+                                  "change": {"first_call": {"state": "lower", "delta": -7000},
+                                             "first_call_billed": {"state": "lower", "delta": -2000}}}]},
+            "compare": {"measured": {"a": 48000, "b": 41000, "same_family": True, "delta": -7000, "billed": {
+                "a": {"input_equiv": 9000, "usd": 0.036, "priced_as": "claude-opus-5-5", "prices_as_of": "2026-10-06"},
+                "b": {"input_equiv": 7000, "usd": 0.028, "priced_as": "claude-opus-5-5", "prices_as_of": "2026-10-06"},
+                "delta": -2000}}}}
+        # The apply.json of the first apply sits in its run folder; its index path points at a folder that is gone.
+        apply_rows = [{"id": "df10f5", "file": "~/.claude/settings.json", "changed": True, "what": "marketing@synced"}]
+        self.write("20261021-052801", "apply.json", {"status": "applied", "rows": apply_rows})
+        self.index(
+            {"id": "20261021-052705", "kind": "trim", "path": self.write("20261021-052705", "plan.json", plan)},
+            {"id": "20261021-052801", "kind": "apply", "parent_id": "20261021-052705", "generated": "2026-10-21T05:28:01",
+             "rows": ["df10f5"], "files": ["~/.claude/settings.json"], "status": "applied", "path": "/gone/apply.json"},
+            {"id": "20261021-054000", "kind": "compare", "parent_id": "20261021-052801",
+             "path": self.write("20261021-054000", "compare.json", old)},
+            {"id": "20261021-060000", "kind": "apply", "parent_id": "20261021-052705", "rows": ["557199"], "status": "applied",
+             "path": self.write("20261021-060000", "apply.json", {"status": "applied", "rows": [{"id": "557199"}]})},
+            {"id": "20261021-060100", "kind": "undo", "parent_id": "20261021-060000", "status": "restored"},
+            {"id": "20261021-061000", "kind": "apply", "parent_id": "nope", "rows": ["557199"], "status": "failed"},
+            {"id": "20261021-073000", "kind": "compare", "parent_id": "20261021-052801",
+             "path": self.write("20261021-073000", "compare.json", new)},
+        )
+
+    def test_applies_read_the_apply_its_plan_its_undo_and_its_newest_compare(self):
+        self.applied_runs()
+        a = {x["id"]: x for x in appdata.applies_view(self.out, FX.home, "/p/app")}
+        self.assertEqual(list(a), ["20261021-061000", "20261021-060000", "20261021-052801"])  # newest first
+        first = a["20261021-052801"]
+        self.assertEqual(first["rows"], [{"id": "df10f5", "title": "Turn off the plugin marketing",
+                                          "what": "marketing@synced", "changed": True}])
+        self.assertEqual(first["undo_command"], "walle undo 20261021-052801")
+        self.assertEqual(first["compare_command"], "walle context --compare 20261021-052801")
+        self.assertIsNone(a["20261021-060000"]["undo_command"])  # restored by walle undo
+        self.assertTrue(a["20261021-060000"]["undone"])
+        self.assertIsNone(a["20261021-061000"]["undo_command"])  # failed: nothing to put back
+        self.assertEqual(a["20261021-061000"]["rows"], [{"id": "557199", "title": None, "what": None, "changed": None}])
+        m = first["measured"]
+        self.assertEqual(m["id"], "20261021-073000")  # the newest compare of the apply
+        self.assertTrue(m["here"])
+        row, none = m["applied"]
+        self.assertEqual(row["text"], "df10f5 plugin marketing: loaded 12 of 12 -> 0 of 12, used 0 -> 0")
+        self.assertEqual([s["entrypoint"] for s in row["surfaces"]], ["claude-desktop", "cli"])
+        self.assertEqual(row["pair"], {"state": "gone", "text": "newest sessions: gone (before claude-desktop, since cli)"})
+        self.assertFalse(none["seen"])
+        self.assertIn("sessions do not show this row", none["text"])
+        self.assertEqual(m["newest"]["billed"]["since"]["usd"], 0.028)
+        self.assertEqual(m["measure"]["rows"][0]["change"]["first_call"]["text"], "-7,000 lower")
+        self.assertEqual(m["measure"]["rows"][0]["sides"]["after"]["cells"]["first_call_billed"]["text"], "7,000 [6,900-7,100]")
+        # A compare from before walle counted billed tokens, and without a measure block, still reads.
+        (self.out / "20261021-073000" / "compare.json").unlink()
+        m = appdata.applies_view(self.out, FX.home, "/other")[2]["measured"]
+        self.assertEqual((m["id"], m["measure"], m["newest"]["billed"], m["here"]), ("20261021-054000", None, None, False))
+        self.assertEqual(m["applied"][0]["surfaces"], [])  # one surface: the row line says it
+        self.assertIsNone(m["applied"][0]["pair"])
+
+    def test_rows_applied_after_the_plan_are_not_offered_again(self):
+        self.applied_runs()
+        plan = appdata.trim_view(self.out, FX.home, "/p/app")
+        e = appdata.efficiency_view(None, None, {}, plan, appdata.applies_view(self.out, FX.home, "/p/app"))
+        t = e["trim"]
+        # df10f5 stands (apply 20261021-052801); 557199 was put back by walle undo, so it is offered again.
+        self.assertEqual([r["id"] for r in t["top"]], ["557199"])
+        self.assertEqual((t["applied_since"], t["saving"]), (1, 9000))
+        self.assertEqual(e["applies"], {"n": 3, "standing": 1, "measured": 1})
+
+    def test_the_next_step_follows_the_loop(self):
+        scan, measure = {"stacks": [], "id": "s"}, {"rows": [], "sides": ["period"], "split": None}
+        plan = {"id": "p", "generated": "", "period": {}, "rows": [
+            {"id": "r1", "title": "Turn off x", "group": "source", "applies": "walle", "already": False, "counted": True,
+             "command": "walle apply p --only r1", "saving": {"unused_tokens_min": 5}},
+            {"id": "r2", "title": "Edit a file", "group": "source", "applies": "manual", "already": False, "counted": True,
+             "command": "walle apply p --only r2", "saving": {}}]}
+        done = dict(plan, rows=[dict(r, already=True) for r in plan["rows"]])
+        open_apply = {"id": "a1", "rows": [], "undo_command": "walle undo a1", "measured": None,
+                      "compare_command": "walle context --compare a1"}
+        steps = [(None, None, None, []), (scan, None, None, []), (scan, measure, None, []), (scan, measure, plan, []),
+                 (scan, measure, done, [open_apply]), (scan, measure, done, [dict(open_apply, measured={"id": "c"})])]
+        got = [appdata.efficiency_view(*s[:2], {}, *s[2:])["next"] for s in steps]
+        self.assertEqual([(n["command"], n["run"]) for n in got], [
+            ("walle scan .", True), ("walle eve .", True), ("walle trim --plan", True),
+            ("walle apply p --only r1", False),  # the walle row, not the manual one
+            ("walle context --compare a1", True), ("walle eve .", True)])
+
+    def test_a_median_has_dollars_only_for_one_priced_model(self):
+        cells = {"first_call": {"median": 120000}, "first_call_billed": {"median": 20000}}
+        row = {"sides": {"after": {"cells": cells}}, "models": {"after": {"claude-haiku-5-5": 3}}}
+        self.assertEqual(appdata.median_usd(row, "after")["usd"], round(20000 * 0.10 * 5 / 1e6, 4))  # over 100K: 5x
+        row["models"]["after"] = {"claude-haiku-5-5": 3, "claude-opus-5-5": 1}
+        self.assertIsNone(appdata.median_usd(row, "after"))
+        row["models"]["after"] = {"claude-next-9": 3}
+        self.assertIsNone(appdata.median_usd(row, "after"))
 
     def test_a_lean_stack_with_nothing_to_read_has_its_sentence(self):
         v = appdata.scan_view(FX.out, FX.home, str(FX.projects))[0]
