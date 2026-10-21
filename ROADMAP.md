@@ -43,7 +43,7 @@ Every surface gives the same answer in the same order: one verdict word, at most
   The team key uses the remote URL and the path in the repository, so it is the same in every clone. A repository without a remote has no team key yet.
 - Done: `walle runs`, `walle pin`, and `walle diff` without arguments or with `last`. Item states closed, new, moved, edited and kept. The diff names the applies between the two scans.
 - Done: the history page `~/.walle/runs/index.html` (in the runs folder of `--out`): every run, its estimator and counting revision, pins, and each apply with the runs that measure it.
-- Next: the measure line of `walle diff` (step 9).
+- Done: the Sessions lines of `walle diff` (step 9): the measured first-call input of the newest scan's folder, split at the newest apply between the two scans. A `Next` line names `walle measure --around` while the since side is short. Claude Code sessions only.
 - Next: judge verdicts in the items. A term clash that the judge calls real becomes a conflict (PICK ONE); "no conflict" moves an item to its own folded group.
 - Done: the measure rules in `walle eve`: one folder, one model family per row, median [p25-p75] and n, no value under 5 sessions, a change only with 10 on each side, `--around <apply-id|date>`, `--across-folders`, Codex threads.
 - Next: the HTML report, and `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge). The Measure section of `scan.html` can then draw the before and since panels from `eve.json`.
