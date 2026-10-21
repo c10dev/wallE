@@ -393,26 +393,36 @@ mark, .hit { background: var(--mark); color: var(--fg); text-decoration: underli
   font-size: 12px; line-height: 16px; color: var(--muted); border-bottom: 1px solid var(--line-strong); }
 .shead .r { text-align: right; }
 
-/* measure */
+/* measure: one panel per folder and model family (brief 3.8.6, 4.4 session median) */
 .mintro { font-size: 15px; line-height: 24px; margin: 0 0 8px; }
-.mmix { font-size: 13px; line-height: 20px; color: var(--muted); margin: 0 0 16px; }
+.mmix { font: 400 13px/20px var(--mono); color: var(--muted); margin: 0 0 16px; overflow-wrap: anywhere; }
 .panels { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
-.panel h3 { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-.panel h3 .chg { font: 400 13px/20px var(--mono); }
-.mrow { display: grid; grid-template-columns: 48px minmax(0, 1fr) minmax(0, 200px) 48px; gap: 12px; align-items: center; min-height: 28px; font-size: 13px; line-height: 20px; }
-.mrow .mlab { color: var(--muted); }
-.mtrack { position: relative; height: 16px; }
+.panel { background: var(--surface); padding: 16px 20px; }
+.panel h3 { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 8px; font: 600 13px/20px var(--mono); }
+.panel h3 .chg { font-weight: 400; }
+.panel h3 .chg.none { color: var(--muted); }
+.mrow, .maxis { display: grid; grid-template-columns: 6ch minmax(0, 1fr) 24ch 6ch; grid-template-areas: "lab track val n"; column-gap: 12px; align-items: center;
+  font: 400 13px/20px var(--mono); font-variant-numeric: tabular-nums; }
+.mrow { min-height: 32px; }
+.mrow .mlab { grid-area: lab; color: var(--muted); }
+.mtrack { grid-area: track; position: relative; height: 16px; }
 .mtrack::before { content: ""; position: absolute; left: 0; right: 0; top: 7px; height: 2px; background: var(--line); }
 .mtrack .wh { position: absolute; top: 7px; height: 2px; background: var(--fg); }
-.mtrack .dot { position: absolute; top: 3px; width: 10px; height: 10px; border-radius: 50%; background: var(--rust); box-shadow: 0 0 0 1.5px var(--fg); transform: translateX(-5px); }
-.mtrack .dot.hollow { background: var(--surface); }
-.mval { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
-.mn { font-family: var(--mono); color: var(--muted); text-align: right; }
-.maxis { display: grid; grid-template-columns: 48px minmax(0, 1fr) minmax(0, 200px) 48px; gap: 12px; font: 400 12px/16px var(--mono); color: var(--muted); }
-.maxis div:nth-child(2) { display: flex; justify-content: space-between; }
-.mfoot { font-size: 13px; line-height: 20px; margin: 12px 0 0; }
-.fewline { font-size: 13px; line-height: 20px; margin: 0; }
+.mtrack .dot { position: absolute; top: 4px; width: 8px; height: 8px; margin-left: -4px; box-sizing: border-box; border-radius: 50%; background: var(--orange); }
+.mtrack .dot.hollow { background: var(--surface); border: 1.5px solid var(--orange); }
+.mval { grid-area: val; }
+.mval .few { color: var(--muted); }
+.mn { grid-area: n; color: var(--muted); text-align: right; }
+.maxis { margin-top: 2px; }
+.maxis .ax { grid-area: track; position: relative; height: 22px; border-top: 1px solid var(--line-strong); font-size: 12px; line-height: 16px; color: var(--muted); }
+.maxis .tk { position: absolute; top: -1px; width: 1px; height: 5px; background: var(--line-strong); }
+.maxis .lo, .maxis .hi { position: absolute; top: 5px; }
+.maxis .lo { left: 0; }
+.maxis .hi { right: 0; }
+.mfew, .mfoot { font-size: 13px; line-height: 20px; margin: 12px 0 0; }
+.mfew { color: var(--muted); }
+.mrow .nw, .mmix .nw, .mref .nw { white-space: nowrap; }
+.mref td.r:last-child { white-space: normal; }
 
 /* footer */
 .foot { margin-top: 40px; padding-top: 16px; border-top: 1px dashed var(--line-strong); display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center;
@@ -468,9 +478,9 @@ mark, .hit { background: var(--mark); color: var(--fg); text-decoration: underli
   .srow .minibar { grid-column: 1 / -1; grid-row: 2; }
   .shead .bh { display: none; }
   .srow { min-height: 44px; padding: 6px 4px; }
-  .mrow, .maxis { grid-template-columns: 44px minmax(0, 1fr) 44px; }
-  .mrow .mval { grid-column: 2 / 4; grid-row: 2; text-align: left; }
-  .maxis div:nth-child(3) { display: none; }
+  .panel { padding: 14px; }
+  .mrow { grid-template-columns: 6ch minmax(0, 1fr) 6ch; grid-template-areas: "lab track n" ". val val"; }
+  .maxis { grid-template-columns: 6ch minmax(0, 1fr) 6ch; grid-template-areas: "lab track n"; }
   .hide-s { display: none; }
   .panelbox { padding: 12px; }
 }
@@ -596,7 +606,6 @@ input[type="search"] { border: 1px solid var(--ctl-edge); border-radius: 10px; b
 .minibar .m-cells { background: repeating-linear-gradient(90deg, transparent 0 calc(var(--cw) - 2px), var(--sunk) calc(var(--cw) - 2px) var(--cw)); }
 .minibar { overflow: visible; }
 .srow[aria-current="true"] { border-radius: 12px; }
-.mtrack .dot { background: var(--orange); }
 .foot { border-top: 1px solid var(--line); font-weight: 500; }
 .sharedline { border-top: 1px solid var(--line); }
 @media (max-width: 639px) {
@@ -1384,62 +1393,115 @@ function drawStacks() {
 }
 
 /* ------------------------------------------------------------------ measure */
+// Measured values: exact integers with n, no "~" (brief 4.4). They never enter the verdict or Start here.
+const SIDE_LABEL = {before: "before", after: "since", period: "period"};
+const signed = (x) => !x ? "0" : (x < 0 ? "-" : "+") + int(Math.abs(x));
+function localTime(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d)) return String(iso || "");
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+function sideText(v, ref) {
+  if (v.median == null) return `too few sessions <span class="nw">(${int(v.n)} of ${ref.min_compare})</span>`;
+  return `${int(v.median)} [${int(v.p25)}-${int(v.p75)}]` + (v.few ? ` <span class="few">(few sessions)</span>` : "");
+}
+function changeText(c, ref) {
+  if (!c) return null;
+  if (c.state === "too_few") return {cls: "none", text: `no comparison: ${int(c.need)} more session${c.need === 1 ? "" : "s"} needed`};
+  if (c.state === "within_noise") return {cls: "", text: `within noise (${signed(c.delta)})`};
+  return {cls: "", text: `${signed(c.delta)} ${c.state}`};
+}
+// The panel's own x axis: p25 to p75 of the drawn sides, widened to round steps.
+function panelAxis(vals) {
+  let lo = Math.min(...vals.map(v => v.p25)), hi = Math.max(...vals.map(v => v.p75));
+  if (hi === lo) { const w = Math.max(1, Math.abs(lo) * 0.05); lo -= w; hi += w; }
+  const raw = (hi - lo) / 4, mag = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / mag;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag;
+  lo = Math.max(0, Math.floor(lo / step) * step); hi = Math.ceil(hi / step) * step;
+  if (hi === lo) hi = lo + step;
+  return {lo, hi, step};
+}
+function panelHTML(r, ref) {
+  const sides = ref.sides.map(s => [s, r.sides[s] || {n: 0, median: null}]);
+  const drawn = sides.map(([, v]) => v).filter(v => v.median != null);
+  const ax = drawn.length ? panelAxis(drawn) : null;
+  const X = (x) => (100 * (x - ax.lo) / (ax.hi - ax.lo)).toFixed(2) + "%";
+  const ch = changeText(r.change, ref);
+  let h = `<div class="panel"><h3><span>${esc(r.family)}</span>${ch ? `<span class="chg ${ch.cls}">${esc(ch.text)}</span>` : ""}</h3>`;
+  for (const [s, v] of sides) {
+    const marks = v.median == null ? "" : `<span class="wh" style="left:${X(v.p25)};width:calc(${X(v.p75)} - ${X(v.p25)})"></span>`
+      + `<span class="dot${v.n < ref.min_compare ? " hollow" : ""}" style="left:${X(v.median)}"></span>`;
+    h += `<div class="mrow"><span class="mlab">${SIDE_LABEL[s] || esc(s)}</span><span class="mtrack" aria-hidden="true">${marks}</span>`
+      + `<span class="mval">${sideText(v, ref)}</span><span class="mn">n=${int(v.n)}</span></div>`;
+  }
+  if (ax) {
+    let ticks = "";
+    for (let i = 0, x = ax.lo; x <= ax.hi + ax.step / 2 && i < 12; i++, x += ax.step) ticks += `<span class="tk" style="left:${X(Math.min(x, ax.hi))}"></span>`;
+    h += `<div class="maxis" aria-hidden="true"><span class="ax">${ticks}<span class="lo">${int(ax.lo)}</span><span class="hi">${int(ax.hi)}</span></span></div>`;
+  }
+  return h + `</div>`;
+}
+function measureRefTable(ref) {
+  const head = `<p class="gnote">Folders differ in model, connectors and task mix. Do not rank folders by this.`;
+  let body;
+  if (ref.across) {
+    const total = (r) => ref.sides.reduce((a, s) => a + ((r.sides[s] || {}).n || 0), 0);
+    const rows = ref.across.slice().sort((a, b) => total(b) - total(a) || String(a.folder).localeCompare(String(b.folder)) || a.family.localeCompare(b.family));
+    const cell = (v) => v.median == null ? `too few <span class="nw">(${int(v.n)} of ${ref.min_compare})</span>`
+      : `${int(v.median)} <span class="nw">[${int(v.p25)}-${int(v.p75)}]</span>${v.few ? " (few)" : ""}`;
+    body = `${head} Run ${esc(ref.id)}, one model family per row, first-call input median [p25-p75].</p>
+    <div class="tblwrap"><table class="tbl mref"><thead><tr><th>Folder · model</th><th>Side</th><th class="r">n</th><th class="r">First-call input</th></tr></thead><tbody>
+    ${rows.map(r => ref.sides.map((s, i) => { const v = r.sides[s] || {n: 0, median: null}; return `<tr>${i ? "" : `<td class="p" rowspan="${ref.sides.length}">${pathHTML(r.folder)}<br><span class="muted">${esc(r.family)}</span></td>`}<td>${SIDE_LABEL[s] || esc(s)}</td><td class="r">${int(v.n)}</td><td class="r">${cell(v)}</td></tr>`; }).join("")).join("")}
+    </tbody></table></div>`;
+  } else {
+    body = `${head} Run ${esc(ref.id)}, ${int(ref.sessions)} sessions, all model families together.</p>
+    <div class="tblwrap"><table class="tbl"><thead><tr><th>Folder group</th><th class="r">Sessions</th><th class="r">First-call input</th><th class="r">Calls / prompt</th><th class="r">Calls before edit</th></tr></thead><tbody>
+    ${ref.groups.slice().sort((a, b) => b.n - a.n).map(g => `<tr><td class="p">${esc(g.group)}</td><td class="r">${int(g.n)}</td><td class="r">${g.n < 5 ? "too few" : int(g.baseline_median)}</td><td class="r">${g.n < 5 ? "-" : int(g.tool_calls_per_prompt_median)}</td><td class="r">${g.n < 5 ? "-" : (g.calls_before_first_edit_median == null ? "no edit" : int(g.calls_before_first_edit_median))}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  }
+  return `<details class="sub" style="margin-top:16px"><summary>All folders (reference only)</summary><div class="subbody">${body}</div></details>`;
+}
+function measureIntro(M, ref) {
+  const where = `<span class="path mono">${pathHTML(M.source === "folder" ? ref.folder : V.folder)}</span>`;
+  const sp = ref.split;
+  let h = "";
+  if (sp) h = `Sessions in ${where} before and since ${sp.apply ? `apply <code>${esc(sp.apply)}</code> at ` : ""}${esc(localTime(sp.at))}.`;
+  else if (ref.period.since || ref.period.before) h = `Sessions in ${where} from ${esc(ref.period.since || "the first session")} to ${esc(ref.period.before || "now")}.`;
+  else h = `All sessions in ${where}. Split them with <code>walle measure --around &lt;apply-id|date&gt;</code>.`;
+  if (sp) h += ` A change shows only with ${ref.min_compare} sessions on each side.`;
+  if (M.source === "across") h += ` From the across-folders rows of run ${esc(ref.id)}.`;
+  return `<p class="mintro">${h} First-call input tokens, measured: median [p25-p75] and n. One model family per panel, each with its own axis.</p>`;
+}
 function drawMeasure() {
   const box = $("#mbody");
   const M = D.measure[V.key];
   const ref = D.eve_ref;
-  const refTable = `<details class="sub" style="margin-top:16px"><summary>All folders (reference only)</summary><div class="subbody">
-    <p class="gnote">Folders differ in model, connectors and task mix. Do not rank folders by this. Run ${esc(ref.id)}, ${int(ref.sessions)} sessions, all model families together.</p>
-    <div class="tblwrap"><table class="tbl"><thead><tr><th>Folder group</th><th class="r">Sessions</th><th class="r">First-call input</th><th class="r hide-s">Calls / prompt</th><th class="r hide-s">Calls before edit</th></tr></thead><tbody>
-    ${ref.groups.slice().sort((a, b) => b.n - a.n).map(g => `<tr><td class="p">${esc(g.group)}</td><td class="r">${int(g.n)}</td><td class="r">${g.n < 5 ? "too few" : int(g.baseline_median)}</td><td class="r hide-s">${g.n < 5 ? "-" : int(g.tool_calls_per_prompt_median)}</td><td class="r hide-s">${g.n < 5 ? "-" : (g.calls_before_first_edit_median == null ? "no edit" : int(g.calls_before_first_edit_median))}</td></tr>`).join("")}
-    </tbody></table></div></div></details>`;
-  if (V.agent === "codex") { box.innerHTML = `<p class="mintro">Measure reads Claude Code transcripts only. This stack is Codex.</p>` + refTable; return; }
+  const refTable = measureRefTable(ref);
+  if (V.agent === "codex") { box.innerHTML = `<p class="mintro">This section shows Claude Code sessions. This stack is Codex: run <code>walle measure --agent codex</code>.</p>` + refTable; return; }
+  const runHint = `run <code>walle measure ${esc(V.folder)}</code>`;
   if (M && M.state === "row") {
     const g = M.row;
-    box.innerHTML = `<p class="mintro">Run ${esc(ref.id)}: ${int(g.n)} session${g.n === 1 ? "" : "s"} in the group <code>${esc(M.group)}</code>, all model families together. ${g.n < 5 ? "Too few sessions for a median." : `First-call input median ${int(g.baseline_median)} tokens, measured.`} Before and since panels per model family need p25 and p75 in the measure output.</p>` + refTable;
+    const other = ref.schema === 2 ? `Run ${esc(ref.id)} measured <span class="path mono">${pathHTML(ref.folder)}</span>.` : `Run ${esc(ref.id)} has no panels per model family.`;
+    box.innerHTML = `<p class="mintro">${other} The group <code>${esc(M.group)}</code> has ${int(g.n)} session${g.n === 1 ? "" : "s"}, all model families together. ${g.n < 5 ? "Too few sessions for a median." : `First-call input median ${int(g.baseline_median)} tokens, measured.`} For panels per model family, ${runHint}.</p>` + refTable;
     return;
   }
-  if (!M || M.state === "none") { box.innerHTML = `<p class="mintro">No sessions for this folder in <code>~/.claude/projects</code>. Open a few sessions, then run <code>walle measure</code> again.</p>` + refTable; return; }
-  const P = M.pivot;
-  const when = P ? P.when.replace("T", " ").slice(0, 16) : null;
-  let h = `<p class="mintro">${P ? `Sessions in <span class="path mono">${pathHTML(V.folder)}</span> before and since ${esc(when)}, the last commit to <code>${esc(P.rel)}</code> (<code>${esc(P.hash.slice(0, 7))}</code>).` : `All sessions in ${pathHTML(V.folder)}.`} Measured values, median [p25-p75]. One model family per panel; each panel has its own axis.</p>`;
-  const mix = (o) => Object.entries(o).map(([k, n]) => `${k} ${n}`).join(" · ") || "none";
-  h += `<p class="mmix">before: ${esc(mix(M.mix_before))} &nbsp;|&nbsp; since: ${esc(mix(M.mix_after))}</p><div class="panels">`;
-  const fmtv = (q) => q ? `${int(q[1])} [${int(q[0])}-${int(q[2])}]` : "";
-  for (const p of M.panels) {
-    if (p.nb < 5 && p.na < 5) {
-      h += `<div class="panel"><p class="fewline"><strong>${esc(p.family)}</strong> · too few sessions (before ${p.nb}, since ${p.na} of 10)</p></div>`;
-      continue;
-    }
-    const rowsShown = (p.nb >= 10 && p.na >= 10) ? p.rows : p.rows.slice(0, 1);
-    for (const r of rowsShown) {
-      const vals = [r.before, r.after].filter(Boolean);
-      const sides = [["before", r.before, r.nb, r.noedit_b], ["since", r.after, r.na, r.noedit_a]];
-      if (!vals.length) {
-        h += `<div class="panel"><h3><span>${esc(p.family)} · ${esc(r.title)}</span></h3><p class="fewline muted">No session with an edit (${(r.noedit_b || 0) + (r.noedit_a || 0)} without one).</p></div>`;
-        continue;
-      }
-      let lo = Math.min(...vals.map(v => v[0])), hi = Math.max(...vals.map(v => v[2]));
-      if (hi === lo) { hi = hi + 1; lo = Math.max(0, lo - 1); }
-      const pad = (hi - lo) * 0.08;
-      lo = Math.max(0, lo - pad); hi = hi + pad;
-      const X = (v) => (100 * (v - lo) / (hi - lo)).toFixed(2) + "%";
-      let ch = "";
-      if (r.change) ch = r.change.word === "within noise" ? "within noise" : `${r.change.word} ${r.change.diff > 0 ? "+" : "-"}${int(Math.abs(r.change.diff))}`;
-      else ch = "no comparison: need 10 sessions on each side";
-      h += `<div class="panel"><h3><span>${esc(p.family)} · ${esc(r.title)}</span><span class="chg">${esc(ch)}</span></h3>`;
-      for (const [lab, q, n, noedit] of sides) {
-        const few = n < 10;
-        const hidden = n < 5;
-        h += `<div class="mrow"><span class="mlab">${lab}</span>`
-          + `<span class="mtrack" aria-hidden="true">${q && !hidden ? `<span class="wh" style="left:${X(q[0])};width:calc(${X(q[2])} - ${X(q[0])})"></span><span class="dot${few ? " hollow" : ""}" style="left:${X(q[1])}"></span>` : ""}</span>`
-          + `<span class="mval">${hidden ? `too few sessions (${n} of 10)` : fmtv(q) + (few ? " (few sessions)" : "")}${noedit ? ` <span class="muted">· no edit ${noedit}</span>` : ""}</span>`
-          + `<span class="mn">n=${n}</span></div>`;
-      }
-      h += `<div class="maxis" aria-hidden="true"><div></div><div><span>${int(Math.round(lo))}</span><span>${int(Math.round(hi))}</span></div><div></div><div></div></div></div>`;
-    }
+  if (!M || M.state !== "panels") { box.innerHTML = `<p class="mintro">No sessions for this folder in <code>~/.claude/projects</code>. Open a few sessions, then ${runHint}.</p>` + refTable; return; }
+  let h = measureIntro(M, ref);
+  if (ref.split && ref.split.windows) {
+    const w = ref.split.windows;
+    const tm = (x) => `<span class="nw">${esc(localTime(x))}</span>`;
+    h += `<p class="mmix">before ${tm(w.before.from)} to ${tm(w.before.to)} | since ${tm(w.after.from)} to ${tm(w.after.to)}</p>`;
   }
-  h += `</div><p class="mfoot">A change in median is not proof of cause: task mix and connectors move it. Compare a folder with itself, one model family at a time.</p>`;
+  if (!M.rows.length) { box.innerHTML = h + `<p class="mintro">No sessions for this folder in these windows.</p>` + refTable; return; }
+  const mix = ref.sides.map(s => `${SIDE_LABEL[s] || s}: ` + (M.rows.filter(r => (r.sides[s] || {}).sessions).map(r => `${r.family} ${int(r.sides[s].sessions)}`).join(", ") || "none")).join(" | ");
+  h += `<p class="mmix">models · ${esc(mix)}</p>`;
+  const shown = M.rows.filter(r => ref.sides.some(s => ((r.sides[s] || {}).n || 0) >= ref.min_show));
+  const few = M.rows.filter(r => !shown.includes(r));
+  h += `<div class="panels">${shown.map(r => panelHTML(r, ref)).join("")}</div>`;
+  if (few.length) h += `<p class="mfew">Too few sessions for a value: ${esc(few.map(r => `${r.family} (${ref.sides.map(s => `${int((r.sides[s] || {}).n || 0)} ${SIDE_LABEL[s] || s}`).join(", ")})`).join(", "))}</p>`;
+  if (M.source === "folder" && ref.resumed) h += `<p class="mfew">Left out: ${int(ref.resumed)} session${ref.resumed === 1 ? " that resumes or forks" : "s that resume or fork"} another session.</p>`;
+  h += `<p class="mfoot">A change in median is not proof of cause: task mix and connectors move it. These values do not enter the verdict or Start here.</p>`;
   box.innerHTML = h + refTable;
 }
 

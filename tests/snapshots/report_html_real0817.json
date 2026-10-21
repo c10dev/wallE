@@ -685,5 +685,198 @@
     "B"
    ]
   }
+ },
+ "measure": {
+  "~/projects@claude": {
+   "state": "none",
+   "group": "(control: no project CLAUDE.md)"
+  },
+  "DesignLAB@claude": {
+   "state": "none",
+   "group": "DesignLAB"
+  },
+  "atc@claude": {
+   "state": "none",
+   "group": "atc"
+  },
+  "atc/controller@claude": {
+   "state": "row",
+   "group": "atc/controller",
+   "row": {
+    "group": "atc/controller",
+    "control": false,
+    "n": 7,
+    "baseline_median": 50000,
+    "baseline_delta_median": null,
+    "prompts_median": 1,
+    "tool_calls_median": 2,
+    "tool_calls_per_prompt_median": 2,
+    "check_calls_median": 0,
+    "calls_before_first_edit_median": 1,
+    "output_tokens_total": 35,
+    "input_tokens_total": 350000
+   }
+  },
+  "claude-config/global@claude": {
+   "state": "none",
+   "group": "claude-config/global"
+  },
+  "runup@claude": {
+   "state": "panels",
+   "source": "folder",
+   "rows": [
+    {
+     "family": "opus 5.5",
+     "sides": {
+      "before": {
+       "sessions": 12,
+       "n": 12,
+       "median": 92750,
+       "p25": 91375,
+       "p75": 94125,
+       "few": false
+      },
+      "after": {
+       "sessions": 11,
+       "n": 11,
+       "median": 82000,
+       "p25": 81000,
+       "p75": 83000,
+       "few": false
+      }
+     },
+     "change": {
+      "state": "lower",
+      "delta": -10750
+     }
+    },
+    {
+     "family": "haiku 4.5",
+     "sides": {
+      "before": {
+       "sessions": 6,
+       "n": 6,
+       "median": 70250,
+       "p25": 70125,
+       "p75": 70375,
+       "few": true
+      },
+      "after": {
+       "sessions": 0,
+       "n": 0,
+       "median": null,
+       "p25": null,
+       "p75": null,
+       "few": false
+      }
+     },
+     "change": {
+      "state": "too_few",
+      "need": 14,
+      "need_before": 4,
+      "need_after": 10
+     }
+    },
+    {
+     "family": "sonnet 5.5",
+     "sides": {
+      "before": {
+       "sessions": 0,
+       "n": 0,
+       "median": null,
+       "p25": null,
+       "p75": null,
+       "few": false
+      },
+      "after": {
+       "sessions": 3,
+       "n": 3,
+       "median": null,
+       "p25": null,
+       "p75": null,
+       "few": false
+      }
+     },
+     "change": {
+      "state": "too_few",
+      "need": 17,
+      "need_before": 10,
+      "need_after": 7
+     }
+    }
+   ]
+  },
+  "tennis-web@claude": {
+   "state": "none",
+   "group": "tennis-web"
+  },
+  "vocado_RN@claude": {
+   "state": "none",
+   "group": "vocado_RN"
+  }
+ },
+ "eve_ref": {
+  "id": "20261021-120000",
+  "sessions": 39,
+  "groups": [
+   {
+    "group": "runup",
+    "control": false,
+    "n": 32,
+    "baseline_median": 82600,
+    "baseline_delta_median": null,
+    "prompts_median": 1,
+    "tool_calls_median": 2,
+    "tool_calls_per_prompt_median": 2,
+    "check_calls_median": 0,
+    "calls_before_first_edit_median": 1,
+    "output_tokens_total": 160,
+    "input_tokens_total": 2616500
+   },
+   {
+    "group": "atc/controller",
+    "control": false,
+    "n": 7,
+    "baseline_median": 50000,
+    "baseline_delta_median": null,
+    "prompts_median": 1,
+    "tool_calls_median": 2,
+    "tool_calls_per_prompt_median": 2,
+    "check_calls_median": 0,
+    "calls_before_first_edit_median": 1,
+    "output_tokens_total": 35,
+    "input_tokens_total": 350000
+   }
+  ],
+  "schema": 2,
+  "folder": "~/projects/runup",
+  "sides": [
+   "before",
+   "after"
+  ],
+  "split": {
+   "ref": "2026-10-21T09:00:00Z",
+   "kind": "time",
+   "at": "2026-10-21T09:00:00Z",
+   "apply": null,
+   "windows": {
+    "before": {
+     "from": "2026-09-21T09:00:00Z",
+     "to": "2026-10-21T09:00:00Z"
+    },
+    "after": {
+     "from": "2026-10-21T09:00:00Z",
+     "to": "2026-11-20T09:00:00Z"
+    }
+   }
+  },
+  "period": {
+   "since": null,
+   "before": null
+  },
+  "min_show": 5,
+  "min_compare": 10,
+  "resumed": 0,
+  "across": null
  }
 }

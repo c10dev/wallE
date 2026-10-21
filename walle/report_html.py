@@ -21,6 +21,7 @@ from pathlib import Path
 
 from . import eve, strings
 from .collect import HOME
+from .measure import MIN_COMPARE, MIN_SHOW
 from .triage import BUDGET
 
 FONTS = (
@@ -376,21 +377,36 @@ class Builder:
         # and this note.
         history_note = " ".join(runs_mod.token_notes(history[-10:], run, self.lang)) or None
 
-        # measure: the newest measure run, one row per folder group (no per-family panels yet)
+        # measure: the newest measure run. A schema 2 run (walle eve) has one panel per model family for the
+        # folder it measured, and for every folder with --across-folders. Other folders, and older runs,
+        # get the run's folder group row, all model families together.
         measure, eve_ref = {}, None
         if self.eve_run:
             eid, ej = self.eve_run
-            eve_ref = {"id": eid, "sessions": ej.get("sessions", 0), "groups": ej.get("groups") or []}
+            block = ej.get("measure") or None
+            eve_ref = {"id": eid, "sessions": ej.get("sessions", 0), "groups": ej.get("groups") or [],
+                       "schema": 2 if block else 1}
+            if block:
+                eve_ref.update(measure_ref(block, self.t))
             by_group = {g["group"]: g for g in eve_ref["groups"]}
             for skey, T in scan["triage"]["stacks"].items():
                 if T["agent"] != "claude":
                     continue
                 try:
+                    fk = eve.folder_key(T["folder"]) if block else None
                     g, _control = eve.group_key(T["folder"])
                 except OSError:
                     continue
+                k = self.key_of(skey)
+                if block and fk == (block.get("folder") or {}).get("key"):
+                    measure[k] = {"state": "panels", "source": "folder", "rows": panel_rows(block["rows"], block["sides"])}
+                    continue
+                across = [r for r in block.get("across") or [] if r.get("folder") == fk] if block else []
+                if across:
+                    measure[k] = {"state": "panels", "source": "across", "rows": panel_rows(across, block["sides"])}
+                    continue
                 row = by_group.get(g)
-                measure[self.key_of(skey)] = {"state": "row", "group": g, "row": row} if row else {"state": "none", "group": g}
+                measure[k] = {"state": "row", "group": g, "row": row} if row else {"state": "none", "group": g}
 
         used = set()
         for v in views.values():
@@ -433,11 +449,62 @@ class Builder:
         }
 
 
-def latest_measure(out: Path) -> tuple[str, dict] | None:
-    """The newest Claude eve.json or measure.json under the runs folder, as (run id, data)."""
+def panel_rows(rows: list[dict], sides: list[str]) -> list[dict]:
+    """The first-call input of each model family row of a measure block: per side n, median, p25, p75 and
+    few, and the change when the block has a before and an after side."""
+    out = []
+    for r in rows:
+        row = {"family": r.get("family") or "unknown", "sides": {}}
+        for s in sides:
+            v = r.get(s) or {}
+            fc = v.get("first_call") or {}
+            row["sides"][s] = {"sessions": v.get("sessions", 0), "n": fc.get("n", 0), "median": fc.get("median"),
+                               "p25": fc.get("p25"), "p75": fc.get("p75"), "few": bool(fc.get("few"))}
+        c = (r.get("change") or {}).get("first_call")
+        if c:
+            row["change"] = {k: c[k] for k in ("state", "delta", "need", "need_before", "need_after") if k in c}
+        out.append(row)
+    return out
+
+
+def measure_ref(block: dict, tilde_of) -> dict:
+    """The run-level part of a measure block that the Measure section shows."""
+    split = block.get("split") or None
+    rules = block.get("rules") or {}
+    return {
+        "folder": tilde_of((block.get("folder") or {}).get("path")),
+        "sides": list(block.get("sides") or []),
+        "split": ({"ref": split.get("ref"), "kind": split.get("kind"), "at": split.get("at"),
+                   "apply": (split.get("apply") or {}).get("id"), "windows": split.get("windows")} if split else None),
+        "period": block.get("period") or {},
+        "min_show": rules.get("min_show", MIN_SHOW), "min_compare": rules.get("min_compare", MIN_COMPARE),
+        "resumed": (block.get("left_out") or {}).get("resumed", 0),
+        "across": ([{"folder": r.get("folder"), **p} for r, p in zip(block["across"], panel_rows(block["across"], block.get("sides") or []))]
+                   if block.get("across") else None),
+    }
+
+
+def measured_keys(data: dict) -> set[str]:
+    """The measure folder keys (eve.folder_key) of the Claude stacks of a scan."""
+    keys = set()
+    for T in data["triage"]["stacks"].values():
+        if T["agent"] == "claude":
+            try:
+                keys.add(eve.folder_key(T["folder"]))
+            except OSError:
+                pass
+    return keys
+
+
+def latest_measure(out: Path, keys: set[str] | None = None) -> tuple[str, dict] | None:
+    """The newest Claude eve.json or measure.json under the runs folder, as (run id, data).
+
+    With keys (measured_keys of the scan), the newest run that measured one of those folders wins over a
+    newer run of another folder. Without such a run, the newest run gives the folder group rows."""
     found = []
     for name in ("eve.json", "measure.json"):
         found += glob.glob(str(out / "*" / name))
+    newest = None
     for p in sorted(found, key=lambda p: os.path.basename(os.path.dirname(p)), reverse=True):
         try:
             data = json.loads(Path(p).read_text())
@@ -445,15 +512,20 @@ def latest_measure(out: Path) -> tuple[str, dict] | None:
             continue
         if (data.get("run") or {}).get("agent") == "codex":
             continue  # the Measure section shows Claude sessions
-        return os.path.basename(os.path.dirname(p)), data
-    return None
+        hit = os.path.basename(os.path.dirname(p)), data
+        block = data.get("measure") or {}
+        if keys is None or (block.get("folder") or {}).get("key") in keys \
+                or any(r.get("folder") in keys for r in block.get("across") or []):
+            return hit
+        newest = newest or hit
+    return newest
 
 
 def page_data(data: dict, out: Path | None = None, home: Path = HOME, lang: str = "en") -> dict:
     """The JSON the page renders. `out` is the runs folder: it gives history, baseline and measure."""
     from . import runs as runs_mod
     index = runs_mod.read_index(out) if out else []
-    eve_run = latest_measure(out) if out else None
+    eve_run = latest_measure(out, measured_keys(data)) if out else None
     D = Builder(data, str(home), index, eve_run, lang).build()
     D["run"]["runs_dir"] = tilde(str(out), str(home)) if out else "~/.walle/runs"
     return D
