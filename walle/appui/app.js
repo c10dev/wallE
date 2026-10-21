@@ -142,7 +142,7 @@
         h("span", { className: "app-src" }, "est. tokens before the first prompt · budget " + num(s.budget)),
         h("span", { className: "app-agent app-row-end" }, AGENT[s.agent] || s.agent)),
       // The first sentence repeats the head (tokens and budget); the rest leads.
-      s.sentences.length > 1 ? h("p", { className: "app-lead" }, s.sentences.slice(1).join(" ")) : null,
+      s.lead.length ? h("p", { className: "app-lead" }, s.lead.join(" ")) : null,
       h("p", { className: "app-src" }, s.split),
       s.shared.length ? h("p", { className: "app-src" }, "Shared: " + s.shared.join("; ")) : null,
       s.start_here.length ? h("h2", { className: "app-h" }, "Start here") : null,
@@ -257,6 +257,8 @@
   // ------------------------------------------------------------------ trim view
   function saving(r) {
     var s = r.saving || {}, x = r.sessions || {};
+    if (r.already) return null;  // the key already has this state: there is nothing to save
+    if (!r.counted) return h("div", { className: "app-save" }, "Saving not counted: " + (r.not_counted || "-") + ".");
     var parts = [];
     if (s.tokens_per_session_min != null) parts.push(h("span", { key: "t" }, "≈ ", h("strong", null, num(s.tokens_per_session_min)), " tokens per " + (s.per || "session")));
     if (x.period != null) parts.push(h("span", { key: "s" }, (parts.length ? " · " : "") + "loaded in " + num(x.loaded) + " of " + num(x.period) + " sessions, used in " + num(x.used)));
@@ -270,16 +272,22 @@
     return h("li", null,
       h("div", { className: "app-row" },
         h(W.Badge, { tone: a[1] }, a[0]),
+        r.already ? h(W.Badge, { tone: "leaf" }, "Already set") : null,
         r.here ? h(W.Badge, { tone: "eve" }, "This folder") : null,
         h("span", { className: "app-src" }, (r.source && r.source.type ? r.source.type + " · " : "") + (r.action || ""))),
       h("div", { className: "app-trim-title" }, r.title),
       saving(r),
+      r.already ? h("div", { className: "app-src" },
+        "In the file since " + (r.set_at ? r.set_at.replace("T", " ").slice(0, 16) : "an earlier apply") + ". No apply needed.",
+        r.set_status.length ? h("ul", { className: "app-status" }, r.set_status.map(function (x) {
+          return h("li", { key: x.entrypoint }, h("code", null, x.entrypoint), " " + x.text);
+        })) : null) : null,
       v ? h("div", { className: "app-fix" },
         h(W.Badge, { tone: v.real ? "walle" : "leaf" }, v.real ? "Real problem" : "Not a problem"),
         v.fix && v.fix !== "-" ? [h("span", { key: "k", className: "app-fix-k" }, "fix"), h("span", { key: "f" }, v.fix)] : null,
         v.why ? h("span", { className: "app-muted" }, v.why) : null) : null,
       r.risk ? h("p", { className: "app-src" }, "Risk " + (r.risk.level || "-") + ": " + (r.risk.why || "")) : null,
-      h(Copy, { text: r.command }),
+      r.command ? h(Copy, { text: r.command }) : null,
       h("details", { className: "app-details" },
         h("summary", null, "Where, undo and check"),
         h("dl", null,
@@ -298,15 +306,16 @@
     var here = t.rows.filter(function (r) { return r.here; });
     var rows = filter === "here" ? here : t.rows;
     var count = {};
-    t.rows.forEach(function (r) { count[r.applies] = (count[r.applies] || 0) + 1; });
+    t.rows.forEach(function (r) { var k = r.already ? "already" : r.applies; count[k] = (count[k] || 0) + 1; });
     var per = t.period || {};
     return h("section", { className: "app-sec" },
       h("h1", { className: "app-title" }, "Trim plan"),
-      h("p", { className: "app-lead" }, plural(t.rows.length, "row") + ": " + num(count.walle || 0) + " walle can apply, " + num(count.manual || 0) +
-        " manual, " + num(count.patch || 0) + " patches. The app changes nothing: copy a command and run it in a terminal."),
+      h("p", { className: "app-lead" }, plural(t.rows.length, "row") + ": " + num(count.walle || 0) + " walle can apply, " +
+        num(count.already || 0) + " already set, " + num(count.manual || 0) + " manual, " + num(count.patch || 0) +
+        " patches. The app changes nothing: copy a command and run it in a terminal."),
       h("p", { className: "app-src" }, "walle trim --plan run ", h("code", null, t.id), (t.label ? " (" + t.label + ")" : "") + " · " + t.generated +
         (per.sessions ? " · " + num(per.sessions) + " sessions, " + String(per.first || "").slice(0, 10) + " ~ " + String(per.last || "").slice(0, 10) : "") +
-        " · sorted by tokens loaded and not used"),
+        " · sorted by tokens loaded and not used, rows already set last"),
       h("div", { className: "app-row" },
         h("div", { className: "app-tabs", role: "tablist" },
           [["all", "All rows", t.rows.length], ["here", "This folder", here.length]].map(function (x) {
@@ -385,7 +394,8 @@
     var s5 = useState(null), error = s5[0], setError = s5[1];
     var s6 = useState(null), run = s6[0], setRun = s6[1];
     var s7 = useState(false), sideOpen = s7[0], setSideOpen = s7[1];
-    var abort = useRef(null), mainRef = useRef(null);
+    var abort = useRef(null), mainRef = useRef(null), folderRef = useRef(folder);
+    folderRef.current = folder;
 
     function loadState() {
       return getJSON("api/state").then(function (st) {
@@ -399,8 +409,11 @@
     }
     function loadFolder(f) {
       if (!f) return Promise.resolve();
-      return getJSON("api/folder?path=" + encodeURIComponent(f)).then(function (d) { setData(d); setError(null); })
-        .catch(function (e) { setError(String(e.message || e)); });
+      // A view that comes back after the user picked another folder is dropped.
+      return getJSON("api/folder?path=" + encodeURIComponent(f)).then(function (d) {
+        if (d.path !== folderRef.current) return;
+        setData(d); setError(null);
+      }).catch(function (e) { if (f === folderRef.current) setError(String(e.message || e)); });
     }
 
     useEffect(function () { loadState(); }, []);
@@ -442,7 +455,7 @@
           case "error": push({ error: ev.text }); break;
           case "end":
             push({ running: false });
-            loadState(); loadFolder(folder);
+            loadState(); loadFolder(folderRef.current);  // the folder selected now, not the one of the start
             break;
         }
       }, ctl.signal);
@@ -471,7 +484,7 @@
       body = h(W.ScanProgress, {
         step: run.progress.step, done: run.progress.done, roots: [run.cwd || f.display], counts: run.progress.counts,
         elapsed: run.progress.elapsed, onCancel: cancel
-      }, h(W.Button, { onClick: function () { setRun(Object.assign({}, run, { dismissed: true })); loadFolder(folder); } }, "Show results"));
+      }, h(W.Button, { onClick: function () { setRun(Object.assign({}, run, { dismissed: true })); loadFolder(folderRef.current); } }, "Show results"));
     } else if (!data) {
       body = error ? h("p", { className: "app-p app-err" }, "walle app: " + error) : h("p", { className: "app-src" }, "Loading " + f.display);
     } else if (view === "scan") body = h(ScanView, { data: data, folder: f, onRun: start, running: running });

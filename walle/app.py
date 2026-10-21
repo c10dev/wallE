@@ -9,11 +9,14 @@ Safety:
   /<token>/ is the page, /<token>/api/... the API. A request without the token gets 403.
 - The Host header must be 127.0.0.1, localhost or [::1] with the port of the server (DNS rebinding). An Origin
   header must be the same origin, and a POST must carry one (or Sec-Fetch-Site: same-origin).
+- The browser opens a private temporary file (0600) that redirects to the URL, so the token is not in the argv
+  of the browser, where `ps` shows it.
 - POST /<token>/api/run takes one `walle ...` command. The command is split with shlex, checked against an
   allowlist of read commands (ALLOW), and run as an argv list without a shell, in the folder that the page
   shows. apply, undo, keep, unkeep, pin, judge --import and trim --import are refused before anything runs:
   the stream has one "refused" event with the reason.
-  The server sets --out; a command cannot change it. One command runs at a time.
+  The server sets --out; a command cannot change it. One command runs at a time. When the page goes away or the
+  server stops, the process group of the command gets SIGTERM.
 - The views read the run index and the run files (appdata.py). They run no command.
 """
 
@@ -25,11 +28,14 @@ import os
 import queue
 import re
 import secrets
+import select
 import shlex
+import shutil
 import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -236,6 +242,7 @@ class App:
         self.out, self.home, self.launch = out, home, launch
         self.token = token or secrets.token_urlsafe(24)
         self.lock = threading.Lock()
+        self.children: set[subprocess.Popen] = set()
         self.httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self.httpd.daemon_threads = True
         self.httpd.app = self
@@ -253,6 +260,12 @@ class App:
     def close(self) -> None:
         self.httpd.shutdown()
         self.httpd.server_close()
+        self.stop_children()
+
+    def stop_children(self) -> None:
+        """SIGTERM to the process group of every command that still runs (walle app stops)."""
+        for proc in list(self.children):
+            _stop(proc)
 
     def folder(self, path: str | None) -> Path:
         """A folder the page may run a command in: the launch folder or a folder of the run index."""
@@ -438,6 +451,22 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             send({"event": "error", "text": f"walle did not start: {e}"})
             return
+        app.children.add(proc)
+        try:
+            self._pump(proc, send, started)
+        finally:
+            app.children.discard(proc)
+
+    def _gone(self) -> bool:
+        """True when the page closed the connection. The request is read, so a readable socket that gives no
+        bytes is a closed one."""
+        try:
+            ready, _, _ = select.select([self.connection], [], [], 0)
+            return bool(ready) and self.connection.recv(1, socket.MSG_PEEK) == b""
+        except (OSError, ValueError):
+            return True
+
+    def _pump(self, proc: subprocess.Popen, send, started: float) -> None:
         lines: queue.Queue = queue.Queue()
 
         def read(stream, kind):
@@ -458,6 +487,10 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 kind, line = lines.get(timeout=0.5)
             except queue.Empty:
+                if self._gone():  # a closed page stops a command that prints nothing, too
+                    _stop(proc)
+                    alive = False
+                    break
                 continue
             if line is None:
                 open_streams -= 1
@@ -486,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             code = proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            _stop(proc)
+            _stop(proc, signal.SIGKILL)
             code = proc.wait()
         for t in readers:
             t.join(timeout=5)
@@ -499,16 +532,42 @@ class Handler(BaseHTTPRequestHandler):
             send({"event": "exit", "code": code, "seconds": round(time.monotonic() - started, 2)})
 
 
-def _stop(proc: subprocess.Popen) -> None:
+def _stop(proc: subprocess.Popen, sig: int = signal.SIGTERM) -> None:
+    """Send sig to the process group of a command (it starts its own session)."""
+    if proc.poll() is not None:
+        return
     try:
-        os.killpg(proc.pid, signal.SIGTERM)
+        os.killpg(proc.pid, sig)
     except (OSError, ProcessLookupError):
         pass
+
+
+def open_browser(url: str) -> Path | None:
+    """Open the URL in a browser through a private file that redirects to it, as Jupyter does: the browser's argv
+    shows the file, not the token. Returns the folder of the file (0700) to remove when the server stops."""
+    import html
+    import webbrowser
+    folder = Path(tempfile.mkdtemp(prefix="walle-app-"))
+    page = folder / "open.html"
+    fd = os.open(page, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        u = html.escape(url, quote=True)
+        fh.write(f'<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url={u}">'
+                 f'<title>walle</title><a href="{u}">Open walle app</a>\n')
+    try:
+        webbrowser.open(page.as_uri())
+    except Exception:  # noqa: BLE001 - no browser is fine: the URL is printed
+        pass
+    return folder
 
 
 def _html(text: str) -> str:
     import html
     return html.escape(text, quote=True)
+
+
+def _interrupt(*_args) -> None:
+    raise KeyboardInterrupt
 
 
 def run_cli(args, home: Path) -> int:
@@ -523,16 +582,15 @@ def run_cli(args, home: Path) -> int:
     print(f"From another machine: ssh -N -L {app.port}:127.0.0.1:{app.port} {socket.gethostname()}, "
           "then open the URL above there.")
     sys.stdout.flush()
-    if not args.no_open:
-        try:
-            import webbrowser
-            webbrowser.open(app.url)
-        except Exception:  # noqa: BLE001 - no browser is fine: the URL is printed
-            pass
+    opened = None if args.no_open else open_browser(app.url)
+    signal.signal(signal.SIGTERM, _interrupt)  # `kill <pid>` stops the commands too, as Ctrl-C does
     try:
         app.serve()
     except KeyboardInterrupt:
         pass
     finally:
+        app.stop_children()
         app.httpd.server_close()
+        if opened:
+            shutil.rmtree(opened, ignore_errors=True)
     return 0

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import OrderedDict
 from pathlib import Path
 
 from . import brief, eve, keep, runs, strings
@@ -20,27 +21,67 @@ RUN_ID = re.compile(r"^\d{8}-\d{6}(?:-\d+)?$")
 VERDICT_RANK = {"OVER BUDGET": 2, "TRIM": 1, "LEAN": 0}
 ITEM_LIMIT = 200
 TEXT_LIMIT = 600
-_cache: dict[str, tuple[tuple[int, int], object]] = {}
+# The parsed run files that the views read again and again (scan.json is often over 1 MB). The cache holds at most
+# CACHE_FILES files and CACHE_BYTES bytes of file text, the least recently used goes first, and the entry of a file
+# that is gone or changed is dropped. _valid keeps only one bool per scan.json: is it a scan that the views read.
+CACHE_FILES = 8
+CACHE_BYTES = 16 * 1024 * 1024
+_cache: "OrderedDict[str, tuple[tuple[int, int], object]]" = OrderedDict()
+_valid: dict[str, tuple[tuple[int, int], bool]] = {}
 
 
-def load_json(path: Path | None):
-    """The JSON object of a file, or None. Kept in memory until the file changes (size or mtime)."""
-    if path is None:
-        return None
+def _stamp(path: Path) -> tuple[int, int] | None:
     try:
         st = path.stat()
     except OSError:
         return None
-    key, stamp = str(path), (st.st_mtime_ns, st.st_size)
+    return st.st_mtime_ns, st.st_size
+
+
+def _prune() -> None:
+    """Drop the entries of files that are gone, then the least recently used until the cache is in its limits."""
+    for key in [k for k in _cache if _stamp(Path(k)) is None]:
+        del _cache[key]
+    for key in [k for k in _valid if _stamp(Path(k)) is None]:
+        del _valid[key]
+    while _cache and (len(_cache) > CACHE_FILES or sum(v[0][1] for v in _cache.values()) > CACHE_BYTES):
+        _cache.popitem(last=False)
+
+
+def load_json(path: Path | None):
+    """The JSON object of a file, or None. Kept in a small cache until the file changes (size or mtime)."""
+    if path is None:
+        return None
+    key, stamp = str(path), _stamp(path)
+    if stamp is None:
+        _cache.pop(key, None)
+        return None
     hit = _cache.get(key)
     if hit and hit[0] == stamp:
+        _cache.move_to_end(key)
         return hit[1]
     try:
         data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
     except (OSError, ValueError):
+        _cache.pop(key, None)
         return None
     _cache[key] = (stamp, data)
+    _prune()
     return data
+
+
+def readable_scan(out: Path, row: dict) -> Path | None:
+    """scan.json of a scan row when the views can read it (schema 2: items and triage), else None. A missing
+    file and a scan.json without triage (an old schema) are not readable."""
+    path = run_file(out, row, "scan.json")
+    stamp = _stamp(path) if path else None
+    if stamp is None:
+        return None
+    hit = _valid.get(str(path))
+    if not hit or hit[0] != stamp:
+        data = load_json(path)
+        hit = _valid[str(path)] = (stamp, isinstance(data, dict) and "triage" in data and "items" in data)
+    return path if hit[1] else None
 
 
 def run_file(out: Path, row: dict, name: str) -> Path | None:
@@ -88,7 +129,12 @@ def folders(out: Path, home: Path, launch: Path | None = None) -> list[dict]:
     The folder the app started in comes first when no scan holds it (has_scan false).
     """
     by: dict[str, dict] = {}
+    unreadable: set[str] = set()
     for r in _scans(out):  # oldest first: a newer scan replaces the row
+        if readable_scan(out, r) is None:
+            # A scan that the views cannot read gives no verdict: its folders show as having no scan.
+            unreadable.update(k.rpartition("@")[0] for k in r["per_folder"] if isinstance(k, str) and "@" in k)
+            continue
         verdicts = r.get("verdicts") if isinstance(r.get("verdicts"), dict) else {}
         for key, tokens in r["per_folder"].items():
             if not isinstance(key, str) or "@" not in key:
@@ -106,6 +152,10 @@ def folders(out: Path, home: Path, launch: Path | None = None) -> list[dict]:
         worst = max(row["stacks"].items(), key=lambda kv: (VERDICT_RANK.get(kv[1]["verdict"], -1), kv[1]["tokens"]))
         row["agent"], row["verdict"], row["tokens"] = worst[0], worst[1]["verdict"], worst[1]["tokens"]
         row["tokens_text"] = tokens_text(row["tokens"])
+    for folder in sorted(unreadable - set(by)):
+        by[folder] = {"path": folder, "display": brief.shown(folder, None, home), "short": brief.shown(folder, None, home),
+                      "root": folder, "scan_id": None, "has_scan": False, "stacks": {}, "verdict": None,
+                      "tokens": None, "tokens_text": ""}
     rows = sorted(by.values(), key=lambda r: r["path"])
     # A short name is relative to the outermost listed folder above it: ~/projects, then atc/controller.
     for row in rows:
@@ -147,9 +197,11 @@ def _stack(e: dict, data: dict, folder: str, home: Path) -> dict:
     items = {it["id"]: it for it in data.get("items", [])}
     start = [i for i in e.get("start_here") or [] if i in items]
     sentences = brief._verdict_sentences(e, "en", folder, home, data)
+    lead = sentences[1:]  # the first sentence gives the tokens and the budget: the head of the card shows them
     if e["verdict"] == brief.LEAN and not start:
         sentences = [t("empty.lean", "en", tokens=round_tokens(e["tokens_est"], e["budget"]),
                        budget=f"{e['budget']:,}").partition(" · ")[2]] + brief.all_kept(e, "en")
+        lead = sentences
     groups = []
     for g, members in brief.collect_groups([e], start).items():
         ids = [m for m in members if isinstance(m, str)] if g != "worktree_copies" else []
@@ -165,15 +217,17 @@ def _stack(e: dict, data: dict, folder: str, home: Path) -> dict:
         "key": f"{e['folder']}@{e['agent']}", "agent": e["agent"], "verdict": e["verdict"],
         "verdict_text": t(f"verdict.{e['verdict']}", "en"), "tokens_est": e["tokens_est"],
         "tokens_text": tokens_text(e["tokens_est"], e["budget"]), "budget": e["budget"],
-        "sentences": sentences, "split": brief.split_line(e, "en"), "to_read": e.get("to_read", 0),
+        "sentences": sentences, "lead": lead, "split": brief.split_line(e, "en"), "to_read": e.get("to_read", 0),
         "shared": [brief.shared_text(r, "en", home) for r in brief.shared_rows(e)],
         "start_here": [_item(items[i], folder, home) for i in start], "groups": groups,
     }
 
 
 def _newest_scan_row(out: Path, folder: str) -> dict | None:
+    """The newest scan row that holds the folder and whose scan.json the views can read (as folders() picks it)."""
     for r in reversed(_scans(out)):
-        if any(isinstance(k, str) and k.rpartition("@")[0] == folder for k in r["per_folder"]):
+        if any(isinstance(k, str) and k.rpartition("@")[0] == folder for k in r["per_folder"]) \
+                and readable_scan(out, r):
             return r
     return None
 
@@ -181,7 +235,7 @@ def _newest_scan_row(out: Path, folder: str) -> dict | None:
 def scan_view(out: Path, home: Path, folder: str) -> tuple[dict | None, dict | None, Path | None]:
     """(view, scan.json data, path) of the newest scan that holds the folder, else (None, None, None)."""
     row = _newest_scan_row(out, folder)
-    path = run_file(out, row, "scan.json") if row else None
+    path = readable_scan(out, row) if row else None
     data = load_json(path)
     if not isinstance(data, dict) or "triage" not in data:
         return None, None, None
@@ -295,17 +349,27 @@ def trim_view(out: Path, home: Path, folder: str) -> dict | None:
                 continue
             keys = (row.get("change") or {}).get("keys") or []
             used = row.get("used_in") or []
+            change = row.get("change") or {}
+            saving = row.get("saving") or {}
+            already = bool(change.get("already"))
             rows.append({
                 "id": row.get("id"), "title": row.get("title"), "group": row.get("group"), "action": row.get("action"),
                 "source": row.get("source"), "applies": row.get("applies"), "where": row.get("where"),
-                "saving": row.get("saving"), "sessions": row.get("sessions"), "risk": row.get("risk"),
+                "already": already, "set_at": (change.get("set_at") or {}).get("time"),
+                "set_status": [{"entrypoint": x.get("entrypoint"), "state": x.get("state"), "text": x.get("text")}
+                               for x in row.get("set_status") or [] if isinstance(x, dict)],
+                "counted": saving.get("counted") is not False, "not_counted": saving.get("not_counted"),
+                "past": bool(row.get("past")),
+                "saving": saving, "sessions": row.get("sessions"), "risk": row.get("risk"),
                 "undo": row.get("undo"), "check": row.get("check"),
                 "verdict": (row.get("judge") or {}).get("verdict"), "judge": (row.get("judge") or {}).get("judge"),
                 "here": folder in used or folder in keys,
                 "used_in": [brief.shown(u, None, home) for u in used if isinstance(u, str)],
-                "command": _apply_command(r["id"], row),
+                # A key that already has the planned state needs no apply.
+                "command": None if already else _apply_command(r["id"], row),
             })
-        rows.sort(key=lambda x: -((x["saving"] or {}).get("unused_tokens_min") or 0))
+        # Rows to apply first, by tokens loaded and not used; rows already set last.
+        rows.sort(key=lambda x: (x["already"], -((x["saving"] or {}).get("unused_tokens_min") or 0)))
         return {"id": r["id"], "label": r.get("label"), "generated": when(data.get("generated")),
                 "period": data.get("period"), "rows": rows, "kept": data.get("kept") or [],
                 "report_only": data.get("report_only") or [], "notes": data.get("notes") or [],

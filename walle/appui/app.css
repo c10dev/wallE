@@ -88,6 +88,8 @@ a { color: var(--link); }
 .app-trim-title { font: 600 14px/20px var(--font-sans); overflow-wrap: anywhere; }
 .app-save { font: 400 13px/20px var(--font-sans); }
 .app-save strong { font-family: var(--font-mono); font-weight: 600; color: var(--rust); font-variant-numeric: tabular-nums; }
+.app-status { margin: var(--space-1) 0 0; padding-left: var(--space-4); }
+.app-status code { font-size: 12px; }
 .app-fix { display: flex; gap: var(--space-2); align-items: baseline; flex-wrap: wrap; font: 400 13px/20px var(--font-sans); }
 .app-fix-k { font: 700 11px/16px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--trim); }
 .app-details { font: 400 12px/18px var(--font-sans); color: var(--muted); }

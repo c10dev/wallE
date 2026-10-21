@@ -175,8 +175,8 @@ walle app --port 8760
 - The left list has the actions (Scan, Measure, Trim, Runs, Keep) and the folders of your scans. Each folder shows its verdict and its estimated tokens.
 - Scan shows the newest scan of the folder: the verdict, Start here, the other items and the judge answers. A folder without a scan shows the commands to start with.
 - Measure shows the `walle eve` rows of the folder (median [p25-p75] and n, and the change after a split) and the context panel of the newest context runs.
-- Trim shows the newest plan. It is read-only: each row has its `walle apply` command to copy into a terminal. Runs shows the run index, and Keep shows `keep.json`.
-- The command bar takes one walle command. The command runs in the folder that the page shows, as a list of arguments without a shell. `walle scan` shows its steps while it runs.
+- Trim shows the newest plan. It is read-only: each row has its `walle apply` command to copy into a terminal. A row whose key is already set shows its status per surface, with no saving and no command. Runs shows the run index, and Keep shows `keep.json`.
+- The command bar takes one walle command. The command runs in the folder that the page shows, as a list of arguments without a shell. `walle scan` shows its steps while it runs. When you close the page or stop the server, walle stops the command.
 - This version runs read commands only: `scan`, `context`, `eve`, `runs`, `diff`, `show`, `trim --plan` and `judge --dry-run`. It refuses `apply`, `undo`, `keep`, `unkeep`, `pin`, `judge --import` and `trim --import` and runs nothing for them. Run them in a terminal.
 - `--out` sets the runs folder, as for the other commands. A command from the page cannot change it.
 
@@ -187,6 +187,8 @@ ssh -N -L 8760:127.0.0.1:8760 <server>
 ```
 
 Use the same port on the two sides: the server refuses a Host header with another port.
+
+Without `--no-open`, walle opens the browser through a private temporary file (mode 0600) that redirects to the URL. The token is not in the command line of the browser, where other users can see it with `ps`.
 
 ## scan.json
 

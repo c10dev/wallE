@@ -5,10 +5,15 @@ import http.client
 import io
 import json
 import re
+import os
 import shutil
+import socket
+import stat
+import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -41,6 +46,9 @@ class FakeProc:
         self.pid, self.returncode = 2 ** 22 + 7, code
 
     def wait(self, timeout=None):
+        return self.returncode
+
+    def poll(self):
         return self.returncode
 
 
@@ -419,8 +427,183 @@ class CliTest(unittest.TestCase):
         from appfixture import walle
         p = walle(FX.home, FX.out, "app", "--help")
         self.assertEqual(p.returncode, 0)
-        self.assertIn("--port", p.stdout)
-        self.assertIn("--no-open", p.stdout)
+        for flag in ("--port", "--no-open"):
+            self.assertIn(flag, p.stdout)
+
+
+SILENT = [sys.executable, "-c", "import time; time.sleep(60)"]
+
+
+class SilentChildTest(Served):
+    """A command that prints nothing must still stop when the page goes away or the server stops."""
+
+    def start_silent(self):
+        procs = []
+        real = subprocess.Popen
+
+        def spy(*a, **kw):
+            procs.append(real(*a, **kw))
+            return procs[-1]
+        patches = [mock.patch("walle.app.child_argv", return_value=SILENT),
+                   mock.patch("walle.app.subprocess.Popen", side_effect=spy)]
+        for x in patches:
+            x.start()
+        self.addCleanup(lambda: [x.stop() for x in patches])
+        sock = socket.create_connection(("127.0.0.1", self.port), timeout=10)
+        body = json.dumps({"command": "walle runs"}).encode()
+        sock.sendall((f"POST /{self.token}/api/run HTTP/1.1\r\nHost: 127.0.0.1:{self.port}\r\n"
+                      f"Origin: http://127.0.0.1:{self.port}\r\nContent-Type: application/json\r\n"
+                      f"Content-Length: {len(body)}\r\n\r\n").encode() + body)
+        got = b""
+        while b'"start"' not in got:
+            got += sock.recv(4096)
+        for _ in range(100):
+            if procs:
+                break
+            time.sleep(0.05)
+        self.addCleanup(lambda: [p.kill() for p in procs if p.poll() is None])
+        return sock, procs[0]
+
+    def wait_for(self, check, seconds=8):
+        end = time.monotonic() + seconds
+        while time.monotonic() < end:
+            if check():
+                return True
+            time.sleep(0.1)
+        return False
+
+    def test_a_closed_page_stops_a_silent_command(self):
+        sock, proc = self.start_silent()
+        self.assertIsNone(proc.poll())
+        sock.close()
+        self.assertTrue(self.wait_for(lambda: proc.poll() is not None), "the child still runs")
+        self.assertTrue(self.wait_for(lambda: not self.app.lock.locked()), "the lock is still held")
+        with mock.patch("walle.app.subprocess.Popen", return_value=FakeProc(["ok"])):
+            r, _, events = self.run_cmd("walle runs")
+        self.assertEqual(r.status, 200)
+        self.assertEqual(events[-1]["event"], "exit")
+
+    def test_stopping_the_server_stops_a_running_command(self):
+        sock, proc = self.start_silent()
+        self.addCleanup(sock.close)
+        self.assertIn(proc, self.app.children)
+        self.app.stop_children()
+        self.assertTrue(self.wait_for(lambda: proc.poll() is not None), "the child still runs")
+        self.assertEqual(proc.returncode, -15)
+
+
+class OpenBrowserTest(unittest.TestCase):
+    def test_the_browser_gets_a_private_file_not_the_token(self):
+        url = "http://127.0.0.1:8760/SECRET-token_value/"
+        with mock.patch("webbrowser.open") as wb:
+            folder = appmod.open_browser(url)
+        try:
+            opened = wb.call_args[0][0]
+            self.assertTrue(opened.startswith("file://"))
+            self.assertNotIn("SECRET", opened)
+            page = Path(opened[len("file://"):])
+            self.assertEqual(stat.S_IMODE(page.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(folder.stat().st_mode), 0o700)
+            self.assertIn(f'url={url}"', page.read_text())
+        finally:
+            shutil.rmtree(folder)
+
+
+class DataTest(unittest.TestCase):
+    """appdata against hand-made runs: unreadable scans, the cache limits, rows already set."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.out = self.tmp / "runs"
+        self.out.mkdir()
+
+    def index(self, *rows):
+        (self.out / "index.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+
+    def test_folders_and_the_scan_view_agree_on_unreadable_scans(self):
+        rows = [json.loads(l) for l in (FX.out / "index.jsonl").read_text().splitlines()]
+        good = [r for r in rows if r["kind"] == "scan"][-1]
+        shutil.copytree(FX.out / good["id"], self.out / good["id"])
+        good = {**good, "path": str(self.out / good["id"] / "scan.json")}  # only the copy
+        old = {"id": "20991231-000000", "kind": "scan", "roots": [str(FX.projects)], "generated": "2099-12-31T00:00:00",
+               "per_folder": {f"{FX.app}@claude": 10, "/gone/folder@claude": 20},
+               "verdicts": {f"{FX.app}@claude": "OVER BUDGET", "/gone/folder@claude": "LEAN"},
+               "path": str(self.out / "20991231-000000" / "scan.json")}
+        (self.out / old["id"]).mkdir()
+        (self.out / old["id"] / "scan.json").write_text(json.dumps({"schema": 1, "stacks": []}))  # no triage
+        self.index(good, old)
+        rows = {f["path"]: f for f in appdata.folders(self.out, FX.home)}
+        self.assertEqual(rows[str(FX.app)]["scan_id"], good["id"])  # the newest readable scan
+        self.assertTrue(rows[str(FX.app)]["has_scan"])
+        self.assertEqual(appdata.scan_view(self.out, FX.home, str(FX.app))[0]["id"], good["id"])
+        self.assertFalse(rows["/gone/folder"]["has_scan"])
+        self.assertIsNone(rows["/gone/folder"]["verdict"])
+        self.assertIsNone(appdata.scan_view(self.out, FX.home, "/gone/folder")[0])
+        (self.out / good["id"] / "scan.json").unlink()  # a missing file reads as no scan too
+        rows = {f["path"]: f for f in appdata.folders(self.out, FX.home)}
+        self.assertFalse(rows[str(FX.app)]["has_scan"])
+        self.assertIsNone(appdata.scan_view(self.out, FX.home, str(FX.app))[0])
+
+    def test_the_cache_has_limits_and_forgets_gone_files(self):
+        files = []
+        for i in range(5):
+            f = self.tmp / f"f{i}.json"
+            f.write_text(json.dumps({"i": i, "pad": "x" * 1000}))
+            files.append(f)
+        with mock.patch.object(appdata, "CACHE_FILES", 3), mock.patch.dict(appdata._cache, clear=True):
+            for f in files:
+                self.assertEqual(appdata.load_json(f)["i"], int(f.stem[1:]))
+            self.assertEqual(list(appdata._cache), [str(f) for f in files[2:]])  # least recently used went first
+            appdata.load_json(files[2])
+            files[3].unlink()
+            appdata.load_json(files[0])
+            self.assertNotIn(str(files[3]), appdata._cache)
+            self.assertLessEqual(len(appdata._cache), 3)
+        with mock.patch.object(appdata, "CACHE_BYTES", 1500), mock.patch.dict(appdata._cache, clear=True):
+            appdata.load_json(files[0])
+            appdata.load_json(files[1])
+            self.assertEqual(list(appdata._cache), [str(files[1])])
+
+    def test_trim_rows_already_set_have_no_saving_and_no_command(self):
+        rid = "20261021-052705"
+        plan = {"generated": "2026-10-21T05:27:06", "period": {"sessions": 912}, "notes": [], "rows": [
+            {"id": "0d7265", "title": "Hide the skill a", "applies": "walle", "action": "T5",
+             "change": {"file": "~/.claude/settings.json", "already": True, "set_at": {"time": "2026-10-21T04:19:24"}},
+             "saving": {"tokens_per_session_min": 70, "unused_tokens_min": 0, "counted": False,
+                        "not_counted": "the key is already set"},
+             "set_status": [{"entrypoint": "cli", "state": "not measured", "text": "set, not measured on cli"}]},
+            {"id": "c12dc3", "title": "Remove the MCP server rea", "applies": "walle", "action": "T2",
+             "change": {"file": "~/.claude.json", "already": False},
+             "saving": {"tokens_per_session_min": 4174, "unused_tokens_min": 279658}},
+            {"id": "9a9a9a", "title": "Hide the skill b", "applies": "walle", "action": "T5", "change": {},
+             "saving": {"tokens_per_session_min": 5, "unused_tokens_min": 0, "counted": False,
+                        "not_counted": "not in the current bucket"}},
+        ]}
+        (self.out / rid).mkdir()
+        (self.out / rid / "plan.json").write_text(json.dumps(plan))
+        self.index({"id": rid, "kind": "trim", "roots": [], "path": str(self.out / rid / "plan.json")})
+        rows = appdata.trim_view(self.out, FX.home, str(FX.app))["rows"]
+        self.assertEqual([r["id"] for r in rows], ["c12dc3", "9a9a9a", "0d7265"])  # rows already set last
+        done = rows[-1]
+        self.assertTrue(done["already"])
+        self.assertIsNone(done["command"])
+        self.assertFalse(done["counted"])
+        self.assertEqual(done["set_status"][0]["text"], "set, not measured on cli")
+        self.assertEqual(rows[0]["command"], f"walle apply {rid} --only c12dc3 --app-closed")
+        self.assertTrue(rows[0]["counted"])
+        self.assertEqual((rows[1]["counted"], rows[1]["not_counted"]), (False, "not in the current bucket"))
+
+    def test_a_lean_stack_with_nothing_to_read_has_its_sentence(self):
+        v = appdata.scan_view(FX.out, FX.home, str(FX.projects))[0]
+        lean = [s for s in v["stacks"] if s["verdict"] == "LEAN" and not s["start_here"]]
+        self.assertTrue(lean)
+        for s in lean:
+            self.assertEqual(len(s["lead"]), 1)
+            self.assertIn("Checked:", s["lead"][0])
+        v = appdata.scan_view(FX.out, FX.home, str(FX.projects / "DesignLAB"))[0]
+        trim = v["stacks"][0]
+        self.assertEqual(trim["lead"], trim["sentences"][1:])  # the head shows the first sentence
 
 
 if __name__ == "__main__":
