@@ -109,6 +109,53 @@ class PairTest(unittest.TestCase):
         self.assertIn("is not an apply id or a date", err)
 
 
+class ConnectorNameTest(unittest.TestCase):
+    """A desktop session names a claude.ai connector by UUID, a CLI session by name. Without the --usage cache,
+    compare still shows one connector."""
+
+    UUID = "12345678-aaaa-4bbb-8ccc-1234567890ab"
+
+    def setUp(self):
+        self.h = Home()
+        tools = ["search", "read_thread", "send"]
+        claude_session(self.h.projects, "desk", self.h.app, day(20, 1), servers={self.UUID: tools},
+                       instructions={self.UUID: "Gmail connector instructions " * 4})
+        claude_session(self.h.projects, "cli", self.h.app, day(21, 1), entrypoint="cli",
+                       servers={"claude_ai_Gmail": tools}, instructions={"claude.ai Gmail": "Gmail connector instructions " * 2})
+        self.assertFalse((self.h.out.parent / "cache" / "context-usage.json").exists())
+
+    def tearDown(self):
+        self.h.close()
+
+    def check(self, data):
+        c = data["compare"]
+        self.assertEqual((c["loaded"]["servers"]["a_only"], c["loaded"]["servers"]["b_only"]), ([], []))
+        inside = {r["source"]: r["inside"] for r in c["sources"]}
+        # Per tool name: "mcp__" + server + "__" + tool + newline; the tools have 21 characters in all.
+        self.assertEqual(inside["deferred_tools"], [["claude.ai Gmail", 3 * (len(self.UUID) + 8) + 21, 3 * (15 + 8) + 21]])
+        self.assertEqual([e[0] for e in inside["mcp_instructions"]], ["claude.ai Gmail"])
+
+    def test_two_sessions(self):
+        out, _ = self.h.cli("context", "--compare", "desk", "cli", "--transcripts", str(self.h.projects))
+        self.check(json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text()))
+        self.assertIn("claude.ai Gmail -63", out)
+        self.assertNotIn("(connector id)", out)
+
+    def test_around_an_apply_on_a_machine_without_the_cache(self):
+        self.h.apply_row(APPLY, "2026-10-20T12:00:00+00:00")
+        out, _ = self.h.cli("context", "--compare", APPLY, "--root", str(self.h.app), "--transcripts", str(self.h.projects))
+        data = json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text())
+        self.assertEqual((data["a"]["session"]["id"], data["b"]["session"]["id"]), ("desk", "cli"))
+        self.check(data)
+
+    def test_a_context_run_made_without_the_cache(self):
+        run, _ = self.h.cli("context", "--session", "desk", "--transcripts", str(self.h.projects))
+        self.assertIn("(connector id)", (Path(run.strip()).parent / "context.json").read_text())
+        out, _ = self.h.cli("context", "--compare", Path(run.strip()).parent.name, "cli",
+                            "--transcripts", str(self.h.projects))
+        self.check(json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text()))
+
+
 class AroundApplyTest(unittest.TestCase):
     """--compare <apply-id>: the newest session on each side, the applied rows, the folder's medians."""
 

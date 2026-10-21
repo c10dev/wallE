@@ -89,13 +89,53 @@ def _codex_loaded(r: rollout.Rollout) -> dict:
     return {"servers": dict(sorted(servers.items())), "skills": dict(sorted(skills.items()))}
 
 
-def cached_names(cache: Path) -> dict[str, str]:
-    """Connector display names from the walle context --usage cache, as walle context uses them."""
+def _cache_rows(cache: Path) -> list[dict]:
     try:
-        return context.connector_names([v["row"] for k, v in json.loads((cache / "context-usage.json").read_text()).items()
-                                        if k != "_v"])
+        return [v["row"] for k, v in json.loads((cache / "context-usage.json").read_text()).items() if k != "_v"]
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
-        return {}
+        return []
+
+
+def connector_map(rows: list[dict], paths: list[Path]) -> dict[str, str]:
+    """Connector display names, as walle context uses them, from usage rows and the two compared transcripts.
+
+    The desktop app names a claude.ai connector by UUID and the CLI by name. With both sessions' tool names in
+    the rows, one connector gets one name on both sides even without the walle context --usage cache.
+    """
+    extra = []
+    for p in paths:
+        try:
+            if p and p.is_file():
+                extra.append(transcript.usage_row(p, True))
+        except OSError:
+            continue
+    return context.connector_names(list(rows) + extra)
+
+
+def rename_parts(side: dict, names: dict[str, str]) -> None:
+    """Give the connector parts of a context run the names of this compare (a run keeps the names it had)."""
+    alias = {f"claude.ai {k[:8]} (connector id)": context.display(k, names) for k in names if transcript.UUID_RE.match(k)}
+    for s in side["first_call"]["sources"]:
+        if s.get("parts"):
+            merged: dict[str, int] = {}
+            for k, v in s["parts"].items():
+                k = alias.get(k, k)
+                merged[k] = merged.get(k, 0) + v
+            s["parts"] = merged
+
+
+def _session_path(out: Path, ref: str, root: Path) -> Path | None:
+    """The Claude transcript of a ref: a context run's session, or a session id. None when not found."""
+    run = context_run(out, ref)
+    if run:
+        try:
+            return Path((json.loads(run.read_text()).get("session") or {}).get("path") or "")
+        except (OSError, ValueError, AttributeError):
+            return None
+    try:
+        return context.find_session(root, ref)
+    except context.ContextError:
+        return None
 
 
 def from_session(agent: str, root: Path, ref: str, estimator: str, names: dict | None = None) -> dict:
@@ -276,7 +316,7 @@ def _kind(row: dict) -> str | None:
     return None
 
 
-def applied_rows(out: Path, split: dict, root: Path, cache: Path) -> list[dict]:
+def applied_rows(out: Path, split: dict, root: Path, cache: Path, rows: dict | None = None) -> list[dict]:
     """Each row the apply changed: the sessions that loaded it and used it, before and since (all folders)."""
     a = split.get("apply") or {}
     try:
@@ -292,7 +332,7 @@ def applied_rows(out: Path, split: dict, root: Path, cache: Path) -> list[dict]:
     want = [(i, plan.get(i)) for i in changed]
     if not want:
         return []
-    rows = context.load_rows(root, cache / "context-usage.json")
+    rows = rows if rows is not None else context.load_rows(root, cache / "context-usage.json")
     names = context.connector_names(list(rows.values()))
     sessions: dict[str, dict] = {}
     for r in rows.values():
@@ -492,7 +532,7 @@ def run_cli(args, home: Path = HOME) -> int:
         print(t("out.in_folder", lang, path=hit[0], root=hit[1]), file=sys.stderr)
         return 2
     res: dict = {"split": None, "applied": [], "measure": None, "same_folder": True}
-    names = cached_names(cache) if agent == "claude" else {}
+    names: dict[str, str] = {}
     try:
         if len(refs) == 1:
             try:
@@ -505,16 +545,27 @@ def run_cli(args, home: Path = HOME) -> int:
                 print(t("compare.no_pair", lang, side=t("measure.side." + ("after" if after is None else "before"), lang),
                         at=measure.local(split["at"])))
                 return 0
+            usage = None
+            if agent == "claude":
+                # Names first: the sides and the applied rows show one name for one connector.
+                usage = context.load_rows(root, cache / "context-usage.json") if split["apply"] else None
+                names = connector_map(list(usage.values()) if usage else _cache_rows(cache),
+                                      [Path(before.path), Path(after.path)])
             a = from_session(agent, root, Path(before.path).stem if agent == "claude" else _thread(before), estimator, names)
             b = from_session(agent, root, Path(after.path).stem if agent == "claude" else _thread(after), estimator, names)
             res.update(split=split, same_folder=here, tags=[t("measure.side.before", lang), t("measure.side.after", lang)])
             if split["apply"] and agent == "claude":
-                res["applied"] = applied_rows(args.out, split, root, cache)
+                res["applied"] = applied_rows(args.out, split, root, cache, usage)
             res["measure"] = eve.measure_block(sessions, agent, folder, split)
             res["head"] = f"walle context --compare {refs[0]}  {agent}"
         elif len(refs) == 2:
+            if agent == "claude":
+                names = connector_map(_cache_rows(cache), [_session_path(args.out, r, root) for r in refs])
             a = side(args.out, refs[0], agent, root, estimator, names)
             b = side(args.out, refs[1], agent, root, estimator, names)
+            if a["agent"] == "claude":
+                rename_parts(a, names)
+                rename_parts(b, names)
             res.update(tags=["A", "B"], head=f"walle context --compare {refs[0]} {refs[1]}  {a['agent']}")
         else:
             raise CompareError("compare.args")
