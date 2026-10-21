@@ -617,7 +617,7 @@ class RunRecordTest(unittest.TestCase):
         self.assertEqual((run["id"], run["kind"], run["parent_id"], run["estimator"]),
                          (rows[1]["id"], "scan", rows[0]["id"], "bytes-v2"))
         self.assertEqual(run["rules_hash"], triage.rules_hash())
-        self.assertEqual((run["counting_revision"], rows[1]["counting_revision"]), (2, 2))
+        self.assertEqual((run["counting_revision"], rows[1]["counting_revision"]), (3, 3))
         self.assertEqual(run["roots"], [app])
         self.assertEqual(rows[1]["per_folder"], {f"{app}@claude": data["stacks"][0]["tokens_est"],
                                                  f"{app}@codex": data["stacks"][1]["tokens_est"]})
@@ -679,7 +679,8 @@ class RunRecordTest(unittest.TestCase):
                                                         {"counting_revision": 2}, {"run": {"counting_revision": 2}})],
                          [1, 1, 1, 2, 2])
         app = str(self.h.projects / "app")
-        # Claude Code drops the comment, so revision 2 does not count it; revision 1 counted the whole file.
+        # Claude Code drops the comment, so revisions 2 and later do not count it; revision 1 counted the whole file.
+        rev = runs.COUNTING_REVISION
         self.h.write("projects/app/CLAUDE.md", "# App\n\n<!-- " + words("note", 30) + " -->\n\n- Run the tests.\n")
         with redirect_stdout(io.StringIO()), mock.patch("walle.cli.scan",
                                                         lambda roots, **kw: scan(roots, self.h.home, **kw)):
@@ -696,9 +697,9 @@ class RunRecordTest(unittest.TestCase):
             Path(row["path"]).write_text(json.dumps(old))
             self.assertEqual(cli.main(["--out", str(self.out), "scan", app, "--lang", "en"]), 0)
         rows = runs.read_index(self.out)
-        self.assertEqual([runs.counting_of(r) for r in rows], [1, 2])
+        self.assertEqual([runs.counting_of(r) for r in rows], [1, rev])
         new = json.loads(Path(rows[1]["path"]).read_text())
-        note = "token counting changed (revision 1 -> 2): token totals are not comparable."
+        note = f"token counting changed (revision 1 -> {rev}): token totals are not comparable."
         history = (Path(rows[1]["path"]).parent / "scan.md").read_text().split("## History", 1)[1].split("\n## ", 1)[0]
         self.assertIn(note, history)
         self.assertNotIn("estimator changed", history)
@@ -707,14 +708,14 @@ class RunRecordTest(unittest.TestCase):
         # scan.html: the baseline is a number of another counting revision, not a change.
         from walle import report, report_html
         D = report_html.page_data(new, self.out, self.h.home)
-        self.assertEqual([h["counting_revision"] for h in D["history"]], [1, 2])
+        self.assertEqual([h["counting_revision"] for h in D["history"]], [1, rev])
         self.assertEqual((D["run"]["baseline"], D["run"]["counting_revision"], D["run"]["baseline_note"],
-                          D["run"]["history_note"]), (rows[0]["id"], 2, note, note))
+                          D["run"]["history_note"]), (rows[0]["id"], rev, note, note))
         self.assertIn("counting changed ", report_html.render(new, self.out, self.h.home))
         # walle diff: both numbers with their revisions, no token difference.
         diff = report.render_diff(old, new)
-        self.assertIn("토큰 세는 방식이 바뀌었다(개정 1 -> 2): 토큰 합은 비교하지 않는다.", diff)
-        self.assertIn("| 이전 토큰(bytes-v2, 세는 방식 개정 1) | 이후 토큰(bytes-v2, 세는 방식 개정 2) | 지시 단위 차 |", diff)
+        self.assertIn(f"토큰 세는 방식이 바뀌었다(개정 1 -> {rev}): 토큰 합은 비교하지 않는다.", diff)
+        self.assertIn(f"| 이전 토큰(bytes-v2, 세는 방식 개정 1) | 이후 토큰(bytes-v2, 세는 방식 개정 {rev}) | 지시 단위 차 |", diff)
         self.assertNotIn("토큰 차", diff)
         self.assertNotIn("추정기", diff)
         self.assertNotIn("세는 방식", report.render_diff(new, new))

@@ -118,10 +118,12 @@ class Tree:
         return self.projects / name
 
     def skills(self, rel: str, seed: str, n: int, tokens: int) -> None:
-        # One catalog line per skill: "- name: description". Split the tokens over the skills.
+        # One catalog line per skill: "- name: description", and for Codex " (file: r0/<name>/SKILL.md)" after it.
+        # Split the tokens over the skills.
         for i in range(n):
             name = words(f"{seed}-name-{i}", 6).replace(" ", "")
-            desc = words(f"{seed}-desc-{i}", max(10, tokens * 4 // n - len(name) - 6))
+            tail = len(f" (file: r0/{name}/SKILL.md)") if rel.startswith(".codex/") else 0
+            desc = words(f"{seed}-desc-{i}", max(10, tokens * 4 // n - len(name) - 6 - tail))
             body = fill(layout(12, {1: f"# {name}"}), f"{seed}-body-{i}", 120)
             self.write(f"{rel}/{name}/SKILL.md", f"---\nname: {name}\ndescription: {desc}\n---\n{body}")
 

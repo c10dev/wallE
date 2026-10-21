@@ -24,7 +24,9 @@ UNRECORDED_ESTIMATOR = "bytes-v1"
 # Which text of a file scan counts. Bump it when that text changes: token totals of two revisions do not compare.
 #   1: the whole file. Runs without a counting_revision record counted this way.
 #   2: a file that Claude Code loads counts as loaded, without its HTML comment blocks (stack.claude_loaded).
-COUNTING_REVISION = 2
+#   3: the Codex skill list counts as Codex writes it: a skill is left out by allow_implicit_invocation: false in
+#      agents/openai.yaml (not by disable-model-invocation), and each line ends with "(file: r0/<folder>/SKILL.md)".
+COUNTING_REVISION = 3
 UNRECORDED_COUNTING = 1
 
 

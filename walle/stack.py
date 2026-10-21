@@ -7,7 +7,12 @@ Only loading rules observed on this machine are encoded:
   Synced claude.ai skills and plugin skills load too, but they are not the user's files: the layer
   note counts them, and `walle context` measures them. The budget stays on the user's own files.
 - Codex: ~/.codex/AGENTS.md, then AGENTS.override.md or AGENTS.md from the
-  repository root down to the folder, capped at 32 KiB by default.
+  repository root down to the folder, capped at project_doc_max_bytes of ~/.codex/config.toml
+  (32 KiB when unset), and the skills of ~/.codex/skills as Codex lists them: a skill whose
+  agents/openai.yaml sets allow_implicit_invocation: false is not listed (Claude's
+  disable-model-invocation does not apply). System skills (~/.codex/skills/.system) and plugin
+  skills load too; like synced and plugin skills of Claude Code, the layer note counts them and
+  `walle context --agent codex` measures them.
 Connector tools and built-in skills are not on disk and are not counted.
 
 Claude Code drops block-level HTML comments from every file it loads (CLAUDE.md, its @imports and
@@ -21,15 +26,16 @@ Layer tokens come from estimate.py: bytes-v2 prose rates by default, bytes-v1 on
 from __future__ import annotations
 
 import re
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import estimate, skills
-from .collect import HOME, Artifact, find_checkout, frontmatter, is_disabled_skill
+from .collect import HOME, Artifact, find_checkout, frontmatter
 
 MEMORY_LINE_LIMIT = 200
 MEMORY_BYTE_LIMIT = 25 * 1024
-CODEX_PROJECT_DOC_MAX = 32 * 1024
+CODEX_PROJECT_DOC_MAX = 32 * 1024  # Codex's default project_doc_max_bytes
 IMPORT_RE = re.compile(r"(?:^|\s)@((?:~|\.{1,2})?/?[\w./-]+\.md)\b", re.M)
 # Claude Code 2.1 lexes an instruction file with marked (gfm off) and drops its top-level HTML comment
 # blocks. These patterns follow marked's block rules for the cases that instruction files use.
@@ -227,22 +233,6 @@ def _imports(path: Path, text: str, depth: int = 0, seen: set[Path] | None = Non
     return out
 
 
-def _skill_catalog(dirs: list[Path]) -> tuple[str, int]:
-    parts = []
-    count = 0
-    for d in dirs:
-        if not d.is_dir():
-            continue
-        for p in sorted(d.glob("*/SKILL.md")):
-            text = p.read_text(errors="replace")
-            if is_disabled_skill(text):
-                continue
-            fm = frontmatter(text)
-            parts.append(f"- {fm.get('name', p.parent.name)}: {fm.get('description', '')}")
-            count += 1
-    return "\n".join(parts), count
-
-
 def claude_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFAULT) -> Stack:
     est = estimate.name(estimator)
     st = Stack(folder, "claude", estimator=est)
@@ -277,12 +267,80 @@ def claude_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFA
     return st
 
 
+def codex_settings(home: Path = HOME) -> dict:
+    """The few settings walle reads from ~/.codex/config.toml.
+
+    Only key names, booleans, the approval policy and project_doc_max_bytes: other values (MCP server
+    env and headers, shell environment filters) can hold secrets and are never read into the result.
+    """
+    try:
+        with (home / ".codex" / "config.toml").open("rb") as fh:
+            cfg = tomllib.load(fh)
+    except (OSError, ValueError):  # tomllib.TOMLDecodeError is a ValueError
+        cfg = {}
+    cap = cfg.get("project_doc_max_bytes")
+    cap_set = isinstance(cap, int) and not isinstance(cap, bool) and cap >= 0
+    features: dict[str, bool] = {}
+    for k, v in (cfg.get("features") if isinstance(cfg.get("features"), dict) else {}).items():
+        if isinstance(v, bool):
+            features[k] = v
+        elif isinstance(v, dict) and isinstance(v.get("enabled"), bool):
+            features[k] = v["enabled"]
+    plugins = cfg.get("plugins") if isinstance(cfg.get("plugins"), dict) else {}
+    servers = cfg.get("mcp_servers") if isinstance(cfg.get("mcp_servers"), dict) else {}
+    policy = cfg.get("approval_policy")
+    return {"project_doc_max_bytes": cap if cap_set else CODEX_PROJECT_DOC_MAX, "project_doc_max_bytes_set": cap_set,
+            "approval_policy": policy if isinstance(policy, str) else None, "features": features,
+            "mcp_servers": sorted(str(k) for k in servers),
+            "plugins": {str(k): bool(v.get("enabled", True)) for k, v in plugins.items() if isinstance(v, dict)},
+            "hooks": bool(cfg.get("hooks"))}
+
+
+IMPLICIT_OFF_RE = re.compile(r"^\s*allow_implicit_invocation:\s*false\b", re.M)
+
+
+def codex_implicit(skill_dir: Path) -> bool:
+    """False when the skill's agents/openai.yaml sets allow_implicit_invocation: false. Codex does not list
+    such a skill; it runs only when the user names it."""
+    try:
+        return not IMPLICIT_OFF_RE.search((skill_dir / "agents" / "openai.yaml").read_text(errors="replace"))
+    except OSError:
+        return True
+
+
+def codex_skill_line(path: Path, root: str = "r0") -> str:
+    """The skill list line Codex writes for a skill: "- name: description (file: r0/<folder>/SKILL.md)"."""
+    fm = frontmatter(path.read_text(errors="replace"))
+    return f"- {fm.get('name', path.parent.name)}: {fm.get('description', '')} (file: {root}/{path.parent.name}/SKILL.md)"
+
+
+def _codex_catalog(home: Path) -> tuple[str, int, str]:
+    base = home / ".codex" / "skills"
+    lines, hidden = [], 0
+    if base.is_dir():
+        for p in sorted(base.glob("*/SKILL.md")):
+            if p.parent.name.startswith("."):
+                continue
+            if not codex_implicit(p.parent):
+                hidden += 1
+                continue
+            lines.append(codex_skill_line(p))
+    system = sum(1 for p in (base / ".system").glob("*/SKILL.md") if codex_implicit(p.parent)) if base.is_dir() else 0
+    note = f"{len(lines)} codex skills"
+    if hidden:
+        note += f"; {hidden} not listed (agents/openai.yaml allow_implicit_invocation: false)"
+    if system:
+        note += f"; {system} system skills and the plugin skills are measured by walle context --agent codex"
+    return "\n".join(lines), len(lines), note
+
+
 def codex_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFAULT) -> Stack:
     est = estimate.name(estimator)
     st = Stack(folder, "codex", estimator=est)
     g = home / ".codex" / "AGENTS.md"
     if g.is_file():
         st.layers.append(_layer("codex_global", g, estimator=est))
+    cap = codex_settings(home)["project_doc_max_bytes"]
     checkout, _repo, _wt = find_checkout(folder)
     top = checkout or folder
     chain = [top] + [p for p in reversed(folder.parents) if top in p.parents] + ([folder] if folder != top else [])
@@ -294,14 +352,14 @@ def codex_stack(folder: Path, home: Path = HOME, estimator: str = estimate.DEFAU
                 t = p.read_text(errors="replace")
                 size = len(t.encode())
                 note = ""
-                if used + size > CODEX_PROJECT_DOC_MAX:
-                    note = f"over the {CODEX_PROJECT_DOC_MAX} byte project doc cap: Codex truncates"
+                if used + size > cap:
+                    note = f"over the {cap} byte project doc cap: Codex truncates"
                 used += size
                 st.layers.append(_layer("codex_project", p, t, note, est))
                 break
-    text, n = _skill_catalog([home / ".codex" / "skills"])
+    text, n, note = _codex_catalog(home)
     if n:
-        st.layers.append(_catalog_layer(text, f"{n} codex skills", est))
+        st.layers.append(_catalog_layer(text, note, est))
     return st
 
 

@@ -383,12 +383,12 @@
   },
   "vocado_RN@codex": {
    "verdict": "LEAN",
-   "tokens": 4419,
+   "tokens": 4418,
    "sentence": "~4,400 est. tokens load before your first prompt (budget 15,000). 1 item to read in your files.",
    "sums": {
     "shared": 873,
     "owned": 3146,
-    "skills": 400
+    "skills": 399
    },
    "counts": {
     "loaded twice": 1
@@ -423,7 +423,7 @@
     [
      "skill_catalog",
      "skills",
-     400,
+     399,
      "skills",
      9
     ]
@@ -467,11 +467,11 @@
   },
   "~/projects@codex": {
    "verdict": "LEAN",
-   "tokens": 1273,
+   "tokens": 1272,
    "sentence": "~1,300 est. tokens load before your first prompt (budget 15,000). Nothing to read in your files.",
    "sums": {
     "shared": 873,
-    "skills": 400
+    "skills": 399
    },
    "counts": {},
    "start": [],
@@ -495,7 +495,7 @@
     [
      "skill_catalog",
      "skills",
-     400,
+     399,
      "skills",
      31
     ]

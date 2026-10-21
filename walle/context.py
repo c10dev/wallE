@@ -8,6 +8,8 @@ disk. The residual row is the measured first-call tokens minus the sum of the es
 built-in tool, skill, plugin and hook it counts the sessions that loaded it, the sessions that used
 it, the calls, and the bytes it adds to a session.
 
+With --agent codex, both read Codex rollouts instead (codex_context.py, rollout.py).
+
 These are measured values. They never enter the instruction-stack verdict, Start here or the alarm:
 those stay on the estimated instruction stack (brief 2.1, rule L4). walle reads transcripts and
 settings only; it writes only to the runs folder and its cache folder.
@@ -21,7 +23,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, estimate, skills
+from . import __version__, codex_context, estimate, rollout, skills
 from .collect import HOME
 from .stack import memory_folder, memory_slug
 from .transcript import UUID_RE, FirstCall, first_call, server_key, usage_row
@@ -505,10 +507,12 @@ def run_block(estimator: str, label: str | None, kind_args: dict) -> dict:
 
 
 def build(args, root: Path, out: Path) -> dict:
-    if getattr(args, "agent", "claude") != "claude":
-        raise ContextError("only --agent claude is supported; the Codex rollout reader is plan step C3")
-    args.estimator = estimate.name(args.estimator)  # v1 -> bytes-v1: context.json names the estimator in full
+    codex = getattr(args, "agent", "claude") == "codex"
+    # v1 -> bytes-v1: context.json names the estimator in full. Codex counts with bytes-v1 unless told otherwise.
+    args.estimator = estimate.name(args.estimator or (estimate.CODEX_DEFAULT if codex else estimate.DEFAULT))
     data = {"schema": SCHEMA, "generated": datetime.now().isoformat(timespec="seconds"), "note": NOTE}
+    if codex:
+        return build_codex(args, root, out, data)
     cache = out.parent / "cache" / "context-usage.json"
     names: dict[str, str] = {}
     if args.usage:
@@ -534,11 +538,32 @@ def build(args, root: Path, out: Path) -> dict:
     return data
 
 
+def build_codex(args, root: Path, out: Path, data: dict) -> dict:
+    run = {"agent": "codex", "transcripts": str(root)}
+    try:
+        if args.usage:
+            rows, skipped = codex_context.load_rows(root, out.parent / "cache" / "context-usage-codex.json")
+            data["usage"] = codex_context.usage(rows, args.since, args.before, skipped)
+            data["run"] = run_block(args.estimator, args.label, run)
+            return data
+        r, skipped = codex_context.find_rollout(root, args.session)
+    except codex_context.CodexError as e:
+        raise ContextError(str(e)) from None
+    fc = rollout.first_call(r)
+    data["run"] = run_block(args.estimator, args.label, dict(run, skipped_files=skipped))
+    if args.estimator == "bytes-v1":
+        data["run"]["codex_fit"] = estimate.CODEX_FIT
+    data["session"] = codex_context.session_block(r, fc)
+    data["first_call"] = codex_context.session_context(fc, args.estimator)
+    return data
+
+
 def write(data: dict, run_dir: Path) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     data["run"]["id"] = run_dir.name
     (run_dir / "context.json").write_text(json.dumps(data, ensure_ascii=False, indent=1, default=sorted))
-    (run_dir / "context.md").write_text(render(data))
+    md = codex_context.render(data) if data["run"].get("agent") == "codex" else render(data)
+    (run_dir / "context.md").write_text(md)
     return run_dir / "context.md"
 
 
@@ -648,18 +673,21 @@ def add_parser(sub, default_transcripts: Path):
     x.add_argument("--usage", action="store_true", help="loaded against used, for every main session of the period")
     x.add_argument("--since", help="with --usage: ISO date, sessions that start on or after it")
     x.add_argument("--before", help="with --usage: ISO date, sessions that start before it")
-    x.add_argument("--estimator", choices=[*estimate.ALIASES, *estimate.ESTIMATORS], default="v2",
-                   help="token estimator: v2 (bytes-v2, default) or v1 (bytes-v1), as in walle scan")
-    x.add_argument("--transcripts", type=Path, default=default_transcripts)
+    x.add_argument("--estimator", choices=[*estimate.ALIASES, *estimate.ESTIMATORS], default=None,
+                   help="token estimator: v2 (bytes-v2, the default for claude) or v1 (bytes-v1, the default for codex)")
+    x.add_argument("--transcripts", type=Path, default=None,
+                   help=f"where the sessions are (default {default_transcripts}; with --agent codex, ~/.codex)")
     x.add_argument("--label", help="a name for this run")
+    x.set_defaults(claude_transcripts=default_transcripts)
     return x
 
 
 def run_cli(args) -> int:
     import sys
     from .runs import new_run_dir
+    root = args.transcripts or (HOME / ".codex" if args.agent == "codex" else args.claude_transcripts)
     try:
-        data = build(args, args.transcripts.expanduser(), args.out)
+        data = build(args, root.expanduser(), args.out)
     except ContextError as e:
         print(f"walle context: {e}", file=sys.stderr)
         return 2

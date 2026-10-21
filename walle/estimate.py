@@ -14,6 +14,11 @@ files and the skill list. So both give one number for one file.
 The fit leaves about 1,900 tokens per call (bootstrap range 1,200-2,400) that no recorded source
 explains. `walle context` shows them in the residual row.
 
+Codex: `walle context --agent codex` uses bytes-v1 by default. The bytes-v2 rates were fitted on Claude
+tokens. A least-squares fit of the first calls of 401 Codex Desktop threads on the author's machine
+(2026-10-21; resumed and forked threads left out) gives 0.258 tokens per ASCII character and 0.707 per
+other character, plus about 4,700 tokens that no rollout records (CODEX_FIT). bytes-v1 counts 0.25 and 0.77.
+
 The bootstrap resamples sessions, not time. A fit on the earlier half that predicts the later half
 moves prose_ascii to 0.48 and the unexplained part to about 0. Sources that barely change between
 sessions (the skill list, the system prompt) share their weight with that constant, so their rates
@@ -51,6 +56,9 @@ BYTES_V2 = {
 }
 FIT = {"model": "claude-opus-5-5", "sessions": 522, "date": "2026-10-20", "holdout_median_error": 0.017,
        "unexplained_tokens_per_call": 1900}
+CODEX_DEFAULT = "bytes-v1"
+CODEX_FIT = {"originator": "Codex Desktop", "threads": 401, "date": "2026-10-21", "tok_per_ascii_char": 0.258,
+             "tok_per_other_char": 0.707, "unrecorded_tokens_per_call": 4700}
 
 
 def bytes_v1(text: str) -> int:
