@@ -16,6 +16,6 @@ Run `walle` if it is on PATH. Otherwise run `python3 <plugin root>/bin/walle`; t
    - Last line: one yes/no question. Edit no file before the user says yes.
 3. Give session measures only when the user asks. Real cost comes from transcripts: `walle eve [--since YYYY-MM-DD]`.
 4. Before you edit a shared file (one outside the folder), name it and say how many folders load it.
-5. After an edit, run the scan again and `walle diff <old scan.json> <new scan.json>` (scan.json is next to each report). Report one line, for example `Stack ~3,200 -> ~3,180 est. tokens; item 1 closed.`
+5. After an edit, run the scan again and `walle diff` (the baseline against the newest scan of the folder; `walle diff last` for the newest two). Report one line, for example `Stack ~3,200 -> ~3,180 est. tokens; item 1 closed.`
 6. `walle show <id>` prints one item with the lines around it. To judge candidates with your own agent, read `judging.md` next to this file.
 7. When the user asks what to take out of every session's context (connectors, MCP servers, plugins, skills, hook output), read `trimming.md` next to this file.

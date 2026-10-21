@@ -14,13 +14,17 @@ CLAUDE.md, AGENTS.md, 스킬, MEMORY.md, Cursor·Copilot·Gemini·Windsurf·Clin
 python3 bin/walle scan ~/projects --html   # 정적 점검
 python3 bin/walle eve --since 2026-10-01   # 세션 실측
 python3 bin/walle context --agent codex    # Codex 세션 첫 호출을 원천별로 실측(--usage: 실린 것 대 쓴 것)
+python3 bin/walle diff                     # 기준 실행(고정, 없으면 직전 스캔) -> 이 폴더의 최신 스캔. last: 최근 두 스캔
 python3 bin/walle diff 이전/scan.json 이후/scan.json
+python3 bin/walle runs                     # 실행 목록(스캔, 계획, apply, undo, diff). walle pin <run>으로 기준 실행 고정
 python3 bin/walle check . --max-tokens 15000  # CI용, 넘으면 종료 코드 1
 python3 bin/walle judge --dry-run          # 판정할 항목(파일:줄)과 추정 토큰
 python3 bin/walle judge                    # 후보를 배치 파일로 내보냄 → 에이전트가 답 파일을 씀
 python3 bin/walle judge --import           # 답을 읽어 judge.md 작성
 python3 bin/walle trim --plan              # 안 쓰는 커넥터·플러그인·스킬·훅을 덜어낼 계획(바꾸지 않음)
 python3 bin/walle trim --import            # 계획의 판단 배치 답을 읽어 계획에 넣음
+python3 bin/walle apply <run> --only <id>  # 고른 설정 키만 백업 뒤 바꿈. 수동 행은 체크리스트. --dry-run은 쓰지 않음
+python3 bin/walle undo <apply-id>          # 파일이 apply 직후 그대로일 때만 백업을 복원
 python3 bin/walle keep <id> --why "이유"   # 줄이나 원천을 남김. 판정, 여기부터, 계획에서 빠짐
 python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unkeep <id>
 ```

@@ -23,9 +23,11 @@ walle finds the second kind, so you can cut it and measure the effect.
 | `walle scan [folder ...] [--max-tokens N] [--estimator v1\|v2] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
 | `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
 | `walle context [--last \| --session ID] [--agent claude\|codex] [--usage]` | Measured, not estimated: the first API call of one session, by source (system prompt, tool lists, skill list, instruction files, first prompt), with a residual row for what no record explains. `--usage` counts, over all sessions, what each MCP server, tool and skill cost and whether a session used it. `--agent codex` reads Codex rollouts in `~/.codex` (zstd files need the `zstd` program). |
-| `walle diff old/scan.json new/scan.json` | What changed after you trimmed: stack tokens, rule counts, flags. |
+| `walle diff [last \| A B] [--root F]` | What changed after you trimmed. No argument: the baseline (the pinned run, else the previous scan) against the newest scan of the folder. `last`: the newest two scans. `A B`: two run ids or scan.json paths. It shows the stack tokens, the items closed, new, moved, edited and kept, and the applies between the two scans. A rules change hides the item counts; an estimator or counting change hides the token change. Writes `diff.md` and `diff.json` in a new run folder. |
+| `walle runs [--root F]`, `walle pin <run>`, `walle pin --clear` | The run index: scans, trim plans, applies, undos and diffs. `walle pin` fixes the baseline of a folder for `walle diff`. |
 | `walle check [folder] [--max-tokens N] [--estimator v1\|v2]` | Exit 1 when a stack is over budget. Use it in CI. |
 | `walle trim --plan [--since D] [--before D]` | A plan to take unused sources out of every session's context: claude.ai connectors, MCP servers, plugins, skills, hook output, and lines that a scan found loaded twice. One row per action: the change (a settings key, a patch or a place in an app), who makes it, the expected saving as a lower bound in bytes-v2 tokens per session, the sessions that loaded and used the source, the risk, the undo and the check. Writes `plan.json`, `plan.md`, `patches/` and judge batch files in a new run folder. `walle trim --import` reads the judge answers into the plan. It changes nothing. |
+| `walle apply <run> --only ID[,ID] [--dry-run] [--app-closed]`, `walle undo <apply-id>` | Change the settings keys of the plan rows you pick, after a backup, and put them back. See [Apply and undo](#apply-and-undo). |
 | `walle keep <id> [--why W]`, `walle keep --list`, `walle unkeep <id>`, `walle keep --print <id>` | Leave a line or a source as it is. A kept item leaves the verdict, Start here and the trim plan. If its lines change, the next scan says `keep released: line changed` once and counts it again. `--print` gives the line for a team's `.wallekeep`. |
 | `walle judge [scan.json] [--dry-run \| --import]` | Hands the conflict pairs (drift, topic, protocol) and cause-1 candidates of a scan to your coding agent as batch files with a short rubric. The agent writes a verdict per item: real or not, which line to keep, and a one-line fix. `--import` reads the answers and writes `judge.md` and `judge.json` next to `scan.json`. `--dry-run` lists the items with file:line and the estimated tokens, and writes nothing. |
 
@@ -100,11 +102,24 @@ Caches go to the `cache/` folder next to the runs folder (`--out`), by default `
 
 `walle trim --plan` reads the sessions of a period (as `walle context --usage` does) and the newest scan in the runs folder. A source is proposed when it loaded in at least 10 sessions, sessions used it in fewer than 10% of them, and it had fewer calls than sessions that loaded it. A skill is proposed when no session called it.
 
-- **walle** rows change one settings key: `enabledPlugins`, `skillOverrides` or an `mcpServers` key of `~/.claude.json`. `walle apply` (plan step C5) is not built yet, so you change them by hand.
+- **walle** rows change one settings key: `enabledPlugins`, `skillOverrides` or an `mcpServers` key of `~/.claude.json`. `walle apply` changes them (see below).
 - **manual** rows are in an app: claude.ai connectors and plugins that claude.ai syncs.
 - **patch** rows are patch files in `patches/`, or a change your agent writes (hook output, a section to move). walle never edits an instruction file.
 
 Rows that need "does this user's work need it?" go to judge batch files with their own rubric; `walle trim --import` reads the answers. The judge cache is `cache/trim-judge.json`.
+
+### Apply and undo
+
+`walle apply <run> --only <id>[,<id>]` changes only the rows that you pick. There is no default choice.
+
+- It changes only `enabledPlugins` and `skillOverrides` in `~/.claude/settings.json` and one `mcpServers` entry in `~/.claude.json`. It refuses all other files and keys. It never edits an instruction file, never writes into a folder that walle scans, and never deletes data.
+- The plan records the sha256 of each settings file. walle refuses a file that changed after the plan. Then run `walle trim --plan` again.
+- Before it writes, walle copies each file to `backups/<apply-id>/` next to the runs folder (`~/.walle/backups/` by default), with `undo.json`. The backup folder is private (0700), because `~/.claude.json` holds tokens.
+- The Claude app and its sessions rewrite `~/.claude.json` while they run. walle writes it only with `--app-closed` and when no Claude process runs. After the write, walle reads the file again. A different hash is reported as `apply lost`.
+- Manual rows print a checklist with the place to change. `[unconfirmed]` marks a menu path that walle could not confirm. Patch rows print the command for your agent.
+- `--dry-run` prints each change and writes nothing.
+
+`walle undo <apply-id>` restores the backup only when each file still has the hash that it had after the apply. If not, walle lists the key paths that changed, without their values, and stops. Each apply and undo adds a line to the run index, linked to its plan and its apply.
 
 `walle keep` writes `keep.json` next to the runs folder (`~/.walle/keep.json` by default). A team keeps lines in `.wallekeep` at the repository root: one team key per line, then `# ` and a note. The team key uses the remote URL and the path in the repository, so every clone has the same key. walle reads `.wallekeep` and never writes it. A repository without a remote has no team key.
 

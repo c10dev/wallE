@@ -41,7 +41,8 @@ Every surface gives the same answer in the same order: one verdict word, at most
 - Next: the terminal brief as the default TTY output of `walle scan`, `--lang en|ko` (default from `LANG`), `walle show`, and Markdown for agents (`--format brief-md`).
 - Done: `walle keep` (personal `keep.json` next to the runs folder, team `.wallekeep`). A kept item leaves the verdict, Start here and the trim plan; a changed line releases its keep once.
   The team key uses the remote URL and the path in the repository, so it is the same in every clone. A repository without a remote has no team key yet.
-- Next: `walle runs`, `walle pin` and `walle diff` without arguments.
+- Done: `walle runs`, `walle pin`, and `walle diff` without arguments or with `last`. Item states closed, new, moved, edited and kept. The diff names the applies between the two scans.
+- Next: the history page `~/.walle/runs/index.html`, and the measure line of `walle diff` (step 9).
 - Next: judge verdicts in the items. A term clash that the judge calls real becomes a conflict (PICK ONE); "no conflict" moves an item to its own folded group.
 - Next: the HTML report, `walle check` for GitHub (annotations, a PR comment, `--fail-on`, a badge), and the measure rules (p25-p75, one model family per row).
   The badge (`walle check --badge`) will follow the `--out` rule: walle will refuse a badge path inside a folder that it scans.
@@ -49,7 +50,8 @@ Every surface gives the same answer in the same order: one verdict word, at most
 ## 0.3 — trim and measure
 
 - Done: `walle trim --plan`: a plan of trim actions with the expected saving, the risk, the undo and the check for each. Instruction-file changes are patches in the run folder. Rows that need a judgment go to judge batch files (`walle trim --import`).
-- `walle apply <run> --only <id>` and `walle undo <apply-id>`: walle changes only the settings keys the user picks, after a backup, and `walle undo` puts them back. It changes instruction files only as patches in the run folder. It writes nothing into the project folders it scans.
+- Done: `walle apply <run> --only <id>` and `walle undo <apply-id>`: walle changes only the settings keys the user picks, after a backup, and `walle undo` puts them back. It changes instruction files only as patches in the run folder. It writes nothing into the project folders it scans.
+- Next: Codex rows in the trim plan (plugin and skill switches in `~/.codex/config.toml`), after a test that they act.
 - `walle ablate`: run the same prompt with and without a block of rules (`claude -p`, fixed effort), then compare steps and pass/fail. This is the before/after check the vendor guides recommend.
 
 ## 0.4 — surfaces
