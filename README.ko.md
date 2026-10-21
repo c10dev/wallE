@@ -31,10 +31,14 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 
 `walle trim --plan`은 기간의 세션(`walle context --usage`와 같은 자료)과 runs 폴더의 최신 스캔을 읽는다. 동작마다 한 행이다: 바꿀 것(설정 키, patch, 앱 안의 자리), 누가 하는지(walle, 수동, patch), 세션당 절감 하한(bytes-v2 토큰), 실린 세션과 쓴 세션, 위험, 되돌리기, 나중 세션의 확인 방법. 지시 파일 변경은 실행 폴더의 `patches/`에 patch 파일로만 쓴다. "이 사용자에게 필요한가"를 판단할 행은 judge 배치 파일로 낸다. 아무것도 바꾸지 않는다. `walle apply`는 계획 단계 C5다.
 
-- claude.ai가 Claude Code로 동기화한 플러그인(`~/.claude/plugins/synced/`의 폴더)은 walle 행이다: `enabledPlugins["<이름>@synced"] = false`. `claude plugin disable <이름>@synced`가 쓰는 키다([문서](https://code.claude.com/docs/en/plugins/loading#control-which-synced-plugins-load)). 조직이 필수로 둔 플러그인은 이 키를 무시한다. 다음 동기화 뒤에도 남는지는 문서에 없다. `walle context --last`로 확인한다.
-- 플러그인 스킬(`anthropic-skills:*`, `<플러그인>:*`)에는 `skillOverrides`를 내지 않는다. Claude Code가 플러그인 스킬에는 적용하지 않는다([문서](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)). 대신 플러그인 행이 플러그인 전체를 뺀다. 이미 넣어 둔 키는 `set, no effect`로 표시한다. 그 행은 키를 지우고, 절감은 세지 않는다.
+- claude.ai가 Claude Code로 동기화한 플러그인(`~/.claude/plugins/synced/`의 폴더)은 walle 행이다: `enabledPlugins["<이름>@synced"] = false`. `claude plugin disable <이름>@synced`가 쓰는 키다([문서](https://code.claude.com/docs/en/plugins/loading#control-which-synced-plugins-load)). 조직이 필수로 둔 플러그인은 이 키를 무시한다. 다음 동기화 뒤에도 남는지는 문서에 없다. 문서와 Claude Code 코드는 `cli`, `sdk-cli` 세션에서 이 키를 확인한다. `claude-desktop`에서의 효과는 확인하지 않았다. `walle context --last`로 확인한다.
+- 실제 플러그인의 스킬(claude.ai 스킬 동기화가 아닌 플러그인의 `<플러그인>:*`)에는 `skillOverrides`를 내지 않는다. Claude Code가 플러그인 스킬에는 적용하지 않는다([문서](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)). 대신 플러그인 행이 플러그인 전체를 뺀다.
+- 동기화된 claude.ai 스킬(`anthropic-skills:*`)은 `skillOverrides` 행이다. `cli`와 `sdk-cli`는 이 스킬을 사용자 스킬로 읽고, 사용자 스킬에는 `skillOverrides`가 적용된다. 이 내용은 Claude Code 2.1.303 코드를 읽은 결과이고, 아직 `cli`·`sdk-cli` 세션으로 확인하지 않았다. `claude-desktop`은 이 스킬을 플러그인으로 읽는다. 2026-10-21에 `claude-desktop` 2.1.299에서 측정했다: 키를 넣은 뒤에도 스킬이 목록에 남았다.
+- 표면(surface)은 세션의 `entrypoint`다(`cli`, `sdk-cli`, `claude-desktop`). 동기화된 스킬과 동기화된 플러그인의 절감은 `cli`와 `sdk-cli` 세션만 센다. `claude-desktop` 몫은 따로, 확인되지 않은 수로 보인다. plan.md의 합계도 같은 방식으로 나눈다.
+- 이미 넣은 키는 넣은 뒤 시작한 세션으로 표면마다 상태를 낸다: `already set`, `set, still listed on <표면>`, `set, not measured on <표면>`. 넣은 시각은 그 키를 넣은 가장 이른 `walle apply` 기록이고, 없으면 설정 파일의 수정 시각이다. 그 절감은 세지 않는다. 키를 지우는 행은 없다.
+- 현재 동기화 버킷에 없는 스킬은 "not in the current bucket"으로 표시한다. 그 실린 세션 수는 지난 세션이다.
 - 데스크톱 앱에만 있는 플러그인(`~/.claude/remote/plugins`)은 수동 행이다. claude.ai에서 구성원은 "Installed by default" 플러그인을 끌 수 있다. "Required" 플러그인은 조직 Owner가 바꿔야 한다([문서](https://claude.com/docs/plugins/admin)).
-- `walle apply`는 `enabledPlugins` 키를 `false`로만 바꾸고, `skillOverrides` 키는 `user-invocable-only`로 넣거나 효과 없는 키를 지운다. `walle undo`가 지운 키를 백업에서 되돌린다.
+- `walle apply`는 `enabledPlugins` 키를 `false`로만 바꾸고, `skillOverrides` 키는 `user-invocable-only`로만 넣는다. 설정 키를 지우지 않는다. 다른 동작은 모두 거부한다.
 
 `walle keep`은 runs 폴더 옆 `keep.json`(기본 `~/.walle/keep.json`)에 쓴다. 남긴 줄이 바뀌면 다음 스캔이 `keep released: line changed`를 한 번 보이고 다시 센다. 팀은 저장소 루트의 `.wallekeep`에 팀 키를 한 줄씩 둔다. 팀 키는 원격 URL과 저장소 안 경로로 만들어서 모든 클론에서 같다. walle는 `.wallekeep`을 읽기만 한다. `walle keep --print <id>`가 붙일 줄을 낸다.
 
