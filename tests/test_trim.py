@@ -467,6 +467,17 @@ class PluginRowsTest(unittest.TestCase):
         self.assertIn("walle found no installationPreference for sales", s["risk"]["why"])
         self.assertNotIn("apply that row too", s["risk"]["why"])
 
+    def test_a_copy_the_host_passes_without_desktop_sessions_is_not_called_past(self):
+        os.utime(self.f.remote / "h1" / ".synced", (NOW_SET, NOW_SET))  # the host passes sales now
+        data, _ = self.f.plan("--before", "2026-10-11")  # cli and sdk-cli sessions only
+        rows = self.rows(data)
+        self.assertNotIn("sales@inline", rows)
+        s = rows["sales"]
+        self.assertEqual((s["applies"], s.get("past")), ("manual", None))
+        self.assertIn("The desktop host passes sales now, but no claude-desktop session of this period", s["where"])
+        self.assertNotIn("does not pass", s["where"])
+        self.assertEqual((s["saving"]["counted"], s["saving"]["unused_tokens_min"]), (False, 0))
+
     def test_an_inline_key_that_is_set_gets_a_status_per_entrypoint(self):
         settings = self.f.home / ".claude" / "settings.json"
         doc = json.loads(settings.read_text())

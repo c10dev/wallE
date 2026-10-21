@@ -744,6 +744,11 @@ def _manual_plugin_row(name: str, cat: dict, copy: dict | None, req: bool, newes
         if copy:
             where += (f" walle does not offer {inline_key} = false: that key turns off the copy that claude-desktop "
                       "loads even when the organization requires it, so it would go around the organization's policy.")
+    elif copy and copy["current"]:
+        where = (f"The desktop host passes {name} now, but no claude-desktop session of this period loaded it enough "
+                 f"to save {MIN_TOKENS} est. tokens. {SETTINGS} {inline_key} = false turns it off there ({DOC_INLINE}); "
+                 "the key acts only on sessions that load it with --plugin-dir. Run walle trim --plan again after "
+                 "claude-desktop sessions.")
     elif copy:
         past = True
         where = (f"The desktop host does not pass {name} to its sessions now: its newest copy "
@@ -760,6 +765,8 @@ def _manual_plugin_row(name: str, cat: dict, copy: dict | None, req: bool, newes
                (level, whole), "Turn it on again in the same place.", check, need, {"past": True} if past else None)
     if past:
         _not_counted(row, "the desktop host does not pass this plugin now")
+    elif copy and copy["current"] and not req:
+        _not_counted(row, "no claude-desktop session of the period counts")
     return row
 
 
