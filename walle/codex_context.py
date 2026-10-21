@@ -24,6 +24,8 @@ from .collect import HOME
 from .stack import codex_settings, codex_stack
 
 CACHE_VERSION = 2  # 2: listing_bytes is the whole skill list block
+# How rollout.py splits a first call into sources (see context.COUNTING_REVISION).
+COUNTING_REVISION = 1
 LABELS = {
     "base_instructions": "Base instructions",
     "agents_md": "AGENTS.md chain",

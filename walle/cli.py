@@ -199,10 +199,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("alarm", help="SessionStart hook: one line of context when over budget")
 
-    e = sub.add_parser("eve", aliases=["measure"], help="measure real sessions from transcripts")
-    e.add_argument("--since", help="ISO date, sessions that start on or after it")
-    e.add_argument("--before", help="ISO date, sessions that start before it")
-    e.add_argument("--transcripts", type=Path, default=HOME / ".claude" / "projects")
+    eve.add_parser(sub, HOME / ".claude" / "projects")
 
     j = sub.add_parser("judge", help="hand conflict and cause-1 candidates to your agent, then import its verdicts")
     j.add_argument("scan", nargs="?", type=Path, help="scan.json (default: the newest run that has one)")
@@ -246,7 +243,8 @@ def main(argv: list[str] | None = None) -> int:
         return apply.run_cli(args, HOME)
     if args.cmd in ("runs", "pin", "diff"):
         return rundiff.run_cli(args, HOME)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    if args.cmd in ("eve", "measure"):
+        return eve.run_cli(args, HOME)
     if args.cmd == "scan":
         started = time.monotonic()
         fmt = args.format or ("brief" if sys.stdout.isatty() else "path")
@@ -265,8 +263,9 @@ def main(argv: list[str] | None = None) -> int:
                            parent_id=runs.parent_of(args.out, data["run"]["roots"]))
         history = runs.history(args.out, data, run_dir / "scan.json")
         path = _write(run_dir, "scan", data, report.render_scan(data, args.top, resolve_lang(args.lang), history))
-        runs.append_index(args.out, data, run_dir / "scan.json")
+        # scan.html first: the history page that append_index writes links it.
         (run_dir / "scan.html").write_text(report_html.render(data, args.out), encoding="utf-8")
+        runs.append_index(args.out, data, run_dir / "scan.json")
     elif args.cmd == "check":
         roots = [r.expanduser().resolve() for r in args.roots]
         if _refuse_out(args, roots):
@@ -276,9 +275,6 @@ def main(argv: list[str] | None = None) -> int:
         return check(_scan(roots, budget, args.estimator, keep.for_scan(keep.path_for(args.out))), budget, args.agent)
     elif args.cmd == "alarm":
         return alarm()
-    elif args.cmd in ("eve", "measure"):
-        data = eve.run(args.since, args.before, args.transcripts, args.out.parent / "cache")
-        path = _write(args.out / stamp, "eve", data, report.render_eve(data))
     if args.cmd == "scan":
         return brief.print_scan(args, data, path, fmt, time.monotonic() - started, HOME)
     print(path)

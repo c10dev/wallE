@@ -284,9 +284,13 @@ class ContextCommandTest(unittest.TestCase):
         rows = {r["source"]: r for r in fc["sources"]}
         self.assertEqual(rows["system_prompt"]["on_disk"]["mark"], "not on disk")
         self.assertIn("Residual (measured minus estimates)", md.read_text())
-        # A context run moves neither `latest` nor the scan run index.
+        # A context run does not move `latest`. Its index line has kind context, so it is not a scan.
         self.assertFalse((self.out / "latest").exists())
-        self.assertFalse((self.out / "index.jsonl").exists())
+        from walle import runs
+        self.assertEqual(runs.scans(self.out), [])
+        row = runs.read_index(self.out)[-1]
+        self.assertEqual((row["kind"], row["id"], row["estimator"], row["counting_revision"], row["session"]),
+                         ("context", data["run"]["id"], "bytes-v2", 1, SID))
         md1 = self.run_cli("--last", "--estimator", "bytes-v1")
         self.assertEqual(json.loads((md1.parent / "context.json").read_text())["run"]["estimator"], "bytes-v1")
 

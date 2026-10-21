@@ -95,6 +95,20 @@ def wrap(text: str, limit: int, first: str = "", rest: str = "") -> list[str]:
     return [line.rstrip() for line in out]
 
 
+def wrap_list(lead: str, items: list[str], rest: str) -> list[str]:
+    """lead + items joined by ", ", wrapped at the commas only, so no item breaks."""
+    out, cur = [], lead
+    for n, item in enumerate(items):
+        piece = item + ("," if n < len(items) - 1 else "")
+        sep = "" if cur in (lead, rest) else " "
+        if width(cur + sep + piece) > WIDTH and cur not in (lead, rest):
+            out.append(cur)
+            cur, sep = rest, ""
+        cur += sep + piece
+    out.append(cur)
+    return out
+
+
 class Paint:
     """ANSI styles, or plain text when color is off."""
 

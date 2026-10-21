@@ -434,15 +434,18 @@ class Builder:
 
 
 def latest_measure(out: Path) -> tuple[str, dict] | None:
-    """The newest eve.json or measure.json under the runs folder, as (run id, data)."""
+    """The newest Claude eve.json or measure.json under the runs folder, as (run id, data)."""
     found = []
     for name in ("eve.json", "measure.json"):
         found += glob.glob(str(out / "*" / name))
     for p in sorted(found, key=lambda p: os.path.basename(os.path.dirname(p)), reverse=True):
         try:
-            return os.path.basename(os.path.dirname(p)), json.loads(Path(p).read_text())
+            data = json.loads(Path(p).read_text())
         except (OSError, ValueError):
             continue
+        if (data.get("run") or {}).get("agent") == "codex":
+            continue  # the Measure section shows Claude sessions
+        return os.path.basename(os.path.dirname(p)), data
     return None
 
 

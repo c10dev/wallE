@@ -10,6 +10,9 @@ it, the calls, and the bytes it adds to a session.
 
 With --agent codex, both read Codex rollouts instead (codex_context.py, rollout.py).
 
+`walle context --compare A B` and `walle context --compare <apply-id|date>` compare two first calls
+source by source, and the sessions before and since a change (compare.py).
+
 These are measured values. They never enter the instruction-stack verdict, Start here or the alarm:
 those stay on the estimated instruction stack (brief 2.1, rule L4). walle reads transcripts and
 settings only; it writes only to the runs folder and its cache folder.
@@ -30,6 +33,9 @@ from .transcript import UUID_RE, FirstCall, first_call, server_key, usage_row
 
 SCHEMA = 1
 CACHE_VERSION = 2
+# How transcript.py splits a first call into sources. Bump it when a source's bytes change meaning: the bytes
+# of two revisions do not compare (walle context --compare). Runs without the record split this way.
+COUNTING_REVISION = 1
 NOTE = ("Measured values. They do not enter the instruction-stack verdict, Start here or the alarm, "
         "which use the estimated instruction stack only.")
 LABELS = {
@@ -502,8 +508,10 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
 # ---------- run, files, Markdown ----------
 
 def run_block(estimator: str, label: str | None, kind_args: dict) -> dict:
+    revision = codex_context.COUNTING_REVISION if kind_args.get("agent") == "codex" else COUNTING_REVISION
     return {"id": None, "kind": "context", "parent_id": None, "label": label, "walle_version": __version__,
-            "estimator": estimator, "estimator_detail": estimate.describe(estimator), **kind_args}
+            "estimator": estimator, "estimator_detail": estimate.describe(estimator), "counting_revision": revision,
+            **kind_args}
 
 
 def build(args, root: Path, out: Path) -> dict:
@@ -678,19 +686,38 @@ def add_parser(sub, default_transcripts: Path):
     x.add_argument("--transcripts", type=Path, default=None,
                    help=f"where the sessions are (default {default_transcripts}; with --agent codex, ~/.codex)")
     x.add_argument("--label", help="a name for this run")
+    x.add_argument("--compare", nargs="+", metavar="RUN",
+                   help="A B: two context runs or session ids, source by source; or one apply id or date: the "
+                        "newest session before it against the newest since")
+    x.add_argument("--root", type=Path, help="with --compare <apply-id|date>: the folder (default: the current folder)")
+    x.add_argument("--days", type=int, default=30, help="with --compare <apply-id|date>: days on each side (default 30)")
+    x.add_argument("--lang", choices=("en", "ko"))
     x.set_defaults(claude_transcripts=default_transcripts)
     return x
 
 
 def run_cli(args) -> int:
     import sys
-    from .runs import new_run_dir
+    from . import runs
+    if args.compare:
+        from . import compare
+        return compare.run_cli(args, HOME)
     root = args.transcripts or (HOME / ".codex" if args.agent == "codex" else args.claude_transcripts)
     try:
         data = build(args, root.expanduser(), args.out)
     except ContextError as e:
         print(f"walle context: {e}", file=sys.stderr)
         return 2
-    # The run folder sits with the other runs. `latest` and the run index stay on scan runs.
-    print(write(data, new_run_dir(args.out)))
+    # The run folder sits with the other runs; `latest` stays on scan runs. The index line lets walle runs,
+    # the history page and walle context --compare find the run.
+    run_dir = runs.new_run_dir(args.out)
+    md = write(data, run_dir)
+    run = data["run"]
+    session = data.get("session") or {}
+    runs.append_row(args.out, {"id": run["id"], "kind": "context", "label": run.get("label"), "parent_id": None,
+                               "generated": data["generated"], "roots": [], "agent": run.get("agent"),
+                               "estimator": run["estimator"], "counting_revision": run["counting_revision"],
+                               "usage": "usage" in data, "session": session.get("id"), "cwd": session.get("cwd"),
+                               "walle_version": __version__, "path": str(run_dir / "context.json")})
+    print(md)
     return 0
