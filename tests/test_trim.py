@@ -41,7 +41,8 @@ OVERRIDES = {"anthropic-skills:pdf-like": "user-invocable-only", "anthropic-skil
              "sales:call-prep": "user-invocable-only", "loop": "user-invocable-only"}
 # The entrypoint (surface) of each fake session: 8 cli, 2 sdk-cli, 2 claude-desktop.
 SURFACE = ["cli"] * 8 + ["sdk-cli"] * 2 + ["claude-desktop"] * 2
-# .synced times of the desktop host's copies: the set that the host passes now, and an older set.
+# .synced times of the desktop host's copies. They pick the copy that gives a plugin's skill list; the sessions
+# tell which plugins claude-desktop loads.
 NOW_SET = datetime(2026, 10, 21, 7, 3, 10, tzinfo=timezone.utc).timestamp()
 OLD_SET = datetime(2026, 10, 1, tzinfo=timezone.utc).timestamp()
 
@@ -108,8 +109,7 @@ class Fixture:
             {"name": "design", "installationPreference": "available", "generation": 2},
             {"name": "legal", "installationPreference": "required"}]}))
         (self.bucket / ".last-complete-round").write_text("2")
-        # The desktop host's copies (~/.claude/remote/plugins/<host>/<hash>). The host passes the copies of the
-        # newest .synced set: design, legal, secret-redact and anthropic-skills. sales is only in an older set.
+        # The desktop host's copies (~/.claude/remote/plugins/<host>/<hash>), one or more per plugin name.
         self.remote = self.home / ".claude" / "remote" / "plugins" / "host"
         self.desktop_copy("h1", "sales", ["call-prep"], OLD_SET)
         self.desktop_copy("h0", "design", ["ux-copy", "old-skill"], OLD_SET)
@@ -197,12 +197,13 @@ class PlanRowsTest(unittest.TestCase):
         self.assertEqual((rea["action"], rea["applies"]), ("T2", "walle"))
         self.assertEqual(rea["change"]["keys"], ["projects", "/w", "mcpServers", "rea"])
         self.assertNotIn("s3cr3t-value", (run_dir / "plan.json").read_text() + (run_dir / "plan.md").read_text())
-        # A local plugin is one settings key; a plugin that the desktop host no longer passes is manual; a safety
-        # plugin has no row, not even an @inline one.
+        # A local plugin is one settings key; a plugin that claude-desktop loads from the host's copy is the
+        # @inline key; a safety plugin has no row, not even an @inline one.
         ts = rows["typesafe"]
         self.assertEqual((ts["action"], ts["applies"], ts["change"]["keys"], ts["change"]["value"]),
                          ("T4", "walle", ["enabledPlugins", "typesafe@typesafe-ai"], False))
-        self.assertEqual((rows["sales"]["action"], rows["sales"]["applies"]), ("T3", "manual"))
+        self.assertEqual((rows["sales@inline"]["action"], rows["sales@inline"]["applies"]), ("T4", "walle"))
+        self.assertNotIn("sales", rows)
         self.assertNotIn("secret-redact", rows)
         self.assertNotIn("secret-redact@inline", rows)
         # A skill no session called: hidden from the model by a settings key. A called skill has no row.
@@ -277,6 +278,18 @@ class PlanRowsTest(unittest.TestCase):
         self.assertTrue(r["stale"])
         self.assertIsNone(r["change"]["patch"])
         self.assertFalse((run_dir / "patches").exists())
+
+    def test_a_kept_plugin_row_keeps_its_inline_row_too(self):
+        data, _ = self.f.plan()
+        rows = {r["source"]["name"]: r for r in data["rows"]}
+        self.f.cli("keep", rows["design"]["id"], "--why", "design work")  # the @synced row
+        self.f.cli("keep", rows["sales@inline"]["id"])  # the @inline row of a plugin without its own key
+        again, run_dir = self.f.plan()
+        names = {r["source"]["name"] for r in again["rows"]}
+        for name in ("design", "design@inline", "sales", "sales@inline"):
+            self.assertNotIn(name, names)
+        self.assertEqual({k["name"] for k in again["kept"]}, {"design", "design@inline", "sales@inline"})
+        self.assertIn("typesafe", names)  # other plugins stay
 
     def test_a_kept_source_and_a_kept_line_leave_the_plan(self):
         self.f.cli("scan", str(self.f.repo), "--format", "path")
@@ -379,29 +392,56 @@ class PluginRowsTest(unittest.TestCase):
         d = self.rows(again)["design"]
         self.assertEqual((d["applies"], d["change"]["already"]), ("walle", True))
 
-    def test_a_required_plugin_and_a_copy_the_host_no_longer_passes_stay_manual(self):
+    def test_a_required_plugin_stays_manual_and_gets_no_inline_row(self):
         data, run_dir = self.f.plan()
         rows = self.rows(data)
-        legal, sales = rows["legal"], rows["sales"]
+        legal = rows["legal"]
         self.assertEqual((legal["applies"], legal["change"]["kind"]), ("manual", "app"))
         self.assertIn("Your organization requires legal", legal["where"])
-        # legal has a desktop copy in the set that the host passes, but the @inline key would go around the
-        # organization's "Required": no row offers it.
+        # claude-desktop loads legal from a desktop copy, but the @inline key would go around the organization's
+        # "Required": no row offers it.
         self.assertIn('walle does not offer enabledPlugins["legal@inline"] = false', legal["where"])
         self.assertIn("go around the organization's policy", legal["where"])
         self.assertNotIn("legal@inline", rows)
-        # sales: its only copy is in an older .synced set, so no session loads it now. Its saving is not counted.
+        self.assertNotIn("no settings key turns it off", (run_dir / "plan.md").read_text())
+
+    def test_a_required_plugin_named_by_a_uuid_in_another_bucket_gets_no_inline_row(self):
+        # A bucket that is not in use lists a plugin by the uuid of its folder; the folder's plugin.json says "sales".
+        other = self.f.home / ".claude" / "plugins" / "synced" / "org2_acct9"
+        uuid = "2529b2d1-9426-48a5-a8ad-2ebc77af2815"
+        (other / f"{uuid}~g3" / ".claude-plugin").mkdir(parents=True)
+        (other / f"{uuid}~g3" / ".claude-plugin" / "plugin.json").write_text(json.dumps({"name": "sales"}))
+        (other / "manifest.json").write_text(json.dumps({"plugins": [
+            {"name": uuid, "installationPreference": "required", "generation": 3}]}))
+        for d in (other / f"{uuid}~g3" / ".claude-plugin", other / f"{uuid}~g3", other):
+            os.utime(d, (OLD_SET, OLD_SET))  # older than the bucket in use
+        self.assertEqual(trim.org_preferences(self.f.home)["sales"], ["required"])
+        self.assertNotIn(uuid, trim.org_preferences(self.f.home))
+        data, _ = self.f.plan()
+        rows = self.rows(data)
+        self.assertNotIn("sales@inline", rows)
+        self.assertEqual(rows["sales"]["applies"], "manual")
+        self.assertIn('walle does not offer enabledPlugins["sales@inline"] = false', rows["sales"]["where"])
+        self.assertIn("design@inline", rows)  # the bucket in use is still org1_acct1
+
+    def test_a_plugin_that_no_recent_desktop_session_loads_is_past(self):
+        # Only the newest claude-desktop session counts as recent here, and it no longer lists sales.
+        drop_listing(self.f.tx / "-w" / "s11.jsonl", "sales:call-prep")
+        with mock.patch("walle.trim.RECENT_DESKTOP", 1):
+            data, run_dir = self.f.plan()
+        rows = self.rows(data)
+        self.assertNotIn("sales@inline", rows)
+        sales = rows["sales"]
         self.assertEqual((sales["action"], sales["applies"], sales["past"]), ("T3", "manual", True))
-        for text in ("The desktop host does not pass sales to its sessions now", ".synced 2026-10-01T00:00:00 UTC",
-                     ".synced 2026-10-21T07:03:10 UTC", 'enabledPlugins["sales@inline"] = false turns it off',
-                     trim.DOC_INLINE, '"Installed by default"', '"Required" plugin needs the organization Owner',
-                     trim.DOC_ORG_PLUGINS):
+        for text in ("None of the newest 1 claude-desktop sessions of the period (since 2026-10-12T00:00:00 UTC) "
+                     "loaded sales", "the last one that did started 2026-10-11T00:00:00 UTC",
+                     'enabledPlugins["sales@inline"] = false turns it off', trim.DOC_INLINE,
+                     '"Installed by default"', '"Required" plugin needs the organization Owner', trim.DOC_ORG_PLUGINS):
             self.assertIn(text, sales["where"])
         self.assertEqual((sales["saving"]["counted"], sales["saving"]["unused_tokens_min"]), (False, 0))
-        self.assertNotIn("no settings key turns it off", (run_dir / "plan.md").read_text())
-        self.assertNotIn(trim.UNCONFIRMED, sales["where"])
+        self.assertIn("(past sessions: no recent claude-desktop session loads it)", (run_dir / "plan.md").read_text())
         self.assertNotIn("sha256", sales["change"])
-        self.assertNotIn("sales@inline", rows)
+        self.assertIn("design@inline", rows)  # the newest desktop session still lists design
 
     def test_a_desktop_copy_that_the_host_passes_gets_an_inline_row(self):
         data, run_dir = self.f.plan()
@@ -414,8 +454,7 @@ class PluginRowsTest(unittest.TestCase):
                           "keys": ["enabledPlugins", "design@inline"], "value": False})
         self.assertEqual(d["change"]["sha256"], trim.file_sha256(self.f.home / ".claude" / "settings.json"))
         # The newest copy of the set that the host passes, not the older copy with one more skill.
-        self.assertEqual(d["copy"], {"path": str(self.f.remote / "h2"), "synced": "2026-10-21T07:03:10",
-                                     "current": True, "skills": 1})
+        self.assertEqual(d["copy"], {"path": str(self.f.remote / "h2"), "synced": "2026-10-21T07:03:10", "skills": 1})
         self.assertIn("design is the manifest name of the desktop copy ~/.claude/remote/plugins/host/h2", d["where"])
         self.assertIn(trim.DOC_INLINE, d["where"])
         for text in ("Every session on this machine that loads a plugin named design with --plugin-dir loses it",
@@ -443,17 +482,26 @@ class PluginRowsTest(unittest.TestCase):
         self.assertNotIn("anthropic-skills", rows)
         self.assertTrue(any('"anthropic-skills@inline" = false' in x for x in data["notes"]))
         # A copy without a manifest name never becomes a key.
-        copies, newest = trim.desktop_plugins(self.f.home)
+        copies = trim.desktop_plugins(self.f.home)
         self.assertEqual(sorted(copies), ["anthropic-skills", "design", "legal", "sales", "secret-redact"])
-        self.assertEqual((newest, copies["sales"]["current"]), ("2026-10-21T07:03:10", False))
+        # claude-desktop sessions also load typesafe, an installed plugin: no desktop copy names it, so no @inline row.
+        self.assertNotIn("typesafe@inline", rows)
         md = (run_dir / "plan.md").read_text()
-        self.assertIn("- Desktop copy: ~/.claude/remote/plugins/host/h2 (.synced 2026-10-21T07:03:10 UTC, 1 skill), "
-                      "in the set that the desktop host passes now.", md)
+        self.assertIn("- Desktop copy for the skill list: ~/.claude/remote/plugins/host/h2 (.synced 2026-10-21T07:03:10 "
+                      "UTC, 1 skill).", md)
         self.assertIn("2 sessions on claude-desktop loaded it without using it", md)
         self.assertIn("claude-desktop for @inline plugin keys", md)
 
+    def test_sessions_not_synced_times_decide_the_inline_rows(self):
+        # Another host's sync round is newer than every copy that sessions load, and it holds only finance.
+        self.f.remote = self.f.remote.parent / "host2"
+        self.f.desktop_copy("f1", "finance", ["close"], NOW_SET + 86_400)
+        data, _ = self.f.plan()
+        rows = self.rows(data)
+        self.assertEqual({k for k in rows if k.endswith("@inline")}, {"design@inline", "sales@inline"})
+        self.assertNotIn("finance@inline", rows)  # no session loaded finance
+
     def test_a_plugin_only_on_the_desktop_gets_an_inline_row_without_its_own_key(self):
-        os.utime(self.f.remote / "h1" / ".synced", (NOW_SET, NOW_SET))  # the host passes sales now
         data, _ = self.f.plan()
         rows = self.rows(data)
         self.assertNotIn("sales", rows)
@@ -467,14 +515,14 @@ class PluginRowsTest(unittest.TestCase):
         self.assertIn("walle found no installationPreference for sales", s["risk"]["why"])
         self.assertNotIn("apply that row too", s["risk"]["why"])
 
-    def test_a_copy_the_host_passes_without_desktop_sessions_is_not_called_past(self):
-        os.utime(self.f.remote / "h1" / ".synced", (NOW_SET, NOW_SET))  # the host passes sales now
+    def test_a_copy_without_desktop_sessions_in_the_period_is_not_called_past(self):
         data, _ = self.f.plan("--before", "2026-10-11")  # cli and sdk-cli sessions only
         rows = self.rows(data)
         self.assertNotIn("sales@inline", rows)
         s = rows["sales"]
         self.assertEqual((s["applies"], s.get("past")), ("manual", None))
-        self.assertIn("The desktop host passes sales now, but no claude-desktop session of this period", s["where"])
+        self.assertIn("walle finds sales in the desktop host's copies, but no claude-desktop session of the period "
+                      "loaded it.", s["where"])
         self.assertNotIn("does not pass", s["where"])
         self.assertEqual((s["saving"]["counted"], s["saving"]["unused_tokens_min"]), (False, 0))
 
@@ -491,9 +539,11 @@ class PluginRowsTest(unittest.TestCase):
             {"id": "x", "file": "~/.claude/settings.json", "changed": True, "keys": ["enabledPlugins", "design@inline"]}]}))
         (self.f.out / "index.jsonl").write_text(json.dumps({"id": "20261011-120000", "kind": "apply", "generated": local,
                                                             "path": str(rec / "apply.json")}) + "\n")
-        # The claude-desktop session after the key no longer lists the design skills.
+        # The claude-desktop session after the key no longer lists the design skills. It is the only recent
+        # session here, but the key is set, so the row stays: the key is why the session does not load it.
         drop_listing(self.f.tx / "-w" / "s11.jsonl", "design:ux-copy")
-        data, run_dir = self.f.plan()
+        with mock.patch("walle.trim.RECENT_DESKTOP", 1):
+            data, run_dir = self.f.plan()
         d = self.rows(data)["design@inline"]
         self.assertTrue(d["change"]["already"])
         self.assertEqual(d["change"]["set_at"],
