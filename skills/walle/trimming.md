@@ -9,7 +9,8 @@ walle proposes; the user picks. `walle apply` changes only the settings keys of 
 5. For a row the user wants to leave as it is, run `walle keep <id> --why "<the user's reason>"`. The next plan leaves it out.
 6. For the picked rows, run `walle apply <run> --only <ids> --dry-run` and show its lines to the user. Run it without `--dry-run` only when the user says yes. "walle" rows change one settings key each; walle backs up the file and prints `walle undo <apply-id>`. "manual" rows print a checklist: give it to the user. "patch" rows are a patch file to apply in the repository on a branch, or a change you write.
    - A row in `~/.claude.json` needs every Claude app and session closed. Your own session counts. Tell the user to run `walle trim --plan` and then `walle apply ... --app-closed` in a terminal after they close Claude.
-7. After the user's next sessions, run `walle context --last` and give each row's check.
+7. After the user's next session, run `walle context --compare <apply-id>` and give each row's check. It compares the newest session before the apply with the newest one since, source by source, and counts the sessions that loaded each changed row.
+8. After 10 sessions on each side, run `walle eve --around <apply-id>` for the measured medians of the folder. Report "within noise" as it is: a change in median is not proof of cause.
 
 Plugin rows:
 - A claude.ai plugin synced to Claude Code is a walle row: `enabledPlugins["<name>@synced"] = false` ([docs](https://code.claude.com/docs/en/plugins/loading#control-which-synced-plugins-load)). Tell the user that a plugin the organization requires ignores it, and that it may come back after the next sync. Its effect on `claude-desktop` sessions is not confirmed. The check in step 7 tells.

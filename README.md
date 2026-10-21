@@ -21,10 +21,10 @@ walle finds the second kind, so you can cut it and measure the effect.
 | Command | Output |
 |---|---|
 | `walle scan [folder ...] [--max-tokens N] [--estimator v1\|v2] [--label L]` | For each folder, the stack a session loads before the first prompt: global file, parent files, `@imports`, MEMORY.md, and skill descriptions. It gives each stack a verdict (OVER BUDGET, TRIM or LEAN) and at most 3 items to read first in your own files. It also reports per-file size and rule count, flags by cause, duplicate and drifted rules, and worktree copies that diverged. See [scan.json](#scanjson). |
-| `walle eve [--since D] [--before D]` | Real sessions from `~/.claude/projects` transcripts. For each folder group: baseline input tokens, tool calls, check calls, and calls before the first edit. Each value is compared with sessions that have no project CLAUDE.md. |
-| `walle context [--last \| --session ID] [--agent claude\|codex] [--usage]` | Measured, not estimated: the first API call of one session, by source (system prompt, tool lists, skill list, instruction files, first prompt), with a residual row for what no record explains. `--usage` counts, over all sessions, what each MCP server, tool and skill cost and whether a session used it. `--agent codex` reads Codex rollouts in `~/.codex` (zstd files need the `zstd` program). |
+| `walle eve [folder] [--around APPLY_ID\|DATE] [--agent claude\|codex] [--across-folders]` | Real sessions of one folder (default: the current folder), one model family per row: the measured first-call input, tool calls per prompt and calls before the first edit, as median [p25-p75] with n. `--around` splits the sessions at an apply or a date into before and since. `walle measure` is the same command. See [Measure and compare](#measure-and-compare). |
+| `walle context [--last \| --session ID \| --compare A B \| --compare APPLY_ID] [--agent claude\|codex] [--usage]` | Measured, not estimated: the first API call of one session, by source (system prompt, tool lists, skill list, instruction files, first prompt), with a residual row for what no record explains. `--usage` counts, over all sessions, what each MCP server, tool and skill cost and whether a session used it. `--agent codex` reads Codex rollouts in `~/.codex` (zstd files need the `zstd` program). `--compare` compares two first calls source by source. See [Measure and compare](#measure-and-compare). |
 | `walle diff [last \| A B] [--root F]` | What changed after you trimmed. No argument: the baseline (the pinned run, else the previous scan) against the newest scan of the folder. `last`: the newest two scans. `A B`: two run ids or scan.json paths. It shows the stack tokens, the items closed, new, moved, edited and kept, and the applies between the two scans. A rules change hides the item counts; an estimator or counting change hides the token change. Writes `diff.md` and `diff.json` in a new run folder. |
-| `walle runs [--root F]`, `walle pin <run>`, `walle pin --clear` | The run index: scans, trim plans, applies, undos and diffs. `walle pin` fixes the baseline of a folder for `walle diff`. |
+| `walle runs [--root F] [--html]`, `walle pin <run>`, `walle pin --clear` | The run index: scans, trim plans, applies, undos, diffs, context runs, measures and compares. Every run also writes the history page `index.html` in the runs folder. `walle pin` fixes the baseline of a folder for `walle diff`. |
 | `walle check [folder] [--max-tokens N] [--estimator v1\|v2]` | Exit 1 when a stack is over budget. Use it in CI. |
 | `walle trim --plan [--since D] [--before D]` | A plan to take unused sources out of every session's context: claude.ai connectors, MCP servers, plugins, skills, hook output, and lines that a scan found loaded twice. One row per action: the change (a settings key, a patch or a place in an app), who makes it, the expected saving as a lower bound in bytes-v2 tokens per session, the sessions that loaded and used the source, the risk, the undo and the check. Writes `plan.json`, `plan.md`, `patches/` and judge batch files in a new run folder. `walle trim --import` reads the judge answers into the plan. It changes nothing. |
 | `walle apply <run> --only ID[,ID] [--dry-run] [--app-closed]`, `walle undo <apply-id>` | Change the settings keys of the plan rows you pick, after a backup, and put them back. See [Apply and undo](#apply-and-undo). |
@@ -128,6 +128,33 @@ Rows that need "does this user's work need it?" go to judge batch files with the
 
 `walle undo <apply-id>` restores the backup only when each file still has the hash that it had after the apply. If not, walle lists the key paths that changed, without their values, and stops. Each apply and undo adds a line to the run index, linked to its plan and its apply.
 
+### Measure and compare
+
+These commands close the loop after `walle apply`: did the context of new sessions really shrink? They show measured values. The values never enter the verdict, Start here, the alarm or a PR comment.
+
+`walle context --compare A B` compares the first calls of two sessions source by source. A and B are context run ids, their folders or `context.json` files, or session ids (the start of an id is enough).
+
+- Each source shows its recorded bytes on both sides and the change in estimated tokens. The largest changes inside a source (MCP servers, tools, instruction files) follow the table.
+- Bytes compare only when both sides split the first call in the same way (the same `counting_revision`). Estimated tokens compare only when both sides also used the same estimator.
+- The measured first-call tokens compare when both sessions have the same model family. One session on each side is not a median.
+- The first prompt and hook output change with every session. The table marks them with `*`.
+- The MCP servers and skills that only one side loaded follow, with their calls.
+
+`walle context --compare <apply-id|date>` takes the newest session before the split and the newest session since it. It takes them from `--root` (default: the current folder) when that folder has a session on both sides. Then it lists each row that the apply changed, with the sessions that loaded and used it before and since, in all folders. Last, it gives the measured first-call medians of the folder, as `walle eve --around` does.
+
+`walle eve --around <apply-id|date>` (also `walle measure`) splits the sessions of one folder at the apply or the date.
+
+- The before window starts 30 days before the split (`--days`). The since window ends 30 days after it. A nearer apply or undo ends a window, so each window holds one state of the settings.
+- One model family per row. The family keeps the version and drops a date: `claude-opus-5-5` is `opus 5.5`, `claude-haiku-4-5-20251001` is `haiku 4.5`.
+- Each side shows the median and p25-p75 (`statistics.quantiles`, inclusive method) and n. A side with fewer than 5 sessions has no value. A side with 5 to 9 sessions is marked `(few sessions)`.
+- The change shows only when both sides have 10 sessions or more. It is `within noise` when the two p25-p75 intervals overlap. Else it is `lower` or `higher` by the difference of the medians. `eve.json` also records the half-IQR rule of the design brief.
+- A session that resumes or forks another session starts with that history. walle leaves it out and counts it.
+- `--across-folders` adds every folder for reference. Folders differ in model, connectors and task mix, so the table ranks nothing.
+- The same transcripts give the same output. `eve.json` keeps the all-folder `groups` list that `scan.html` reads.
+- `--agent codex` reads Codex threads and gives first-call input only. Subagent, resumed and forked threads are left out.
+
+The history page `index.html` in the runs folder lists every run, newest first, with its estimator and counting revision. A labeled divider sits above a scan whose rules, estimator or counting revision changed. It lists the pins, and each apply id with its plan, its undo, the two commands that measure it and the runs made around it. walle writes it again after each run. `walle runs --html` writes it now.
+
 `walle keep` writes `keep.json` next to the runs folder (`~/.walle/keep.json` by default). A team keeps lines in `.wallekeep` at the repository root: one team key per line, then `# ` and a note. The team key uses the remote URL and the path in the repository, so every clone has the same key. walle reads `.wallekeep` and never writes it. A repository without a remote has no team key.
 
 ## scan.json
@@ -172,12 +199,15 @@ Synced claude.ai skills and plugin skills are not in the budgeted stack; `walle 
 **DELETE keeps the broader copy.** walle marks a copied line DELETE only when every stack that loads it also loads the copy that stays. It never marks a line in a shared file, such as `~/.claude/CLAUDE.md`, for deletion, because that file also loads in folders outside the scan.
 
 **Run index.** Each scan adds one line to `index.jsonl` in the runs folder (`--out`): id, parent, label, roots, rules hash, estimator, counting revision, stack totals, verdicts, and open and kept counts.
+Other runs add their own line: trim, apply and undo, diff, context, measure and compare. A measure or compare run around an apply has that apply as its `parent_id`.
 Compare finding counts of two runs only when their `rules_hash` values are the same. Compare token totals only when their `estimator` and `counting_revision` values are the same.
+A context run has its own `counting_revision`: 1 is the source split of `walle context`. It does not compare with the revision of a scan.
 `counting_revision` 2 counts a file that Claude Code loads without its HTML comment blocks. 3 also counts the Codex skill list as Codex writes it. A run without the field counts as 1. That label can be wrong for runs made between commits b0f005e and 7a956ce, which already left the comments out; walle was not released then.
 
 ## Limits
 
 - Load rules are the ones observed for Claude Code and Codex. Connector tools and hosted plugin skills are not on disk. `walle eve` measures them as part of the baseline.
+- A change in a measured median is not proof of cause: task mix and connectors move it. Compare one folder and one model family at a time.
 - Token counts in `scan` are estimates from bytes (bytes-v2 by default). `eve` and `walle context` measured numbers come from the API usage in transcripts.
 - Session baselines vary with model, account and connectors. Compare a folder with itself before and after a change (`--before` / `--since`) more than across folders.
 - walle sends nothing off the machine. `walle judge` only writes files for your agent, which already reads these instruction files. The hook never runs it.

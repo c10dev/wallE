@@ -631,6 +631,8 @@ def run_cli(args, home: Path = HOME) -> int:
     if done:
         _say(lines, t("apply.backup", lang, path=_short(rec["backup"], home), id=rec["id"]))
         _say(lines, t("apply.check", lang))
+        _say(lines, t("apply.next", lang, id=rec["id"]))
+        _say(lines, t("apply.next_measure", lang, id=rec["id"]))
         for f in rec["lost"]:
             msg = t("apply.lost", lang, file=f, id=rec["id"])
             lines.append(msg)

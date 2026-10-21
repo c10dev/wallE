@@ -12,11 +12,14 @@ CLAUDE.md, AGENTS.md, 스킬, MEMORY.md, Cursor·Copilot·Gemini·Windsurf·Clin
 
 ```bash
 python3 bin/walle scan ~/projects --html   # 정적 점검
-python3 bin/walle eve --since 2026-10-01   # 세션 실측
+python3 bin/walle eve --since 2026-10-01   # 세션 실측: 이 폴더, 모델 계열마다 한 행, 중앙값 [p25-p75]과 n
+python3 bin/walle eve --around <apply-id>  # apply 전후 비교(양쪽 10세션 이상일 때만 변화 판정)
+python3 bin/walle context --compare A B    # 두 세션의 첫 호출을 원천별로 비교(apply id 하나: 전후 최신 세션)
 python3 bin/walle context --agent codex    # Codex 세션 첫 호출을 원천별로 실측(--usage: 실린 것 대 쓴 것)
 python3 bin/walle diff                     # 기준 실행(고정, 없으면 직전 스캔) -> 이 폴더의 최신 스캔. last: 최근 두 스캔
 python3 bin/walle diff 이전/scan.json 이후/scan.json
-python3 bin/walle runs                     # 실행 목록(스캔, 계획, apply, undo, diff). walle pin <run>으로 기준 실행 고정
+python3 bin/walle runs                     # 실행 목록(스캔, 계획, apply, undo, diff, context, measure, compare). walle pin <run>으로 기준 실행 고정
+                                           # 실행마다 runs 폴더의 index.html(이력 페이지)을 다시 쓴다
 python3 bin/walle check . --max-tokens 15000  # CI용, 넘으면 종료 코드 1
 python3 bin/walle judge --dry-run          # 판정할 항목(파일:줄)과 추정 토큰
 python3 bin/walle judge                    # 후보를 배치 파일로 내보냄 → 에이전트가 답 파일을 씀

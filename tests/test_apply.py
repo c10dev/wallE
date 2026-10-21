@@ -102,6 +102,10 @@ class ApplyUndoTest(unittest.TestCase):
         self.assertEqual((a["parent_id"], sorted(a["rows"]), a["files"], a["status"]),
                          (run_dir.name, sorted(ids), ["~/.claude/settings.json"], "applied"))
         self.assertEqual(out.strip().splitlines()[-1], str(self.f.out / a["id"] / "apply.md"))
+        # The apply id leads to the two views that measure it.
+        self.assertIn(f"Then    walle context --compare {a['id']}  (after a new session)", out)
+        self.assertIn(f"        walle eve --around {a['id']}  (after 10 sessions)", out)
+        self.assertIn(f"walle eve --around {a['id']}", (self.f.out / "index.html").read_text())
         backup = self.f.backups / a["id"]
         self.assertEqual(stat.S_IMODE(backup.stat().st_mode), 0o700)
         undo = json.loads((backup / "undo.json").read_text())
