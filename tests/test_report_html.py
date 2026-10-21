@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stdout
@@ -106,6 +107,10 @@ def snapshot_of(D: dict) -> dict:
 class PageTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Measure windows end on local days, so the snapshot is computed in UTC.
+        cls.tz = os.environ.get("TZ")
+        os.environ["TZ"] = "UTC"
+        time.tzset()
         cls.t = RealTree()
         cls.data = scan([cls.t.projects], cls.t.home)
         cls.data["run"]["id"] = "20261020-081752"
@@ -120,6 +125,11 @@ class PageTest(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.t.close()
+        if cls.tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = cls.tz
+        time.tzset()
 
     def test_page_data_matches_the_snapshot(self):
         # The memory folder name holds a slug of the random temp folder. Replace that exact slug, so a TMPDIR
