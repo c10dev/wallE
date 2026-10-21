@@ -14,7 +14,7 @@ Run `walle` if it is on PATH. Otherwise run `python3 <plugin root>/bin/walle`; t
    - Under each candidate, one line that starts with `My read:` (Korean: `에이전트 판단:`). First read the 3 lines above and below it in the file. Never call a candidate a problem or an error.
    - Add the `Shared:` line and the report path only if lines are left.
    - Last line: one yes/no question. Edit no file before the user says yes.
-3. Give session measures only when the user asks. Real cost comes from transcripts: `walle eve [folder] [--around <apply-id|date>]`. It compares one folder and one model family at a time.
+3. Give session measures only when the user asks. Real cost comes from transcripts: `walle eve [folder] [--around <apply-id|date>]`. It compares one folder and one model family at a time. To check whether an apply or a settings change took effect, hand it to the `eve` subagent (`walle:eve`) with the apply id. It runs the measure commands and returns a short report per surface.
 4. Before you edit a shared file (one outside the folder), name it and say how many folders load it.
 5. After an edit, run the scan again and `walle diff` (the baseline against the newest scan of the folder; `walle diff last` for the newest two). Report one line, for example `Stack ~3,200 -> ~3,180 est. tokens; item 1 closed.`
 6. `walle show <id>` prints one item with the lines around it. To judge candidates with your own agent, read `judging.md` next to this file.
