@@ -211,7 +211,9 @@ def _on_disk(s, cwd: Path | None, settings: dict, home: Path) -> dict:
         return {"mark": "on disk" if s.count else "-", "why": f"features.multi_agent and multi_agent_v2 in {cfg}",
                 "multi_agent": feats.get("multi_agent"), "multi_agent_v2": feats.get("multi_agent_v2")}
     if s.kind == "memory":
-        return {"mark": "on disk" if s.count else "-", "why": f"~/.codex/memories; features.memories in {cfg}",
+        here = (home / ".codex" / "memories").is_dir()
+        return {"mark": ("on disk" if here else "not on disk") if s.count else "-",
+                "why": f"~/.codex/memories; features.memories in {cfg}",
                 "memories": feats.get("memories")}
     if s.kind == "hook_context":
         return {"mark": "on disk" if s.count else "-", "why": f"[hooks] in {cfg}", "hooks": settings["hooks"]}
