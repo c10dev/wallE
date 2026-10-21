@@ -114,7 +114,7 @@ walle app --port 8760
 - Measure는 폴더의 `walle eve` 행(중앙값 [p25-p75]와 n, 분할 뒤의 변화)과 최신 context 실행의 컨텍스트 패널을 보여 준다.
 - Trim은 최신 계획을 읽기 전용으로 보여 준다. 행마다 터미널에 붙여 넣을 `walle apply` 명령이 있다. 키가 이미 설정된 행은 표면별 상태를 보여 주고, 절감량과 명령은 없다. Runs는 실행 색인을, Keep은 `keep.json`을 보여 준다.
 - 명령 막대는 walle 명령 하나를 받는다. 명령은 페이지가 보여 주는 폴더에서 셸 없이 인자 목록으로 돈다. `walle scan`은 도는 동안 단계를 보여 준다. 페이지를 닫거나 서버를 멈추면 walle가 명령을 멈춘다.
-- 이 버전은 읽기 명령만 돌린다: `scan`, `context`, `eve`, `runs`, `diff`, `show`, `trim --plan`, `judge --dry-run`. `apply`, `undo`, `keep`, `unkeep`, `pin`, `judge --import`, `trim --import`는 거부하고 아무것도 돌리지 않는다. 터미널에서 돌린다.
+- 이 버전은 읽기 명령만 돌린다: `scan`, `context`, `eve`, `runs`, `diff`, `show`, `trim --plan`, `judge --dry-run`. `apply`, `undo`, `keep`, `unkeep`, `pin`, `judge --import`, `trim --import`는 거부하고 아무것도 돌리지 않는다. 터미널에서 돌린다. app에서 돌린 scan은 `keep.json`을 그대로 둔다: 남긴 줄이 바뀌었으면 scan이 그렇다고 알리고, 그 항목은 다음에 터미널에서 돌린 `walle scan`이 지운다.
 - `--out`은 다른 명령처럼 실행 폴더를 정한다. 페이지의 명령은 이 값을 바꿀 수 없다.
 
 다른 컴퓨터에서 열려면 SSH로 포트를 넘기고, 출력된 URL을 그 컴퓨터에서 연다.

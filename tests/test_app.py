@@ -175,8 +175,9 @@ class HostOriginTest(Served):
 class AllowlistTest(unittest.TestCase):
     def test_read_commands_pass(self):
         cases = {
-            "walle scan .": ["scan", ".", "--progress", "json"],
-            "walle scan ~/projects --label 'before trim' --progress json": ["scan", "~/projects", "--label", "before trim", "--progress", "json"],
+            "walle scan .": ["scan", ".", "--progress", "json", "--keep-read-only"],
+            "walle scan ~/projects --label 'before trim' --progress json": ["scan", "~/projects", "--label", "before trim", "--progress", "json",
+                                                                          "--keep-read-only"],
             "walle context --last --json": ["context", "--last", "--json"],
             "walle context --usage --since 2026-10-01 --json": ["context", "--usage", "--since", "2026-10-01", "--json"],
             "walle context --compare 20261021-041924": ["context", "--compare", "20261021-041924"],
@@ -240,7 +241,8 @@ class RunTest(Served):
         argv = args[0]
         self.assertIsInstance(argv, list)
         self.assertEqual(argv[0], sys.executable)
-        self.assertEqual(argv[-8:], ["--out", str(self.out), "scan", ".", "--label", "a b; rm -rf ~ $(id)", "--progress", "json"])
+        self.assertEqual(argv[-9:], ["--out", str(self.out), "scan", ".", "--label", "a b; rm -rf ~ $(id)", "--progress", "json",
+                                     "--keep-read-only"])
         self.assertFalse(kw.get("shell", False))
         self.assertEqual(kw["cwd"], str(FX.app))
         self.assertEqual(kw["env"]["HOME"], str(self.home))

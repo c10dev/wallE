@@ -84,14 +84,15 @@ def read_wallekeep(path: Path) -> dict[str, dict]:
     return out
 
 
-def release(path: Path, released: list[dict]) -> list[dict]:
-    """Remove the entries that a scan released. Returns the entries removed."""
+def release(path: Path, released: list[dict], write: bool = True) -> list[dict]:
+    """Remove the entries that a scan released. Returns the entries removed. With write=False (a scan from
+    walle app), keep.json stays as it is and the next scan releases the same entries again."""
     ids = {r.get("id") for r in released}
     if not ids:
         return []
     data = load(path)
     gone = [e for e in data["entries"] if e["id"] in ids]
-    if gone:
+    if gone and write:
         data["entries"] = [e for e in data["entries"] if e["id"] not in ids]
         save(path, data)
     return gone

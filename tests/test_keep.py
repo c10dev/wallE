@@ -118,6 +118,24 @@ class KeepCliTest(unittest.TestCase):
         self.assertNotIn("released", err)
         self.assertNotIn("keep", self.step_item(data).get("keep") or {})
 
+    def test_a_scan_from_walle_app_does_not_write_keep_json(self):
+        it = self.step_item(self.scan()[0])
+        self.cli("keep", it["id"])
+        kept = keep.path_for(self.out).read_bytes()
+        self.md.write_text(f"# App\n\n- Always run the formatter before every task.\n\n{words('a1')}.\n")
+        for _ in range(2):  # the entry stays, so each scan from the app says it again
+            out, err = self.cli("scan", str(self.repo), "--format", "path", "--keep-read-only")
+            data = json.loads(Path(out.strip()).with_name("scan.json").read_text())
+            self.assertIn(f"{it['id']} ", err)
+            self.assertIn("walle app leaves keep.json as it is", err)
+            self.assertEqual(data["triage"]["keep_released"][0]["id"], it["id"])
+            self.assertEqual(self.step_item(data)["state"], "open")
+            self.assertEqual(keep.path_for(self.out).read_bytes(), kept)
+        _data, err = self.scan()  # a scan in a terminal removes the entry
+        self.assertIn("keep released: line changed", err)
+        self.assertNotIn("walle app", err)
+        self.assertEqual(keep.load(keep.path_for(self.out))["entries"], [])
+
     def test_a_group_item_is_released_by_its_hash(self):
         big = "# App\n\n## Big\n\n" + "\n\n".join(f"{words(f'big{n}', 40)}." for n in range(36)) + "\n"
         self.md.write_text(big)

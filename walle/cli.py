@@ -215,6 +215,8 @@ def main(argv: list[str] | None = None) -> int:
                    help="json: one JSON object per line on stderr for each scan step (collect, stack, classify, "
                         "pairs, triage) as it starts and ends, then a done event. It replaces the progress line")
     s.add_argument("--lang", choices=LANGS, help="en or ko (default: from LC_ALL, LC_MESSAGES or LANG)")
+    # walle app adds it: the app runs read commands only, so its scan does not write keep.json.
+    s.add_argument("--keep-read-only", action="store_true", help=argparse.SUPPRESS)
 
     c = sub.add_parser("check", help="exit 1 when a stack is over budget (for CI)")
     c.add_argument("roots", nargs="*", type=Path, default=[Path.cwd()])
@@ -291,10 +293,13 @@ def main(argv: list[str] | None = None) -> int:
         progress, done, note = (_json_progress(started) if args.progress == "json"
                                 else (None, None, lambda text: print(text, file=sys.stderr)))
         data = _scan(roots, _budget(args), args.estimator, keep.for_scan(keep_file), progress)
-        # A kept line that changed is open again: say so once, then the entry is gone.
+        # A kept line that changed is open again: say so once, then the entry is gone. A scan from walle app
+        # leaves the entry: a scan in a terminal removes it.
         lang = resolve_lang(args.lang)
-        for e in keep.release(keep_file, data.get("triage", {}).get("keep_released") or []):
-            note(t("keep.released.at", lang, id=e["id"], where=keep.where(e, HOME)))
+        key = "keep.released.app" if args.keep_read_only else "keep.released.at"
+        for e in keep.release(keep_file, data.get("triage", {}).get("keep_released") or [],
+                              write=not args.keep_read_only):
+            note(t(key, lang, id=e["id"], where=keep.where(e, HOME)))
         run_dir = runs.new_run_dir(args.out)
         data.setdefault("run", runs.run_block(roots, [], args.estimator))
         data["run"].update(id=run_dir.name, label=args.label,

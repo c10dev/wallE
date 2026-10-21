@@ -430,6 +430,10 @@ STRINGS: dict[str, tuple[str, str]] = {
                       "남김 풀림: 줄이 바뀌었다. 항목이 다시 열렸다."),
     "keep.released.at": ("{id} {where}: keep released: line changed. The item is open again.",
                          "{id} {where}: 남김 풀림: 줄이 바뀌었다. 항목이 다시 열렸다."),
+    "keep.released.app": ("{id} {where}: keep released: line changed. The item is open again. walle app leaves "
+                          "keep.json as it is. A walle scan in a terminal removes the entry.",
+                          "{id} {where}: 남김 풀림: 줄이 바뀌었다. 항목이 다시 열렸다. walle app은 keep.json을 "
+                          "그대로 둔다. 터미널에서 돌린 walle scan이 이 항목을 지운다."),
     "keep.kept": ("kept {id} ({where}). walle skips it from the next run. If the line changes, walle counts it again.",
                   "남김 {id} ({where}). 다음 실행부터 세지 않는다. 줄이 바뀌면 다시 센다."),
     "keep.kept_source": ("kept {id} ({where}). walle trim --plan leaves it out from the next plan.",

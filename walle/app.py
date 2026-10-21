@@ -171,6 +171,8 @@ def check_command(text: str) -> list[str]:
         raise Refused("walle context --compare does not take --json.")
     if cmd == "scan" and "--progress" not in seen and not help_only:
         args = [*args, "--progress", "json"]
+    if cmd == "scan" and not help_only:
+        args = [*args, "--keep-read-only"]  # else the scan removes the keep.json entry of a kept line that changed
     return args
 
 
