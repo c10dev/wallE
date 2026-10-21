@@ -57,8 +57,10 @@ class PageTest(unittest.TestCase):
         cls.t.close()
 
     def test_page_data_matches_the_snapshot(self):
-        # The memory folder name holds a slug of the random temp folder.
-        got = json.loads(re.sub(r"tmp[A-Za-z0-9_-]*?-+home", "tmpX-home", json.dumps(snapshot_of(self.D), ensure_ascii=False)))
+        # The memory folder name holds a slug of the random temp folder. Replace that exact slug, so a TMPDIR
+        # that has "home" in its path does not change the result.
+        root = re.sub(r"[^A-Za-z0-9]", "-", str(self.t.home.parent))
+        got = json.loads(json.dumps(snapshot_of(self.D), ensure_ascii=False).replace(root + "-home", "-tmpX-home"))
         if os.environ.get("WALLE_UPDATE_SNAPSHOTS"):
             SNAPSHOT.parent.mkdir(exist_ok=True)
             SNAPSHOT.write_text(json.dumps(got, ensure_ascii=False, indent=1) + "\n")

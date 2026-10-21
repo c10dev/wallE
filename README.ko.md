@@ -35,7 +35,7 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 - 실제 플러그인의 스킬(claude.ai 스킬 동기화가 아닌 플러그인의 `<플러그인>:*`)에는 `skillOverrides`를 내지 않는다. Claude Code가 플러그인 스킬에는 적용하지 않는다([문서](https://code.claude.com/docs/en/skills#override-skill-visibility-from-settings)). 대신 플러그인 행이 플러그인 전체를 뺀다.
 - 동기화된 claude.ai 스킬(`anthropic-skills:*`)은 `skillOverrides` 행이다. `cli`와 `sdk-cli`는 이 스킬을 사용자 스킬로 읽고, 사용자 스킬에는 `skillOverrides`가 적용된다. 이 내용은 Claude Code 2.1.303 코드를 읽은 결과이고, 아직 `cli`·`sdk-cli` 세션으로 확인하지 않았다. `claude-desktop`은 이 스킬을 플러그인으로 읽는다. 2026-10-21에 `claude-desktop` 2.1.299에서 측정했다: 키를 넣은 뒤에도 스킬이 목록에 남았다.
 - 표면(surface)은 세션의 `entrypoint`다(`cli`, `sdk-cli`, `claude-desktop`). 동기화된 스킬과 동기화된 플러그인의 절감은 `cli`와 `sdk-cli` 세션만 센다. `claude-desktop` 몫은 따로, 확인되지 않은 수로 보인다. plan.md의 합계도 같은 방식으로 나눈다.
-- 이미 넣은 키는 넣은 뒤 시작한 세션으로 표면마다 상태를 낸다: `already set`, `set, still listed on <표면>`, `set, not measured on <표면>`. 넣은 시각은 그 키를 넣은 가장 이른 `walle apply` 기록이고, 없으면 설정 파일의 수정 시각이다. 그 절감은 세지 않는다. 키를 지우는 행은 없다.
+- 이미 넣은 키는 넣은 뒤 시작한 세션으로 표면마다 상태를 낸다: `already set`, `set, still listed on <표면>`, `set, the source is gone on <표면>`(지금 버킷에 없는 동기화 스킬), `set, no baseline on <표면>`(키를 넣기 전에 그 표면의 어느 세션도 원천을 싣지 않았다), `set, not measured on <표면>`. 넣은 시각은 마지막 `walle undo` 뒤에 그 키를 넣은 가장 이른 `walle apply`다. 없으면 설정 파일을 마지막으로 바꾼 시각이고, 키는 그 시각이나 그 전에 들어갔다. 그 절감은 세지 않는다. 키를 지우는 행은 없다.
 - 현재 동기화 버킷에 없는 스킬은 "not in the current bucket"으로 표시한다. 그 실린 세션 수는 지난 세션이다.
 - 데스크톱 앱에만 있는 플러그인(`~/.claude/remote/plugins`)은 수동 행이다. claude.ai에서 구성원은 "Installed by default" 플러그인을 끌 수 있다. "Required" 플러그인은 조직 Owner가 바꿔야 한다([문서](https://claude.com/docs/plugins/admin)).
 - `walle apply`는 `enabledPlugins` 키를 `false`로만 바꾸고, `skillOverrides` 키는 `user-invocable-only`로만 넣는다. 설정 키를 지우지 않는다. 다른 동작은 모두 거부한다.

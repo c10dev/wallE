@@ -662,17 +662,27 @@ def _utc(ts: str) -> str:
 
 
 def apply_set_times(out: Path) -> dict[tuple, tuple[str, str]]:
-    """(file, keys) -> (UTC time, the apply id) of the earliest walle apply record that changed that key."""
+    """(file, keys) -> (UTC time, the apply id) of the earliest walle apply that set the key since its last undo.
+
+    The index is read in order. An undo line (parent_id = an apply id) clears the keys of that apply, so a
+    later apply sets their time again.
+    """
     found: dict[tuple, tuple[str, str]] = {}
     for line in runs.read_index(out):
+        if line.get("kind") == "undo":
+            gone = str(line.get("parent_id"))
+            found = {k: v for k, v in found.items() if v[1] != gone}
+            continue
         if line.get("kind") != "apply" or not line.get("path"):
             continue
         try:
             rec = json.loads(Path(line["path"]).read_text())
         except (OSError, ValueError):
             continue
+        if not isinstance(rec, dict):
+            continue
         when = _utc(rec.get("generated") or line.get("generated") or "")
-        if not when or not isinstance(rec, dict):
+        if not when:
             continue
         for x in rec.get("rows") or []:
             if isinstance(x, dict) and x.get("changed"):
@@ -692,8 +702,13 @@ def _session_marks(rows_u: dict[str, dict]) -> list[tuple[str, str, set, list]]:
     return out
 
 
-def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[dict]:
-    """Per entrypoint: does a session that started after `since` still list the source of a key that is set?"""
+def set_status(marks: list[tuple], since: str, spec: tuple[str, str], gone: bool = False) -> list[dict]:
+    """Per entrypoint: does a session that started after `since` still list the source of a key that is set?
+
+    "acts" needs a baseline: a session of that surface before `since` listed the source. `since` can be later
+    than the real set time (the last change of the file), so any session before it counts. A source that is
+    gone (a synced skill that is not in the current bucket) never "acts": its absence says nothing about the key.
+    """
     kind, name = spec
 
     def listed(m) -> bool:
@@ -704,10 +719,15 @@ def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[di
         return any(x.startswith(name + ":") for x in m[2]) or any(k.startswith(f"plugin:{name}:") for k in m[3])
 
     by: dict[str, list[int]] = defaultdict(lambda: [0, 0])
+    before: dict[str, bool] = defaultdict(bool)
     for m in marks:
-        if m[0] and m[0] >= since:
+        if not m[0]:
+            continue
+        if m[0] >= since:
             by[m[1]][0] += 1
             by[m[1]][1] += listed(m)
+        else:
+            before[m[1]] = before[m[1]] or listed(m)
     out = []
     for ep in [*SURFACES, *sorted(set(by) - set(SURFACES))]:
         n, k = by.get(ep, (0, 0))
@@ -715,6 +735,12 @@ def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[di
             state, text = "not measured", f"set, not measured on {ep}"
         elif k:
             state, text = "still listed", f"set, still listed on {ep} ({k} sessions since {since} UTC)"
+        elif gone:
+            state, text = "gone", (f"set, the source is gone on {ep}: it is not in the current bucket, so its "
+                                   "absence says nothing about the key")
+        elif not before[ep]:
+            state, text = "no baseline", (f"set, no baseline on {ep}: no session before {since} UTC listed it, "
+                                          "so its absence after says nothing about the key")
         else:
             state, text = "acts", f"already set on {ep}: none of {n} sessions since {since} UTC lists it"
         out.append({"entrypoint": ep, "state": state, "sessions": n, "listed": k, "text": text})
@@ -724,9 +750,9 @@ def set_status(marks: list[tuple], since: str, spec: tuple[str, str]) -> list[di
 def mark_set_keys(rows: list[dict], rows_u: dict[str, dict], out: Path) -> None:
     """For a row whose key is already set: its status per entrypoint, from the sessions after the key was set.
 
-    The set time is the earliest walle apply record that changed the key, else the modification time of the
-    file (every session after it saw the file as it is). The row never deletes the key, and its saving is not
-    counted.
+    The set time is the earliest walle apply that set the key since its last undo. Else it is the last change
+    of the file: the key was set at or before it, and every session after it saw the file as it is. The row
+    never deletes the key, and its saving is not counted.
     """
     times = apply_set_times(out)
     marks = _session_marks(rows_u)
@@ -737,16 +763,16 @@ def mark_set_keys(rows: list[dict], rows_u: dict[str, dict], out: Path) -> None:
             continue
         hit = times.get((c["file"], tuple(str(k) for k in c["keys"])))
         if hit:
-            at = {"time": hit[0], "from": f"walle apply {hit[1]}"}
+            at = {"time": hit[0], "from": f"walle apply {hit[1]}", "exact": True}
         else:
             try:
                 mtime = Path(c["path"]).stat().st_mtime
             except (OSError, KeyError):
                 continue
             at = {"time": datetime.fromtimestamp(mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
-                  "from": f"the modification time of {c['file']}"}
+                  "from": f"the last change of {c['file']}", "exact": False}
         c["set_at"] = at
-        r["set_status"] = set_status(marks, at["time"], spec)
+        r["set_status"] = set_status(marks, at["time"], spec, gone=bool(r.get("past")))
         _not_counted(r, "the key is already set")
 
 
@@ -1002,8 +1028,10 @@ NOTES = [
     "synced plugins, the saving counts cli and sdk-cli sessions; the other surfaces are a separate, unconfirmed "
     "number.",
     "A key that is already set gets a status per entrypoint from the sessions that started after it was set (the "
-    "earliest walle apply record that set it, else the modification time of the settings file): already set, "
-    "still listed, or not measured. Its saving is not counted. No row deletes a key.",
+    "earliest walle apply that set it since its last undo, else the last change of the settings file, at or "
+    "before which it was set): already set, still listed, gone (a synced skill that is not in the current "
+    "bucket), no baseline (no session of that surface listed the source before the key was set), or not "
+    "measured. Its saving is not counted. No row deletes a key.",
     "A claude.ai plugin synced to Claude Code is the key enabledPlugins[\"<name>@synced\"] = false, the key that "
     f"`claude plugin disable` writes ({DOC_PLUGIN_DISABLE}); " + PLUGIN_DESKTOP + " A plugin that only the desktop "
     "app keeps is manual: "
@@ -1133,7 +1161,8 @@ def render(data: dict) -> str:
             if c.get("already"):
                 at = c.get("set_at")
                 md.append("- In the file: the key already has this state"
-                          + (f" (set {at['time']} UTC, from {at['from']})" if at else "")
+                          + ((f" (set {at['time']} UTC by {at['from']})" if at.get("exact") else
+                              f" (set at or before {at['time']} UTC, {at['from']})") if at else "")
                           + ". The row never deletes it.")
                 for st in r.get("set_status") or []:
                     md.append(f"  - {st['text']}")

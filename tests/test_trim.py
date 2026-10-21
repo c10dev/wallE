@@ -413,10 +413,12 @@ class PluginRowsTest(unittest.TestCase):
         rows = self.rows(data)
         pdf = rows["anthropic-skills:pdf-like"]
         self.assertTrue(pdf["change"]["already"])
-        self.assertEqual(pdf["change"]["set_at"], {"time": "2026-10-08T12:00:00", "from": "walle apply 20261008-120000"})
+        self.assertEqual(pdf["change"]["set_at"],
+                         {"time": "2026-10-08T12:00:00", "from": "walle apply 20261008-120000", "exact": True})
         st = {x["entrypoint"]: x for x in pdf["set_status"]}
-        # Sessions 8-11 started after: the sdk-cli ones no longer list it, the desktop ones still do, no cli one.
-        self.assertEqual(st["sdk-cli"]["state"], "acts")
+        # Sessions 8-11 started after: the sdk-cli ones do not list it, the desktop ones still do, no cli one.
+        # No sdk-cli session started before the key, so there is no baseline: absence after proves nothing.
+        self.assertEqual(st["sdk-cli"]["state"], "no baseline")
         self.assertEqual(st["claude-desktop"]["text"],
                          "set, still listed on claude-desktop (2 sessions since 2026-10-08T12:00:00 UTC)")
         self.assertEqual(st["cli"]["text"], "set, not measured on cli")
@@ -424,7 +426,8 @@ class PluginRowsTest(unittest.TestCase):
         self.assertEqual(pdf["saving"]["unconfirmed"]["unused_tokens_min"], 0)
         self.assertEqual(pdf["change"]["op"], "set")  # the row never deletes the key
         learn = rows["anthropic-skills:learn-like"]
-        self.assertEqual(learn["change"]["set_at"]["from"], "the modification time of ~/.claude/settings.json")
+        self.assertEqual(learn["change"]["set_at"]["from"], "the last change of ~/.claude/settings.json")
+        self.assertFalse(learn["change"]["set_at"]["exact"])
         st = {x["entrypoint"]: x["state"] for x in learn["set_status"]}
         self.assertEqual(st, {"cli": "not measured", "sdk-cli": "not measured", "claude-desktop": "still listed"})
         # learn-like is not in the current bucket: its loaded count is past.
@@ -435,6 +438,8 @@ class PluginRowsTest(unittest.TestCase):
         self.assertIn("| 12 (past) |", md)
         self.assertIn("- Saving: not counted: the key is already set.", md)
         self.assertIn("  - set, still listed on claude-desktop (2 sessions since 2026-10-08T12:00:00 UTC)", md)
+        self.assertIn("(set 2026-10-08T12:00:00 UTC by walle apply 20261008-120000)", md)
+        self.assertIn("(set at or before 2026-10-10T12:00:00 UTC, the last change of ~/.claude/settings.json)", md)
         self.assertNotIn("still loads", md)
         self.assertIn("(2 already set in the file)", md)
         # Rows whose key is set count no saving, so they come last among the sources.
@@ -445,6 +450,7 @@ class PluginRowsTest(unittest.TestCase):
 class GateTest(unittest.TestCase):
     def test_set_status_per_entrypoint(self):
         marks = [("2026-10-02T00:00:00", "cli", {"a:x"}, ["rea"]), ("2026-10-03T00:00:00", "cli", set(), []),
+                 ("2026-09-29T00:00:00", "claude-desktop", set(), ["rea"]),
                  ("2026-10-03T00:00:00", "claude-desktop", {"a:x"}, ["plugin:a:srv"]),
                  ("2026-09-30T00:00:00", "sdk-cli", {"a:x"}, ["rea"])]
         since = "2026-10-01T00:00:00"
@@ -454,6 +460,37 @@ class GateTest(unittest.TestCase):
         st = {x["entrypoint"]: x["state"] for x in trim.set_status(marks, since, ("plugin", "a"))}
         self.assertEqual(st, {"cli": "still listed", "sdk-cli": "not measured", "claude-desktop": "still listed"})
         self.assertEqual(trim._utc("2026-10-20T08:03:42.203Z"), "2026-10-20T08:03:42")
+
+    def test_no_acts_without_a_baseline_or_for_a_gone_source(self):
+        marks = [("2026-10-17T00:00:00", "claude-desktop", {"s:learn"}, []),
+                 ("2026-10-19T00:00:00", "claude-desktop", set(), []),
+                 ("2026-10-21T05:00:00", "claude-desktop", set(), []),
+                 ("2026-10-21T05:00:00", "cli", set(), [])]
+        since = "2026-10-21T04:19:24"
+        st = {x["entrypoint"]: x for x in trim.set_status(marks, since, ("skill", "s:learn"))}
+        # A session before the key listed it: the set time can be later than the real one, so that counts.
+        self.assertEqual(st["claude-desktop"]["state"], "acts")
+        self.assertEqual(st["cli"]["state"], "no baseline")  # no cli session before the key listed it
+        self.assertIn("no session before 2026-10-21T04:19:24 UTC listed it", st["cli"]["text"])
+        # learn-like: the skill is not in the current bucket, so its absence says nothing about the key.
+        st = {x["entrypoint"]: x for x in trim.set_status(marks, since, ("skill", "s:learn"), gone=True)}
+        self.assertEqual(st["claude-desktop"]["state"], "gone")
+        self.assertIn("not in the current bucket", st["claude-desktop"]["text"])
+
+    def test_set_time_starts_again_after_an_undo(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d)
+            lines = []
+            for rid, when in (("20261021-051807", "2026-10-21T05:18:07+00:00"),
+                              ("20261021-051900", "2026-10-21T05:19:00+00:00")):
+                (out / rid).mkdir()
+                (out / rid / "apply.json").write_text(json.dumps({"generated": when, "rows": [
+                    {"file": "~/.claude/settings.json", "changed": True, "keys": ["skillOverrides", "x"]}]}))
+                lines.append({"id": rid, "kind": "apply", "generated": when, "path": str(out / rid / "apply.json")})
+            lines.insert(1, {"id": "20261021-051850", "kind": "undo", "parent_id": "20261021-051807"})
+            (out / "index.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+            got = trim.apply_set_times(out)[("~/.claude/settings.json", ("skillOverrides", "x"))]
+            self.assertEqual(got, ("2026-10-21T05:19:00", "20261021-051900"))
 
     def test_gate(self):
         self.assertTrue(trim.gate(464, 32, 310))  # Vercel
