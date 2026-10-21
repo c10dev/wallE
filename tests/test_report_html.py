@@ -5,8 +5,9 @@ import json
 import os
 import re
 import sys
+import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from importlib import resources
 from pathlib import Path
 from unittest import mock
@@ -21,8 +22,28 @@ from walle.scan import scan  # noqa: E402
 SNAPSHOT = Path(__file__).resolve().parent / "snapshots" / "report_html_real0817.json"
 TEMPLATE = resources.files("walle") / "report.html"
 AT = "2026-10-21T09:00:00Z"
-# The test trees live under /tmp, which walle eve treats as scratch.
-NO_SCRATCH = mock.patch("walle.eve.SCRATCH_ROOTS", ())
+
+
+@contextmanager
+def tree_only(root: Path):
+    """Keep walle eve inside a test tree. The tree lives in TMPDIR, which walle eve treats as scratch, and
+    walle eve looks for CLAUDE.md and .git in every folder above a session folder. So here /tmp is not
+    scratch, and a CLAUDE.md or a checkout above root does not count."""
+    find, is_file = eve.find_checkout, Path.is_file
+
+    def inside(p: Path) -> bool:
+        return p == root or root in p.parents
+
+    def find_checkout(start: Path):
+        got = find(start)
+        return got if got[0] is None or inside(got[0]) else (None, None, False)
+
+    def tree_is_file(p: Path) -> bool:
+        return is_file(p) and (p.name != "CLAUDE.md" or inside(p))
+
+    with mock.patch("walle.eve.SCRATCH_ROOTS", ()), mock.patch("walle.eve.find_checkout", find_checkout), \
+            mock.patch.object(Path, "is_file", tree_is_file):
+        yield
 
 
 def day(d: int, h: int) -> str:
@@ -46,8 +67,9 @@ def sessions_of(t: RealTree) -> list:
 
 
 def write_eve(out: Path, rid: str, folder: Path, sessions: list, around: str | None = None, across: bool = False) -> dict:
-    """A schema 2 eve.json as walle eve writes it: the all-folder groups and the measure block of one folder."""
-    with NO_SCRATCH:
+    """A schema 2 eve.json as walle eve writes it: the all-folder groups and the measure block of one folder.
+    The runs folder sits in the test tree, next to home."""
+    with tree_only(out.parent):
         split = measure.split_point(out, around) if around else None
         block = eve.measure_block(sessions, "claude", folder, split, across=across)
         data = {"schema": 2, **eve.summarize(sessions),
@@ -92,7 +114,7 @@ class PageTest(unittest.TestCase):
         # The snapshot page has a schema 2 measure run of runup with a before and a since side.
         out = cls.t.home.parent / "runs"
         write_eve(out, "20261021-120000", cls.t.projects / "runup", sessions_of(cls.t), around=AT)
-        with NO_SCRATCH:
+        with tree_only(cls.t.home.parent):
             cls.DM = report_html.page_data(cls.data, out, cls.t.home)
 
     @classmethod
@@ -183,7 +205,7 @@ class MeasureTest(unittest.TestCase):
         return self.t.home.parent / f"runs{self.n}"
 
     def page(self, out: Path) -> dict:
-        with NO_SCRATCH:
+        with tree_only(self.t.home.parent):
             return report_html.page_data(self.data, out, self.t.home)
 
     def test_one_panel_per_model_family_with_before_and_since(self):
@@ -265,6 +287,27 @@ class MeasureTest(unittest.TestCase):
         self.assertEqual(D["measure"]["atc/controller@claude"]["row"]["n"], 3)
         self.assertEqual(D["measure"]["tennis-web@claude"], {"state": "none", "group": "tennis-web"})
 
+    def test_a_claude_md_above_the_test_tree_changes_nothing(self):
+        # The test tree lives in TMPDIR. A CLAUDE.md or a .git in a folder above it is not part of the tree.
+        with tempfile.TemporaryDirectory() as tmp:
+            anc = Path(tmp).resolve() / "anc"
+            (anc / "t").mkdir(parents=True)
+            (anc / "CLAUDE.md").write_text("- rule\n")
+            with mock.patch.object(tempfile, "tempdir", str(anc / "t")):
+                t = RealTree()
+            try:
+                data = scan([t.projects], t.home)
+                out = t.home.parent / "runs"
+                write_eve(out, "20261021-120000", t.projects / "runup", sessions_of(t), around=AT, across=True)
+                with tree_only(t.home.parent):
+                    D = report_html.page_data(data, out, t.home)
+            finally:
+                t.close()
+        self.assertEqual(D["measure"]["~/projects@claude"], {"state": "none", "group": "(control: no project CLAUDE.md)"})
+        out = self.out()
+        write_eve(out, "20261021-120000", self.t.projects / "runup", self.sessions, around=AT, across=True)
+        self.assertEqual(D["measure"], self.page(out)["measure"])
+
     def test_page_draws_the_panels_by_the_brief(self):
         js = TEMPLATE.read_text(encoding="utf-8")
         body = js[js.index("function drawMeasure()"):js.index("/* ------------------------------------------------------------------ history */")]
@@ -303,7 +346,7 @@ class CliTest(unittest.TestCase):
         (self.out / "20990101-000000").mkdir()
         (self.out / "20990101-000000" / "eve.json").write_text(json.dumps(
             {"sessions": 3, "groups": [{"group": "runup", "control": False, "n": 3, "baseline_median": 50000}]}))
-        with NO_SCRATCH:
+        with tree_only(self.t.home.parent):
             self.run_cli(app)
         rows = runs.read_index(self.out)
         D = self.page_of(rows[-1])
@@ -321,7 +364,7 @@ class CliTest(unittest.TestCase):
             claude_session(projects, f"b{i:02d}", app, day(10 + i % 10, i % 9), total=90000 + 500 * i)
         for i in range(11):
             claude_session(projects, f"a{i:02d}", app, day(21, 10 + i % 9), total=80000 + 400 * i)
-        with NO_SCRATCH, mock.patch("walle.cli.HOME", self.t.home), mock.patch("walle.eve.HOME", self.t.home), \
+        with tree_only(self.t.home.parent), mock.patch("walle.cli.HOME", self.t.home), mock.patch("walle.eve.HOME", self.t.home), \
                 redirect_stdout(io.StringIO()):
             self.assertEqual(cli.main(["--out", str(self.out), "measure", str(app), "--around", AT,
                                        "--transcripts", str(projects)]), 0)
