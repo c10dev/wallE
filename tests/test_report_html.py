@@ -308,6 +308,21 @@ class MeasureTest(unittest.TestCase):
         write_eve(out, "20261021-120000", self.t.projects / "runup", self.sessions, around=AT, across=True)
         self.assertEqual(D["measure"], self.page(out)["measure"])
 
+    def test_folders_outside_a_repository_show_from_home(self):
+        notes, docs = self.t.home / "notes", self.t.home / "docs"
+        notes.mkdir(exist_ok=True)
+        docs.mkdir(exist_ok=True)
+        (docs / "CLAUDE.md").write_text("- rule\n")
+        extra = [session(notes, day(15 + i, 4), 40000) for i in range(5)] + [session(docs, day(15, 5), 30000)]
+        out = self.out()
+        write_eve(out, "20261021-120000", self.t.projects / "runup", self.sessions + extra, around=AT, across=True)
+        ref = self.page(out)["eve_ref"]
+        self.assertIn("~/notes", {r["folder"] for r in ref["across"]})
+        self.assertIn("~/docs", {g["group"] for g in ref["groups"]})
+        home = str(self.t.home)
+        self.assertFalse([r["folder"] for r in ref["across"] if r["folder"].startswith(home)])
+        self.assertFalse([g["group"] for g in ref["groups"] if g["group"].startswith(home)])
+
     def test_page_draws_the_panels_by_the_brief(self):
         js = TEMPLATE.read_text(encoding="utf-8")
         body = js[js.index("function drawMeasure()"):js.index("/* ------------------------------------------------------------------ history */")]

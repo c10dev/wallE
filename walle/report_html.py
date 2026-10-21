@@ -389,6 +389,8 @@ class Builder:
             if block:
                 eve_ref.update(measure_ref(block, self.t))
             by_group = {g["group"]: g for g in eve_ref["groups"]}
+            # A group outside a repository is named by its path: show it from home.
+            eve_ref["groups"] = [dict(g, group=self.t(g["group"])) for g in eve_ref["groups"]]
             for skey, T in scan["triage"]["stacks"].items():
                 if T["agent"] != "claude":
                     continue
@@ -406,7 +408,8 @@ class Builder:
                     measure[k] = {"state": "panels", "source": "across", "rows": panel_rows(across, block["sides"])}
                     continue
                 row = by_group.get(g)
-                measure[k] = {"state": "row", "group": g, "row": row} if row else {"state": "none", "group": g}
+                shown = self.t(g)
+                measure[k] = {"state": "row", "group": shown, "row": dict(row, group=shown)} if row else {"state": "none", "group": shown}
 
         used = set()
         for v in views.values():
@@ -479,7 +482,9 @@ def measure_ref(block: dict, tilde_of) -> dict:
         "period": block.get("period") or {},
         "min_show": rules.get("min_show", MIN_SHOW), "min_compare": rules.get("min_compare", MIN_COMPARE),
         "resumed": (block.get("left_out") or {}).get("resumed", 0),
-        "across": ([{"folder": r.get("folder"), **p} for r, p in zip(block["across"], panel_rows(block["across"], block.get("sides") or []))]
+        # A folder outside a repository is keyed by its path: show it from home, as the rest of the page does.
+        "across": ([{"folder": tilde_of(r.get("folder")), **p}
+                    for r, p in zip(block["across"], panel_rows(block["across"], block.get("sides") or []))]
                    if block.get("across") else None),
     }
 
