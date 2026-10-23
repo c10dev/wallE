@@ -46,7 +46,7 @@ CHECK_RE = re.compile(
     r"yarn (?:test|lint)|make (?:test|check|lint)|go test|cargo test|verify[- ]gate)",
 )
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
-CACHE_VERSION = 5  # 4: entrypoint and resumed; 5: billed
+CACHE_VERSION = 6  # 4: entrypoint and resumed; 5: billed; 6: billed at the Sonnet 5.5 read price of 2026-10-23
 SCRATCH_ROOTS = (Path("/tmp"), Path("/var/tmp"))
 CONTAINER_RE = re.compile(r"^(.+)-[0-9a-f]{16}$")
 FOLDER_COLS = 18  # the folder and model columns of the across-folders table keep a line within 80 columns

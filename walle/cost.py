@@ -17,7 +17,8 @@ from __future__ import annotations
 
 import re
 
-PRICES_AS_OF = "2026-10-06"
+# Every row checked on this date at https://platform.claude.com/docs/en/about-claude/pricing.
+PRICES_AS_OF = "2026-10-23"
 # Model id without a date suffix: (base input $/MTok, cache read $/MTok).
 PRICES = {
     "claude-fable-5-1": (10.0, 0.25),
@@ -29,7 +30,7 @@ PRICES = {
     "claude-opus-4-8": (5.0, 0.50),
     "claude-opus-4-7": (5.0, 0.50),
     "claude-opus-4-6": (5.0, 0.50),
-    "claude-sonnet-5-5": (2.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 0.10),
     "claude-sonnet-5": (2.0, 0.20),
     "claude-sonnet-4-6": (3.0, 0.30),
     "claude-haiku-5-5": (0.10, 0.01),

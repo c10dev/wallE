@@ -19,6 +19,12 @@ class ClaudeCostTest(unittest.TestCase):
         self.assertEqual(cost.claude(m, "claude-opus-5-5")["input_equiv"], 5000)
         self.assertEqual(cost.claude(m, "claude-fable-5-1")["input_equiv"], 2500)
         self.assertEqual(cost.claude(m, "claude-sonnet-4-6")["input_equiv"], 10000)
+        self.assertEqual(cost.claude(m, "claude-sonnet-5")["input_equiv"], 10000)
+
+    def test_sonnet_5_5_reads_at_the_list_price(self):
+        # 0.05x the base input price: 100,000 cache reads at $0.10 per million tokens.
+        c = cost.claude({"input": 0, "cache_creation": 0, "cache_read": 100000}, "claude-sonnet-5-5")
+        self.assertEqual((c["input_equiv"], c["read_rate"], c["usd"]), (5000, 0.05, 0.01))
 
     def test_a_date_suffix_is_not_part_of_the_model(self):
         self.assertEqual(cost.claude({"input": 10}, "claude-haiku-4-5-20251001")["priced_as"], "claude-haiku-4-5")
