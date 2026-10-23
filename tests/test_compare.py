@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from sessions import claude_session, codex_rollout, slug  # noqa: E402
 from test_measure import APPLY, AT, Home, day, fill  # noqa: E402
 
-from walle import runs  # noqa: E402
+from walle import cost, runs  # noqa: E402
 
 FIXTURE = Path(__file__).parent / "fixtures" / "session-630f787e.jsonl"
 SID = "630f787e-f784-445a-9d87-19be85313a8b"
@@ -73,7 +73,7 @@ class PairTest(unittest.TestCase):
         self.assertIn("* changes with every session. It is not a setting.", out)
         self.assertIn("Measured first call  90,499 -> 90,499 tokens (0)\n"
                       "Billed as            121,431 -> 121,431 input-equivalent tokens (0)\n"
-                      "                     $0.4857 -> $0.4857 at opus 5.5 list prices of 2026-10-06\n"
+                      f"                     $0.4857 -> $0.4857 at opus 5.5 list prices of {cost.PRICES_AS_OF}\n"
                       "One session on each side is not a median", out)
         self.assertEqual(c["measured"]["billed"]["delta"], 0)
         self.assertTrue(all(len(x) <= 80 for x in out.splitlines()[:-1]), out)
