@@ -1122,7 +1122,7 @@ def hook_rows(u: dict) -> list[dict]:
     rows = []
     for h in u["hooks"]:
         if h["by"] != "source" or h["sessions"] < HOOK_MIN_SESSIONS or h["bytes"] < HOOK_MIN_BYTES:
-            continue
+            continue  # a "digest" source: no session on disk shows its output, so no row could say which hook it is
         label = h["hook"]
         per = round(h["bytes"] / h["sessions"] * LOW["prose_ascii"])
         sess = {"period": n, "loaded": h["sessions"], "used": None, "calls": None, "injections": h["injections"]}
@@ -1281,9 +1281,9 @@ def build(args, run_dir: Path) -> dict:
     out = args.out
     home = HOME
     root = args.transcripts.expanduser()
-    if not context.main_transcripts(root):
-        raise TrimError(f"no transcripts under {root}")
     rows_u = context.load_rows(root, out.parent / "cache" / "context-usage.json")
+    if not rows_u:  # rows of deleted transcripts count too
+        raise TrimError(f"no transcripts under {root}")
     u = context.usage(rows_u, args.since, args.before)
     folders = {r["cwd"] for r in rows_u.values() if r.get("cwd")}
     configured = configured_servers(home, folders)

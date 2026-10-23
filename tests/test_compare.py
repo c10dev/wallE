@@ -217,6 +217,16 @@ class AroundApplyTest(unittest.TestCase):
         row = runs.read_index(self.h.out)[-1]
         self.assertEqual((row["kind"], row["parent_id"]), ("compare", APPLY))
 
+    def test_a_deleted_transcript_is_not_in_the_pair_but_still_counts(self):
+        args = ("context", "--compare", APPLY, "--root", str(self.h.app), "--transcripts", str(self.h.projects))
+        self.h.cli(*args)
+        (self.h.projects / slug(self.h.app) / "za.jsonl").unlink()
+        out, _ = self.h.cli(*args)
+        data = json.loads((Path(out.strip().splitlines()[-1]).parent / "compare.json").read_text())
+        self.assertEqual((data["a"]["session"]["id"], data["b"]["session"]["id"]), ("zb", "a08"))
+        m = data["measure"]
+        self.assertEqual((m["rows"][0]["before"]["sessions"], m["rows"][0]["after"]["sessions"]), (13, 12))
+
     def test_a_folder_without_sessions_on_one_side_takes_any_folder(self):
         out, _ = self.h.cli("context", "--compare", APPLY, "--root", str(self.h.home / "projects" / "none"),
                             "--transcripts", str(self.h.projects))

@@ -2,6 +2,8 @@
 
 import io
 import json
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -11,7 +13,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sessions import claude_session, codex_rollout  # noqa: E402
+from sessions import claude_session, codex_rollout, slug  # noqa: E402
 from test_keep import tree_hash  # noqa: E402
 
 from walle import cli, eve, measure, runs  # noqa: E402
@@ -336,6 +338,127 @@ class DeletedWorktreeTest(unittest.TestCase):
         _out, data = self.h.measure(str(self.h.app), "--across-folders")
         self.assertEqual(data["measure"]["rows"][0]["period"]["sessions"], 6)
         self.assertEqual({r["folder"] for r in data["measure"]["across"]}, {"app"})
+
+
+class DeletedTranscriptTest(unittest.TestCase):
+    """A session whose transcript file is deleted still counts in walle eve and walle context --usage."""
+
+    def setUp(self):
+        self.h = Home()
+        fill(self.h)
+        self.h.apply_row()
+
+    def tearDown(self):
+        self.h.close()
+
+    def usage(self) -> dict:
+        out, _ = self.h.cli("context", "--usage", "--json", "--transcripts", str(self.h.projects))
+        return json.loads(out)["usage"]
+
+    def test_eve_and_context_usage_keep_the_session(self):
+        _, first = self.h.measure(str(self.h.app), "--around", APPLY)
+        sessions = self.usage()["sessions"]
+        for sid in ("b03", "a04"):
+            (self.h.projects / slug(self.h.app) / f"{sid}.jsonl").unlink()
+        _, data = self.h.measure(str(self.h.app), "--around", APPLY)
+        self.assertEqual(data["sessions"], first["sessions"])
+        opus = data["measure"]["rows"][0]
+        self.assertEqual((opus["before"]["sessions"], opus["after"]["sessions"]), (12, 11))
+        self.assertEqual((opus["before"]["first_call"]["median"], opus["after"]["first_call"]["median"]), (92750, 82000))
+        u = self.usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (sessions, 2))
+
+    def test_every_transcript_deleted_still_measures(self):
+        _, first = self.h.measure(str(self.h.app), "--around", APPLY)
+        for p in self.h.projects.glob("*/*.jsonl"):
+            p.unlink()
+        _, data = self.h.measure(str(self.h.app), "--around", APPLY)
+        self.assertEqual(data["sessions"], first["sessions"])
+        opus = data["measure"]["rows"][0]
+        self.assertEqual((opus["before"]["sessions"], opus["after"]["sessions"]), (12, 11))
+
+
+class EveCacheTest(unittest.TestCase):
+    """eve.load_sessions keeps the Session of a deleted transcript: once, and only under the root it was read from."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.root, self.cwd, self.cache = self.dir / "projects", self.dir / "app", self.dir / "cache" / "eve.json"
+        for i in range(3):
+            claude_session(self.root, f"e{i}", self.cwd, day(12, i), total=70000)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def load(self, root=None) -> tuple[int, int]:
+        ss = eve.load_sessions(root or self.root, self.cache)
+        return len(ss), sum(s.deleted for s in ss)
+
+    def path(self, sid: str) -> Path:
+        return self.root / slug(self.cwd) / f"{sid}.jsonl"
+
+    def test_a_deleted_transcript_still_counts(self):
+        self.load()
+        self.path("e1").unlink()
+        self.assertEqual(self.load(), (3, 1))
+        self.assertEqual(self.load(), (3, 1))
+
+    def test_a_moved_or_restored_transcript_counts_once(self):
+        self.load()
+        moved = self.root / "elsewhere" / "e1.jsonl"
+        moved.parent.mkdir()
+        self.path("e1").rename(moved)
+        self.assertEqual(self.load(), (3, 0))
+        moved.rename(self.path("e1"))
+        self.assertEqual(self.load(), (3, 0))
+
+    def test_two_deleted_copies_count_once(self):
+        copy = self.root / "elsewhere" / "e1.jsonl"
+        copy.parent.mkdir()
+        shutil.copy(self.path("e1"), copy)
+        self.assertEqual(self.load(), (4, 0))  # two files on disk count twice
+        copy.unlink()
+        self.path("e1").unlink()
+        self.assertEqual(self.load(), (3, 1))
+
+    def test_another_root_neither_counts_nor_drops_deleted_sessions(self):
+        self.load()
+        self.path("e1").unlink()
+        self.load()
+        other = self.dir / "other"
+        claude_session(other, "o1", self.cwd, day(13, 1), total=70000)
+        self.assertEqual(self.load(other), (1, 0))
+        self.assertEqual(self.load(), (3, 1))
+
+    def test_a_root_through_a_symlink_has_no_deleted_session(self):
+        self.load()
+        link = self.dir / "link"
+        link.symlink_to(self.root)
+        self.assertEqual(self.load(link), (3, 0))
+
+    def test_a_slug_folder_through_a_link_keeps_its_deleted_session(self):
+        outside = self.dir / "disk2"
+        claude_session(outside, "x1", self.dir / "web", day(13, 2), total=70000)
+        (self.root / slug(self.dir / "web")).symlink_to(outside / slug(self.dir / "web"))
+        self.assertEqual(self.load(), (4, 0))
+        (outside / slug(self.dir / "web") / "x1.jsonl").unlink()
+        self.assertEqual(self.load(), (4, 1))
+
+    def test_a_relative_root_counts_only_its_own_deleted_sessions(self):
+        for d, sid in (("a", "r7"), ("b", "r8")):
+            claude_session(self.dir / d / "proj", sid, self.cwd, day(14, 1), total=70000)
+        cwd = os.getcwd()
+        try:
+            os.chdir(self.dir / "a")
+            self.load(Path("proj"))
+            (self.dir / "a" / "proj" / slug(self.cwd) / "r7.jsonl").unlink()
+            here = self.load(Path("proj"))
+            os.chdir(self.dir / "b")
+            got = self.load(Path("proj"))
+        finally:
+            os.chdir(cwd)
+        self.assertEqual((here, got), ((1, 1), (1, 0)))
 
 
 class CodexAroundTest(unittest.TestCase):
