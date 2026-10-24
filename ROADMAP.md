@@ -68,8 +68,9 @@ Every surface gives the same answer in the same order: one verdict word, at most
 
 Close 0.3 with what is built, fix the one wrong price, and publish a release that installs in one line.
 
-- Fix the Sonnet 5.5 cache read price in `walle/cost.py`. Anthropic's price page lists $0.10 per million tokens; the table has $0.20. Check the `claude-sonnet-5` row, which also has $0.20, against the same page.
-  Update `PRICES_AS_OF` and put the price page URL and the check date next to it. Update the read-rate sentence in README.md (Sonnet 5.5 becomes 0.05x). Add a Sonnet 5.5 case to `tests/test_cost.py`.
+- Done: `walle/cost.py` prices a Sonnet 5.5 cache read at $0.10 per million tokens (it was $0.20), as Anthropic's price page lists. The `claude-sonnet-5` row stays at $0.20, as the page lists.
+  `PRICES_AS_OF` is 2026-10-23, with the price page URL above it. README.md gives Sonnet 5.5 the 0.05x read rate. `walle/eve.py` CACHE_VERSION 6 makes `walle eve` price its cached sessions again.
+  Proof: `test_sonnet_5_5_reads_at_the_list_price` in `tests/test_cost.py`, and every row of the price table checked against the page on 2026-10-23 (PR #7). Claude Code sessions only: Codex is not priced.
 - Done: a session whose transcript file is deleted still counts in `walle context --usage`, `walle trim` and `walle eve`, also when no transcript file is left. Its cached rows keep counts, names, its folder, transcript path, start time, surface and model, and no prompt or hook output text (a hook output label becomes a digest). README says how to delete them. A CACHE_VERSION change still drops them, until 0.4.0.
   Proof: the deleted-transcript tests in `tests/test_context.py`, `tests/test_measure.py`, `tests/test_compare.py`, `tests/test_trim.py` and `tests/test_runs.py`, on synthetic fixtures. Undoing any one of the 15 rules of the change fails one of them. Claude Code sessions only.
 - `walle --version`.
