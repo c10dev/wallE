@@ -94,7 +94,7 @@ walle는 기기 밖으로 아무것도 보내지 않는다.
   - `eve` 하위 에이전트(`walle:eve`)가 함께 깔린다. `walle apply` 뒤에 변경 전후 세션을 비교해서, 첫 호출에서 빠진 원천을 표면별로 보고한다. 읽기만 하고 `haiku` 모델로 돈다. 설명이 모든 세션의 에이전트 목록에 약 200바이트를 더한다.
   - 세션 시작 알람은 기본으로 꺼져 있다. `session_alarm`을 켜고 `budget_tokens`(기본 15,000)를 정하면, 폴더의 스택이 예산을 넘을 때 한 줄을 알려 준다.
   - 알람은 bytes-v2 토큰으로 센다. 예전 bytes-v1 기준으로 `budget_tokens`를 8000으로 저장했다면 15000으로 바꾼다.
-- CLI: `pipx install walle-cli` (패키지 이름은 `walle-cli`, 명령은 `walle`)
+- CLI: `pipx install walle-cli` (패키지 이름은 `walle-cli`, 명령은 `walle`). `walle --version`은 설치한 버전을 보여 준다.
 - Codex와 다른 에이전트: CLI를 pipx로 설치하고 `skills/walle`을 스킬 폴더에 복사
 - CI: `walle check . --max-tokens 15000`
 

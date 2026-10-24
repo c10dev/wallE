@@ -11,7 +11,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import apply, brief, context, estimate, eve, judge, keep, report, report_html, rundiff, runs, trim
+from . import __version__, apply, brief, context, estimate, eve, judge, keep, report, report_html, rundiff, runs, trim
 from .collect import HOME
 from .scan import scan
 from .stack import claude_stack
@@ -189,6 +189,7 @@ def run_judge(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="walle", description="Collect, compact and sort agent instruction files.")
+    ap.add_argument("--version", action="version", version=f"walle {__version__}")
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT,
                     help="run output folder (default ~/.walle/runs); caches go to its sibling folder cache/. "
                          "scan and check refuse a folder inside the folders they scan")

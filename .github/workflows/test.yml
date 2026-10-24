@@ -26,3 +26,4 @@ jobs:
         run: |
           python -m pip install .
           walle --help
+          walle --version
