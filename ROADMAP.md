@@ -73,8 +73,10 @@ Close 0.3 with what is built, fix the one wrong price, and publish a release tha
   Proof: `test_sonnet_5_5_reads_at_the_list_price` in `tests/test_cost.py`, and every row of the price table checked against the page on 2026-10-23 (PR #7). Claude Code sessions only: Codex is not priced.
 - Done: a session whose transcript file is deleted still counts in `walle context --usage`, `walle trim` and `walle eve`, also when no transcript file is left. Its cached rows keep counts, names, its folder, transcript path, start time, surface and model, and no prompt or hook output text (a hook output label becomes a digest). README says how to delete them. A CACHE_VERSION change still drops them, until 0.4.0.
   Proof: the deleted-transcript tests in `tests/test_context.py`, `tests/test_measure.py`, `tests/test_compare.py`, `tests/test_trim.py` and `tests/test_runs.py`, on synthetic fixtures. Undoing any one of the 15 rules of the change fails one of them. Claude Code sessions only.
-- `walle --version`.
-- One version string in `pyproject.toml`, `walle/__init__.py`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, and a test that they match.
+- Done: `walle --version` prints `walle <version>` and exits 0. CI runs it after it installs the package.
+  Proof: `test_version_flag_prints_the_package_version` in `tests/test_version.py`, and the install step in `.github/workflows/test.yml` (PR #9). It reads no agent session.
+- Done: one version string in `pyproject.toml`, `walle/__init__.py`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, and a test that they match. The version stays 0.1.0 until the release commit.
+  Proof: `test_the_four_files_give_one_version` in `tests/test_version.py`. A different version in any one of the four files fails it (PR #9). It reads no agent session.
 - A release workflow: a `v*` tag builds the sdist and the wheel and publishes them to PyPI. A test checks that the wheel holds `appui`, `fonts` and `report.html`.
 - README.md: remove "Until the package is on PyPI". README.md and README.ko.md: name the repository (`c10dev/wallE`) in `claude plugin marketplace add`.
 - The release notes and the CI example in README.md list the known limits: the session-start stack misses `.claude/rules` and the AGENTS.md fallback, so verdicts and `walle check` exit codes can change in 0.4.0. Savings are a per-session low end.
