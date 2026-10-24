@@ -305,7 +305,7 @@ def pick_pair(sessions: list[eve.Session], split: dict, folder: Path) -> tuple[e
     by_side: dict[str, list[eve.Session]] = {"before": [], "after": []}
     for s in sessions:
         sd = measure.side_of(s.start, split)
-        if sd and not s.resumed and s.cwd:
+        if sd and not s.resumed and s.cwd and not s.deleted:  # the pair opens both transcripts again
             by_side[sd].append(s)
     for sd in by_side:
         by_side[sd].sort(key=lambda s: (measure.session_time(s.start), s.path))

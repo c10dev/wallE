@@ -205,7 +205,7 @@ def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, fold
     since window is still open: a later apply or undo, or the end of its days, closes it. Its folder, out and
     transcripts are None when they are the defaults (defaults: folder is the current folder, out, transcripts).
     """
-    if folder is None or not transcripts.is_dir() or not any(transcripts.glob("*/*.jsonl")):
+    if folder is None:
         return None
     applies = [r for r in applied if r.get("kind") == "apply" and measure.parse_when(r.get("generated"))]
     ref = applies[-1]["id"] if applies else b.get("generated")
@@ -216,6 +216,8 @@ def sessions_of(b: dict, applied: list[dict], out: Path, transcripts: Path, fold
     except measure.SplitError:
         return None
     sessions = eve.load_sessions(transcripts, out.parent / "cache" / "eve.json")
+    if not sessions:  # sessions of deleted transcripts count too
+        return None
     block = eve.measure_block(sessions, "claude", folder, split)
     first = block["rows"][0]["change"]["first_call"] if block["rows"] else None
     short = first is None or (first["state"] == "too_few" and first["need_after"] > 0)

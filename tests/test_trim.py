@@ -254,6 +254,25 @@ class PlanRowsTest(unittest.TestCase):
         again, _ = self.f.plan()
         self.assertEqual(again["judge"]["cached"], len(batch["items"]))
 
+    def test_a_deleted_transcript_still_counts_toward_ten_sessions(self):
+        self.f.plan()
+        for n in (5, 6, 7):
+            (self.f.tx / "-w" / f"s{n:02d}.jsonl").unlink()
+        data, _ = self.f.plan()
+        self.assertEqual(data["period"]["sessions"], 12)
+        v = next(r for r in data["rows"] if r["source"]["name"] == "claude.ai Vercel" and r["applies"] == "manual")
+        self.assertEqual((v["sessions"]["loaded"], v["sessions"]["used"], v["sessions"]["calls"]), (12, 1, 1))
+
+    def test_every_transcript_deleted_still_plans(self):
+        self.f.plan()
+        shutil.rmtree(self.f.tx / "-w")
+        data, _ = self.f.plan()
+        self.assertEqual(data["period"]["sessions"], 12)
+        v = next(r for r in data["rows"] if r["source"]["name"] == "claude.ai Vercel" and r["applies"] == "manual")
+        self.assertEqual(v["sessions"]["loaded"], 12)
+        # The [guard] hook output shows in no session on disk: its label is unknown, so it gets no row.
+        self.assertFalse(any(r["source"]["type"] == "hook output" for r in data["rows"]))
+
     def test_instruction_rows_are_patches_and_no_file_changes(self):
         before_home = tree_hash(self.f.home / "projects")
         global_md = (self.f.home / ".claude" / "CLAUDE.md").read_bytes()
