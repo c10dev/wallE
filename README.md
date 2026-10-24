@@ -77,6 +77,7 @@ The plugin adds:
 - an `eve` subagent (`walle:eve`). After `walle apply`, it compares the sessions before and after the change and reports, per surface, which sources left the first call. It is read-only and runs on the `haiku` model. Its description adds about 200 bytes to the agent list of every session.
 - an optional session-start alarm, off by default. Turn on `session_alarm` and set `budget_tokens` (default 15,000) to get one line of context when a folder's stack is over budget.
   The alarm counts bytes-v2 tokens. If you saved `budget_tokens` as 8000 for the earlier bytes-v1 counts, change it to 15000.
+  The hook runs the `python3` on your PATH. If it is older than 3.11, the alarm prints nothing and exits 0. Other `bin/walle` commands exit 1 with one line.
 
 ### Codex and other agents
 

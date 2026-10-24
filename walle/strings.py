@@ -417,6 +417,9 @@ STRINGS: dict[str, tuple[str, str]] = {
     "out.in_scan": ("walle: {path} is inside {root}, which this command scans. "
                     "Use an --out folder outside it, such as ~/.walle/runs.",
                     "walle: {path}는 이 명령이 스캔하는 {root} 안에 있다. 그 밖의 --out 폴더를 쓴다(예: ~/.walle/runs)."),
+    # bin/walle on a Python older than 3.11. walle/strings.py must still import on Python 3.9 for it.
+    "cli.old_python": ("walle: this is Python {version}. walle needs Python 3.11 or later.",
+                       "walle: 지금은 Python {version}이다. walle는 Python 3.11 이상이 필요하다."),
     # Session alarm: one line of agent context, OVER BUDGET only, at most 200 characters
     "alarm.over": ("walle: this folder loads ~{tokens} est. tokens of instructions before the first prompt "
                    "(budget {budget}); largest {file} ~{largest}. Mention only if asked about instructions or cost.",
