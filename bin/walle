@@ -5,6 +5,18 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
+# The SessionStart hook starts this file with the python3 on PATH, which can be older than 3.11 (3.9 on macOS).
+# Up to here, walle/__init__.py and walle/strings.py run on 3.9. The rest of walle needs 3.11.
+if sys.version_info < (3, 11):
+    args = sys.argv[1:]
+    cmd = next((a for i, a in enumerate(args) if not a.startswith("-") and (i == 0 or args[i - 1] != "--out")), None)
+    if cmd == "alarm":  # an alarm must never stop a session from starting
+        sys.exit(0)
+    from walle.strings import resolve_lang, t  # noqa: E402
+
+    print(t("cli.old_python", resolve_lang(), version="%d.%d" % tuple(sys.version_info[:2])), file=sys.stderr)
+    sys.exit(1)
+
 from walle.cli import main  # noqa: E402
 
 sys.exit(main())

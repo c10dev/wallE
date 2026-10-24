@@ -26,3 +26,27 @@ jobs:
         run: |
           python -m pip install .
           walle --help
+
+  old-python:
+    # The SessionStart hook runs bin/walle with the python3 on PATH, which can be older than 3.11.
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.10"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: The alarm exits 0 and prints nothing
+        run: |
+          out=$(CLAUDE_PLUGIN_OPTION_SESSION_ALARM=true python bin/walle alarm < /dev/null 2>&1)
+          test -z "$out"
+      - name: Other commands exit 1 with one stderr line
+        run: |
+          code=0
+          python bin/walle scan 2> err.txt || code=$?
+          cat err.txt
+          test "$code" -eq 1
+          test "$(wc -l < err.txt)" -eq 1
