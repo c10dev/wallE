@@ -21,6 +21,7 @@ settings only; it writes only to the runs folder and its cache folder.
 from __future__ import annotations
 
 import json
+import os
 import statistics
 from collections import Counter, defaultdict
 from datetime import datetime
@@ -29,13 +30,14 @@ from pathlib import Path
 from . import __version__, codex_context, estimate, rollout, skills
 from .collect import HOME
 from .stack import memory_folder, memory_slug
-from .transcript import UUID_RE, FirstCall, first_call, server_key, usage_row
+from .transcript import UUID_RE, FirstCall, first_call, label_digest, server_key, usage_row
 
 SCHEMA = 1
 CACHE_VERSION = 2
 # How transcript.py splits a first call into sources. Bump it when a source's bytes change meaning: the bytes
 # of two revisions do not compare (walle context --compare). Runs without the record split this way.
 COUNTING_REVISION = 1
+DELETED_LABEL = "(output label not kept)"  # context.md: a hook digest that no session on disk shows as a label
 NOTE = ("Measured values. They do not enter the instruction-stack verdict, Start here or the alarm, "
         "which use the estimated instruction stack only.")
 LABELS = {
@@ -223,7 +225,17 @@ def _mark(n: int, total: int) -> str:
 # ---------- C2: loaded and used across sessions ----------
 
 def load_rows(root: Path, cache_file: Path) -> dict[str, dict]:
-    """usage_row of every main transcript and subagent file, cached by size and mtime."""
+    """usage_row of every main transcript and subagent file, cached by size and mtime.
+
+    When a transcript file is deleted, its cached row stays and still counts, with deleted=True. A deleted row keeps
+    no hook output text (row_without_text) and no stamp, so a file that comes back is read again. It counts only
+    under the root it was read from. A main row does not count when a transcript on disk has its session id (the
+    file moved or came back), and two deleted copies of a session count once. A subagent row counts when its
+    session's main row counts under the same slug, on disk or deleted. Rows that the cache holds for another root
+    stay in the file, without hook output text once their file is deleted. A CACHE_VERSION change still drops the
+    whole cache, deleted rows included.
+    """
+    root = Path(os.path.abspath(root.expanduser()))
     cache: dict = {}
     try:
         cache = json.loads(cache_file.read_text())
@@ -233,7 +245,9 @@ def load_rows(root: Path, cache_file: Path) -> dict[str, dict]:
         cache = {}
     out: dict[str, dict] = {}
     fresh: dict = {"_v": CACHE_VERSION}
+    on_disk: dict[str, str] = {}  # session id -> slug
     for p in main_transcripts(root):
+        on_disk[p.stem] = p.parent.name
         for f, main in [(p, True)] + [(s, False) for s in sorted((p.parent / p.stem / "subagents").rglob("agent-*.jsonl"))]:
             st = f.stat()
             stamp = f"{st.st_size}:{int(st.st_mtime)}"
@@ -245,9 +259,61 @@ def load_rows(root: Path, cache_file: Path) -> dict[str, dict]:
             fresh[str(f)] = {"stamp": stamp, "row": row}
             row = dict(row, main=main, session=p.stem, slug=p.parent.name)
             out[str(f)] = row
+    real = root.resolve()
+    deleted: dict[str, str] = {}  # session id -> the slug whose deleted rows count
+    for k in sorted(cache):  # a main file sorts before its subagent files, and slugs in a fixed order
+        e = cache[k]
+        if k == "_v" or k in fresh or not isinstance(e, dict) or not isinstance(e.get("row"), dict):
+            continue
+        place = cached_place(k, root, real)
+        if place is None:  # another root's row
+            fresh[k] = e if Path(k).is_file() else {"stamp": None, "row": row_without_text(e["row"])}
+            continue
+        if Path(k).is_file():
+            continue  # on disk, read above through another spelling of this root
+        slug, session, main = place
+        if main and (session in on_disk or deleted.setdefault(session, slug) != slug):
+            continue  # on disk again (moved or back), or a copy of a deleted session under a second slug
+        if not main and on_disk.get(session, deleted.get(session)) != slug:
+            continue  # a subagent file counts with its session's main row, on disk or deleted
+        row = row_without_text(e["row"])
+        fresh[k] = {"stamp": None, "row": row}
+        out[k] = dict(row, main=main, session=session, slug=slug, deleted=True)
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(json.dumps(fresh, ensure_ascii=False))
     return out
+
+
+def cached_place(key: str, root: Path, real: Path) -> tuple[str, str, bool] | None:
+    """(slug, session id, main) of a cached file path under the absolute root; None for another root. The path is
+    compared as written first. Only a path outside the root is resolved and compared with real, the resolved root
+    (a root reached through a link). A relative key (an older run with a relative root) belongs to no root: walle
+    cannot tell which folder it was relative to."""
+    if not os.path.isabs(key):
+        return None
+    prefix, path = str(root) + os.sep, os.path.abspath(key)
+    if path.startswith(prefix):
+        parts = Path(path[len(prefix):]).parts
+    else:
+        try:
+            parts = Path(key).resolve().relative_to(real).parts
+        except (OSError, ValueError):
+            return None
+    if len(parts) == 2 and parts[1].endswith(".jsonl"):
+        return parts[0], parts[1][: -len(".jsonl")], True
+    if len(parts) >= 4 and parts[2] == "subagents":
+        return parts[0], parts[1], False
+    return None
+
+
+def row_without_text(row: dict) -> dict:
+    """A usage row for a session whose transcript is deleted. Each hook output label becomes its digest
+    (transcript.label_digest): the row keeps no hook output text, and usage() still adds it to the same label when a
+    session on disk shows that label."""
+    hooks = {}
+    for k, v in (row.get("hooks") or {}).items():
+        hooks["digest:" + label_digest(k[len("source:"):]) if k.startswith("source:") else k] = v
+    return dict(row, hooks=hooks)
 
 
 def connector_names(rows) -> dict[str, str]:
@@ -326,6 +392,8 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
     keep = {k: r for k, r in by_session.items()
             if (not since or r["start"] >= since) and (not before or (r["start"] and r["start"] < before))}
     names = connector_names(list(rows.values()))
+    labels = {label_digest(k[len("source:"):]): k for r in rows.values() for k in r.get("hooks", {})
+              if k.startswith("source:")}  # digest -> hook output label, from rows on disk
     n = len(keep)
 
     srv = defaultdict(lambda: {"loaded": 0, "used": 0, "loaded_used": 0, "calls": 0, "names": [], "name_bytes": [],
@@ -424,6 +492,8 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
         any_hook = False
         for f in files:
             for hk, (cnt, b) in f["hooks"].items():
+                if hk.startswith("digest:"):  # a row whose transcript is deleted: the label, when a session shows it
+                    hk = labels.get(hk[len("digest:"):], hk)
                 if hk.startswith("name:"):
                     any_hook = True
                     hook_total["injections"] += cnt
@@ -496,6 +566,7 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
     starts = sorted(r["start"] for r in keep.values() if r["start"])
     return {
         "since": since, "before": before, "sessions": n,
+        "sessions_deleted": sum(1 for r in keep.values() if r.get("deleted")),
         "subagent_files": sum(len(subs.get(k, [])) for k in keep),
         "window": {"first": starts[0], "last": starts[-1]} if starts else {},
         "skill_listing_bytes_median": med(listing_bytes),
@@ -512,6 +583,8 @@ def usage(rows: dict[str, dict], since: str | None = None, before: str | None = 
             "tool names it shares; see aliases.",
             "Skills used: Skill tool calls, and slash commands that name a listed skill.",
             "tokens_per_session_est uses bytes-v2 rates for deferred names and instructions.",
+            "A session whose transcript file is deleted counts from walle's cached row (sessions_deleted). Its hook "
+            "output label is a digest (by \"digest\") unless a session on disk shows the same label.",
         ],
     }
 
@@ -694,8 +767,8 @@ def render(data: dict) -> str:
         md.append(f"\n## Hook output, by source\n\n{_n(ht['sessions'])} sessions got hook output: "
                   f"{_n(ht['injections'])} injections, {_n(ht['bytes'])} bytes.\n")
         md.append(_table(["Source", "Sessions", "Injections", "Bytes"],
-                         [[h["hook"][:60], _n(h["sessions"]), _n(h["injections"]), _n(h["bytes"])]
-                          for h in u["hooks"] if h["by"] == "source"][:15]))
+                         [[(h["hook"] if h["by"] == "source" else f"{DELETED_LABEL} {h['hook']}")[:60], _n(h["sessions"]),
+                           _n(h["injections"]), _n(h["bytes"])] for h in u["hooks"] if h["by"] in ("source", "digest")][:15]))
         md.append("\n" + "\n".join(f"- {x}" for x in u["notes"]))
     return "\n".join(md) + "\n"
 

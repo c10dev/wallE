@@ -1,5 +1,6 @@
 import io
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -254,6 +255,198 @@ class UsageTest(unittest.TestCase):
         cache.write_text(json.dumps(data))
         rows = context.load_rows(self.root, cache)
         self.assertEqual(rows[key]["tools"], {"Marker": 1})
+
+    def cache(self) -> Path:
+        return Path(self.tmp.name) / "cache" / "u.json"
+
+    def foo(self, u) -> tuple[int, int, int]:
+        s = next(s for s in u["servers"] if s["key"] == "claude.ai:foo")
+        return s["sessions_loaded"], s["sessions_used"], s["calls"]
+
+    def source(self, u, label) -> int:
+        return next((h["sessions"] for h in u["hooks"] if h["by"] == "source" and h["hook"] == label), 0)
+
+    def test_a_deleted_transcript_still_counts(self):
+        self.run_usage()
+        (self.root / "b" / "s2.jsonl").unlink()
+        for _ in range(2):  # and on every later run
+            u = self.run_usage()
+            self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 1))
+            self.assertEqual(self.foo(u), (3, 1, 2))
+            # No session on disk shows the [guard] output, so the record keeps its digest; the hook still counts.
+            digest = next(h for h in u["hooks"] if h["by"] == "digest")
+            self.assertEqual((self.source(u, "[guard]"), digest["hook"], digest["sessions"], u["hooks_total"]["sessions"]),
+                             (0, transcript.label_digest("[guard]"), 1, 1))
+        self.assertEqual(self.run_usage(before="2026-10-02")["sessions"], 2)
+
+    def test_a_deleted_hook_label_adds_to_the_same_label_on_disk(self):
+        self.write("b", "s5", [prompt("hi"), att("hook_additional_context", content=["[guard] again"],
+                                                  hookName="PreToolUse:Bash", hookEvent="PreToolUse", toolUseID="t5")])
+        self.run_usage()
+        (self.root / "b" / "s2.jsonl").unlink()
+        u = self.run_usage()
+        self.assertEqual((self.source(u, "[guard]"), u["sessions_deleted"]), (2, 1))
+        self.assertNotIn("[guard] stop", self.cache().read_text())
+
+    def test_a_relative_root_counts_only_its_own_deleted_sessions(self):
+        tmp = Path(self.tmp.name)
+        for d, sid in (("a", "s7"), ("b", "s8")):
+            (tmp / d / "proj" / "x").mkdir(parents=True)
+            (tmp / d / "proj" / "x" / f"{sid}.jsonl").write_text(prompt("hi") + "\n")
+        cwd = os.getcwd()
+        try:
+            os.chdir(tmp / "a")
+            context.load_rows(Path("proj"), self.cache())
+            (tmp / "a" / "proj" / "x" / "s7.jsonl").unlink()
+            here = context.usage(context.load_rows(Path("proj"), self.cache()))
+            os.chdir(tmp / "b")
+            u = context.usage(context.load_rows(Path("proj"), self.cache()))
+        finally:
+            os.chdir(cwd)
+        self.assertEqual((here["sessions"], here["sessions_deleted"]), (1, 1))
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (1, 0))
+
+    def test_a_cached_relative_path_counts_for_no_root(self):
+        self.run_usage()
+        data = json.loads(self.cache().read_text())
+        data[f"{self.root.name}/a/s6.jsonl"] = data[str(self.root / "a" / "s1.jsonl")]
+        self.cache().write_text(json.dumps(data))
+        cwd = os.getcwd()
+        try:
+            os.chdir(self.root.parent)  # the relative key would name a file under the root from here
+            u = self.run_usage()
+        finally:
+            os.chdir(cwd)
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 0))
+
+    def test_a_slug_folder_through_a_link_keeps_its_deleted_session(self):
+        outside = Path(self.tmp.name) / "disk2" / "c"
+        outside.mkdir(parents=True)
+        (outside / "s9.jsonl").write_text(prompt("hi") + "\n")
+        (self.root / "c").symlink_to(outside)
+        self.run_usage()
+        (outside / "s9.jsonl").unlink()
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (4, 1))
+
+    def test_a_subagent_file_counts_once_through_two_spellings_of_the_root(self):
+        link = Path(self.tmp.name) / "link"
+        link.symlink_to(self.root)
+        self.run_usage()
+        for _ in range(2):
+            u = context.usage(context.load_rows(link, self.cache()))
+            self.assertEqual((u["sessions_deleted"], u["subagent_files"]), (0, 1))
+            self.assertEqual(self.foo(u), (3, 1, 2))
+            u = self.run_usage()
+            self.assertEqual((u["sessions_deleted"], u["subagent_files"]), (0, 1))
+
+    def test_a_file_that_comes_back_unchanged_is_read_again(self):
+        self.write("b", "s4", [prompt("hi"), att("hook_additional_context", content=["notes for 7f3a only"],
+                                                  hookName="SessionStart", hookEvent="SessionStart", toolUseID="t9")])
+        self.run_usage()
+        p, away = self.root / "b" / "s4.jsonl", Path(self.tmp.name) / "s4.jsonl"
+        p.rename(away)  # the size and mtime stay
+        self.assertEqual(self.run_usage()["sessions_deleted"], 1)
+        away.rename(p)
+        u = self.run_usage()
+        self.assertEqual((u["sessions_deleted"], self.source(u, "notes for 7f3a only")), (0, 1))
+
+    def test_a_deleted_subagent_file_still_counts_with_its_session(self):
+        self.run_usage()
+        (self.root / "b" / "s3" / "subagents" / "agent-x.jsonl").unlink()
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"], u["subagent_files"]), (3, 0, 1))
+        self.assertEqual(self.foo(u), (3, 1, 2))
+
+    def test_a_cached_subagent_row_without_its_main_row_does_not_count(self):
+        self.run_usage()
+        shutil.rmtree(self.root / "b" / "s3")
+        (self.root / "b" / "s3.jsonl").unlink()
+        data = json.loads(self.cache().read_text())
+        del data[str(self.root / "b" / "s3.jsonl")]
+        self.cache().write_text(json.dumps(data))
+        rows = context.load_rows(self.root, self.cache())
+        self.assertFalse(any("subagents" in k for k in rows))
+        self.assertEqual(context.usage(rows)["sessions"], 2)
+
+    def test_another_roots_deleted_row_keeps_no_hook_output_text(self):
+        other = Path(self.tmp.name) / "other"
+        (other / "z").mkdir(parents=True)
+        (other / "z" / "s9.jsonl").write_text("\n".join([prompt("hi"), att(
+            "hook_additional_context", content=["notes for 7f3a only"], hookName="SessionStart",
+            hookEvent="SessionStart", toolUseID="t9")]) + "\n")
+        context.load_rows(other, self.cache())
+        self.run_usage()
+        self.assertIn("notes for 7f3a only", self.cache().read_text())  # its file is on disk: kept as it is
+        (other / "z" / "s9.jsonl").unlink()
+        self.run_usage()
+        self.assertNotIn("7f3a", self.cache().read_text())
+        u = context.usage(context.load_rows(other, self.cache()))
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (1, 1))
+
+    def test_a_deleted_session_keeps_its_subagent_calls(self):
+        self.run_usage()
+        shutil.rmtree(self.root / "b" / "s3")
+        (self.root / "b" / "s3.jsonl").unlink()
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"], u["subagent_files"]), (3, 1, 1))
+        self.assertEqual(self.foo(u), (3, 1, 2))
+
+    def test_a_moved_or_restored_transcript_counts_once(self):
+        self.run_usage()
+        src, dst = self.root / "a" / "s1.jsonl", self.root / "c" / "s1.jsonl"
+        dst.parent.mkdir()
+        src.rename(dst)
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 0))
+        dst.rename(src)
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 0))
+
+    def test_two_deleted_copies_of_a_session_count_once(self):
+        shutil.copy(self.root / "b" / "s3.jsonl", self.root / "a" / "s3.jsonl")
+        shutil.copytree(self.root / "b" / "s3", self.root / "a" / "s3")
+        self.assertEqual(self.run_usage()["sessions"], 4)  # two files on disk count twice
+        for slug in ("a", "b"):
+            (self.root / slug / "s3.jsonl").unlink()
+            shutil.rmtree(self.root / slug / "s3")
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"], u["subagent_files"]), (3, 1, 1))
+        self.assertEqual(self.foo(u), (3, 1, 2))
+
+    def test_a_deleted_row_holds_no_hook_output_text(self):
+        for sid, text in (("s4", "notes for 7f3a only"), ("s6", "Deploy notes 7f3b:\nmore"), ("s7", "[7f3c tag] x")):
+            self.write("b", sid, [prompt("hi"), att("hook_additional_context", content=[text], hookName="SessionStart",
+                                                    hookEvent="SessionStart", toolUseID=f"t{sid}")])
+        self.run_usage()
+        self.assertIn("notes for 7f3a only", self.cache().read_text())
+        for sid in ("s4", "s6", "s7"):
+            (self.root / "b" / f"{sid}.jsonl").unlink()
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (6, 3))
+        for marker in ("7f3a", "7f3b", "7f3c"):
+            self.assertNotIn(marker, self.cache().read_text())
+        start = next(h for h in u["hooks"] if h["by"] == "name" and h["hook"] == "SessionStart")
+        self.assertEqual(start["sessions"], 3)
+
+    def test_another_root_neither_counts_nor_drops_deleted_rows(self):
+        self.run_usage()
+        (self.root / "b" / "s2.jsonl").unlink()
+        self.run_usage()
+        other = Path(self.tmp.name) / "other"
+        (other / "z").mkdir(parents=True)
+        (other / "z" / "s9.jsonl").write_text(prompt("hi") + "\n")
+        u = context.usage(context.load_rows(other, self.cache()))
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (1, 0))
+        u = self.run_usage()
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 1))
+
+    def test_a_root_through_a_symlink_has_no_deleted_session(self):
+        self.run_usage()
+        link = Path(self.tmp.name) / "link"
+        link.symlink_to(self.root)
+        u = context.usage(context.load_rows(link, self.cache()))
+        self.assertEqual((u["sessions"], u["sessions_deleted"]), (3, 0))
 
 
 class ContextCommandTest(unittest.TestCase):

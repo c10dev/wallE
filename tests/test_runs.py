@@ -329,6 +329,14 @@ class DiffSessionsTest(unittest.TestCase):
         self.assertEqual(tree_hash(self.f.home / "projects"), before)
         self.assertTrue((self.f.out.parent / "cache" / "eve.json").is_file())
 
+    def test_every_transcript_deleted_still_gives_the_sessions_lines(self):
+        self.sessions(12, 3)
+        _, data = self.around_apply()
+        for p in self.transcripts.glob("*/*.jsonl"):
+            p.unlink()
+        _, again = self.f.diff()
+        self.assertEqual(again["sessions"]["measure"]["rows"], data["sessions"]["measure"]["rows"])
+
     def test_from_another_folder_the_next_command_names_the_folder(self):
         self.sessions(12, 3)
         os.chdir(self.f.h.root)

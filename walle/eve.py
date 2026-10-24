@@ -30,13 +30,14 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
 import statistics
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__, brief, cost, measure, runs
+from . import __version__, brief, context, cost, measure, runs
 from .collect import HOME, find_checkout
 from .strings import resolve_lang, t, tn
 
@@ -72,6 +73,7 @@ class Session:
     entrypoint: str = ""  # claude-desktop, cli, sdk-py ...; for Codex the originator
     resumed: bool = False  # starts with another session's history (resume or fork)
     billed: int | None = None  # the first call's input with caching counted (cost.claude); Claude only
+    deleted: bool = False  # the transcript file is deleted: the row comes from the cache (never stored there)
 
 
 def parse_session(path: Path) -> Session | None:
@@ -144,6 +146,11 @@ def parse_session(path: Path) -> Session | None:
 
 
 def load_sessions(transcripts: Path, cache_file: Path) -> list[Session]:
+    """A Session of every main transcript, cached by size and mtime. When a transcript file is deleted, its cached
+    Session still counts, with deleted=True: only under the root it was read from, not when a transcript on disk has
+    the same session id (the file moved or came back), and once for two deleted copies of a session. A CACHE_VERSION
+    change drops them with the cache."""
+    transcripts = Path(os.path.abspath(transcripts.expanduser()))
     cache: dict = {}
     if cache_file.is_file():
         try:
@@ -154,19 +161,35 @@ def load_sessions(transcripts: Path, cache_file: Path) -> list[Session]:
             cache = {}
     cache["_v"] = CACHE_VERSION
     out: list[Session] = []
+    read: set[str] = set()
+    on_disk: set[str] = set()
     for p in sorted(transcripts.glob("*/*.jsonl")):
         st = p.stat()
         key = str(p)
+        read.add(key)
+        on_disk.add(p.stem)
         stamp = f"{st.st_size}:{int(st.st_mtime)}"
         hit = cache.get(key)
         if hit and hit.get("stamp") == stamp:
             s = hit.get("s")
         else:
             parsed = parse_session(p)
-            s = asdict(parsed) if parsed else None
+            s = {k: v for k, v in asdict(parsed).items() if k != "deleted"} if parsed else None
             cache[key] = {"stamp": stamp, "s": s}
         if s:
             out.append(Session(**s))
+    real = transcripts.resolve()
+    deleted: set[str] = set()
+    for key in sorted(k for k in cache if k != "_v" and k not in read):
+        e = cache[key]
+        place = context.cached_place(key, transcripts, real)
+        if not isinstance(e, dict) or not isinstance(e.get("s"), dict) or place is None or not place[2]:
+            continue
+        sid = place[1]
+        if sid in on_disk or sid in deleted:
+            continue  # on disk again, or a copy under a second slug: it counts once
+        deleted.add(sid)
+        out.append(Session(**dict(e["s"], deleted=True)))
     cache_file.parent.mkdir(parents=True, exist_ok=True)
     cache_file.write_text(json.dumps(cache))
     return out
@@ -683,10 +706,10 @@ def run_cli(args, home: Path = HOME) -> int:
         data = {"generated": datetime.now().isoformat(timespec="seconds"), "since": args.since, "before": args.before,
                 "sessions": len(sessions), "control_baseline_by_model": {}, "groups": []}
     else:
-        if not root.is_dir() or not any(root.glob("*/*.jsonl")):
+        sessions = load_sessions(root, cache / "eve.json")
+        if not sessions:  # sessions of deleted transcripts count too
             print(t("empty.no_transcripts", lang, path=brief.shown(str(root), None, home)))
             return 0
-        sessions = load_sessions(root, cache / "eve.json")
         data = summarize(sessions, args.since, args.before)  # every folder group: scan.html reads it
     block = measure_block(sessions, agent, folder, split, args.since, args.before, args.across_folders)
     if skipped:

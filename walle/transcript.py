@@ -22,6 +22,7 @@ before the second call and marks it "after first call".
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass, field
@@ -79,6 +80,12 @@ def hook_source(text: str) -> str:
     if m:
         return m.group(1).strip()
     return (text or "").strip().split("\n", 1)[0][:40]
+
+
+def label_digest(label: str) -> str:
+    """A stand-in for a hook output label once its transcript is deleted: it matches the same label in another
+    session without keeping the text."""
+    return hashlib.sha256(label.encode()).hexdigest()[:12]
 
 
 def _user_text(content) -> str:

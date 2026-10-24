@@ -53,6 +53,8 @@ python3 bin/walle keep --list              # 남긴 목록. 해제는 walle unke
 
 리포트는 `~/.walle/runs/<시각>/`에 쓴다. 스캔마다 `~/.walle/runs/index.jsonl`에 한 줄을 더한다. 점검하는 폴더에는 쓰지 않는다. `walle scan`, `walle check`, `walle diff`는 스캔하는 폴더 안의 `--out` 폴더(그 옆 `cache/` 포함)를 거부하고 종료 코드 2로 끝난다. `walle eve`와 `walle context --compare <apply-id|날짜>`는 재는 폴더에 같은 규칙을 쓴다. `~/.walle` 아래는 예외다.
 
+지운 트랜스크립트도 계속 센다. `walle context --usage`, `walle trim`, `walle eve`는 세션마다 센 값을 캐시 폴더의 `context-usage.json`과 `eve.json`에 둔다. 트랜스크립트 파일을 지워도 이 행으로 그 세션을 센다. 트랜스크립트 폴더에 파일이 하나도 남지 않아도 같다. 남는 행에는 개수, 도구·MCP 서버·스킬·슬래시 명령·훅의 이름, 세션의 폴더, 트랜스크립트 경로, 시작 시각, 표면, 모델이 있다. 프롬프트 글과 훅 출력 글은 없다. 훅 출력의 라벨은 다이제스트로 바뀐다. 디스크의 세션에 같은 라벨이 있으면 그 라벨에 더한다. 없으면 `walle context --usage`는 다이제스트와 함께 `(output label not kept)`로 보이고, `walle trim`은 그 훅의 행을 만들지 않는다. 이 행은 walle가 읽어 온 트랜스크립트 폴더에서만 세고, 트랜스크립트가 다른 폴더로 옮겨 갔으면 한 번만 센다. 두 파일을 지우면 잊는다. 캐시 형식을 바꾸는 walle 버전도 이 행을 잊는다. 0.4.0이 행을 옮기기 전까지 그렇다. Claude Code 세션만 해당한다.
+
 ## scan.json (schema 2)
 
 모든 표면은 `scan.json`을 읽는다. schema 2는 필드를 더하기만 하고 이름을 바꾸지 않는다. schema 1을 읽던 코드는 그대로 돈다.
