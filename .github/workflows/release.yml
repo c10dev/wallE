@@ -1,0 +1,62 @@
+name: release
+
+# A v* tag builds the sdist and the wheel and publishes them to PyPI as walle-cli.
+# A pull request builds them and checks the wheel, and publishes nothing.
+# Maintainer steps before the first tag:
+#   1. On PyPI, add a trusted publisher for walle-cli: owner c10dev, repository wallE,
+#      workflow release.yml, environment pypi.
+#   2. In the repository settings, add the environment pypi.
+#   3. Change the version in the four files in one commit, then push the tag v<version>.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: The tag is the package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "tag ${GITHUB_REF_NAME}, package ${version}"
+          test "${GITHUB_REF_NAME}" = "v${version}"
+      - name: Unit tests
+        run: python -m unittest discover -s tests
+      - name: Build the sdist and the wheel
+        run: |
+          python -m pip install build
+          python -m build
+          ls -l dist
+      - name: The wheel holds every package file
+        run: |
+          test "$(ls dist/*.whl | wc -l)" -eq 1
+          WALLE_WHEEL="$(ls dist/*.whl)" python -m unittest tests.test_package -v 2>&1 | tee package-test.txt
+          ! grep -q "skipped" package-test.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write  # trusted publishing: no API token is stored
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
