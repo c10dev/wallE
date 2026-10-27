@@ -52,6 +52,7 @@ The package name is `walle-cli`. The command is `walle`.
 pipx install walle-cli
 ```
 
+`walle --version` prints the installed version.
 Until the package is on PyPI, install from the repository: `pipx install git+<repository url>`.
 
 Or run it from a checkout:

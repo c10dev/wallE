@@ -97,7 +97,7 @@ walle는 기기 밖으로 아무것도 보내지 않는다.
   - 세션 시작 알람은 기본으로 꺼져 있다. `session_alarm`을 켜고 `budget_tokens`(기본 15,000)를 정하면, 폴더의 스택이 예산을 넘을 때 한 줄을 알려 준다.
   - 알람은 bytes-v2 토큰으로 센다. 예전 bytes-v1 기준으로 `budget_tokens`를 8000으로 저장했다면 15000으로 바꾼다.
   - hook은 PATH의 `python3`으로 돈다. 그 버전이 3.11보다 낮으면 알람은 아무것도 쓰지 않고 exit 0으로 끝난다. `bin/walle`의 다른 명령은 한 줄을 쓰고 exit 1로 끝난다.
-- CLI: `pipx install walle-cli` (패키지 이름은 `walle-cli`, 명령은 `walle`)
+- CLI: `pipx install walle-cli` (패키지 이름은 `walle-cli`, 명령은 `walle`). `walle --version`은 설치한 버전을 보여 준다.
 - Codex와 다른 에이전트: CLI를 pipx로 설치하고 `skills/walle`을 스킬 폴더에 복사
 - CI: `walle check . --max-tokens 15000`
 

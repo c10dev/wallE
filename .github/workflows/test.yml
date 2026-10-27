@@ -26,6 +26,7 @@ jobs:
         run: |
           python -m pip install .
           walle --help
+          walle --version
 
   old-python:
     # The SessionStart hook runs bin/walle with the python3 on PATH, which can be older than 3.11.
