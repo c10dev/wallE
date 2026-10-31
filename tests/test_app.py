@@ -387,6 +387,12 @@ class StaticTest(Served):
         for group in {*part_group.values(), "host"}:
             self.assertIn(f"chart-{group}", defined)
 
+    def test_reduced_motion_stops_the_sidebar_in_both_states(self):
+        css = (Path(appmod.__file__).resolve().parent / "appui" / "app.css").read_text()
+        rule = re.search(r"@media \(prefers-reduced-motion: reduce\) \{([^}]*)\{\s*transition: none;", css).group(1)
+        self.assertIn(".app-side,", rule)
+        self.assertIn(".app-side.is-open", rule)
+
     def test_app_css_does_not_repeat_a_text_style_by_value(self):
         tok = json.loads((Path(appmod.__file__).resolve().parent / "appui" / "vendor" / "walle-ds" / "tokens.json").read_text())
         css = (Path(appmod.__file__).resolve().parent / "appui" / "app.css").read_text()

@@ -49,9 +49,24 @@ walle is a maintenance tool for coding agents such as Claude Code and Codex. It 
 
 - Focus: `focus`, 2px solid, 2px offset, 3:1 or more on every ground.
 - Disabled: `sunk` fill, `muted` text, no shadow.
-- Running or measuring: the device lamp (`eve`) and the EVE eye blink. They stop under `prefers-reduced-motion`.
+- Running or waiting: the device lamp (`eve`), the EVE eye and the current scan step blink (see Motion). They stop under `prefers-reduced-motion`.
 - Device status pairs a lamp with a word: Online (`leaf`), Running (`eve`), Offline (`line-strong`).
 - Transitions take 120ms. No bounce.
+
+### Motion
+
+The design system format has no motion tokens, so this table is the source for motion values.
+
+| Motion | Where | Duration | Easing | Change | Under `prefers-reduced-motion: reduce` |
+| --- | --- | --- | --- | --- | --- |
+| Blink (`we-blink`) | Device lamp while running (`is-busy`). `JudgeAnswer`'s EVE eye while it waits for the answer file (`is-busy`). Current `ScanProgress` step dot (`is-now`). | 1.2s, repeats | `steps(2, jump-none)` | Opacity to .25 at the middle | Stops |
+| Press (`we-press`) | Current `ScanProgress` cube (`is-now`) | 0.9s, repeats | `ease-in-out` | `scaleY(.72)` and opacity .55 at the middle | Stops |
+| Slide | walle app sidebar on a narrow screen (860px or less), when it opens and closes | 120ms | `ease` (the browser default; the CSS sets none) | `transform` | No transition |
+
+- Durations in use: 120ms for transitions, 0.9s and 1.2s for repeating marks.
+- Easings in use: `ease`, `ease-in-out` and `steps(2, jump-none)`. There is no enter or exit easing yet.
+- A new motion reuses a duration and an easing from this table. To use a new duration or easing, add its row first.
+- Motion shows that something runs, waits or moves. It does not decorate.
 
 ## Logo and icons
 
@@ -62,7 +77,7 @@ walle is a maintenance tool for coding agents such as Claude Code and Codex. It 
 ## Layout
 
 - `Sidebar` on the left (260px, `bg`), the main area on the right (`surface`), split by one `line`.
-- The sidebar's upper group is actions (Scan, Measure, Trim, Runs, Keep); the lower group is folders. Numbers such as token counts sit at the right of a row in mono.
+- The sidebar's upper group is actions (Efficiency, Scan, Measure, Trim, Runs, Keep); the lower group is folders. Numbers such as token counts sit at the right of a row in mono.
 - The selected row is EVE (`eve-soft` fill, `eve` text). The "New scan" button at the top is key-style.
 - `CommandBar` sits at the top of the main area. It is not a chat input: it shows the current project (path, branch), device status and agent, and takes one `walle` command below.
 - The result of `walle judge --import` is a vertical stack of `JudgeAnswer` cards, one card per verdict. Not-a-problem verdicts collapse to one line; Real problem and Not judged stay open.
@@ -73,3 +88,13 @@ walle is a maintenance tool for coding agents such as Claude Code and Codex. It 
 ## Components
 
 `components/bundle.js` puts `Button`, `Badge`, `JudgeAnswer`, `CommandBar`, `Sidebar`, `EmptyState`, `ContextPanel` and `ScanProgress` on `window.WallE`. The page needs React 18. Class names start with `we-`.
+
+## Not in sync yet
+
+These are the known differences between this design system and the walle app, as of 2026-10-31. Remove a line when it is fixed.
+
+- The walle app builds these parts itself (`walle/appui/app.js`). They are not components here yet: Table, Tabs, Card, stat tile, Copy button, command output panel and the first-call composition bar of the Efficiency screen.
+- The design system page gives each text style as a CSS class (`.body`, `.label`), not as a CSS variable. A CSS rule cannot use a class, so `components/bundle.css` repeats text styles by value: 30 of its 58 `font` declarations. The walle app gives each text style as `--type-<name>` and `--type-<name>-tracking`.
+- The walle app's `app.css` has 22 `font` declarations that match no text style, for example `400 12px/20px` mono (3 times). Add a text style or change the CSS rule.
+- Motion values are literals in `components/bundle.css` and in the walle app's `app.css`. There are no motion variables.
+- The Efficiency, Measure, Trim, Runs and Keep screens and the narrow-screen layout (860px or less) have no layout rules here.
