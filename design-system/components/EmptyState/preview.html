@@ -1,0 +1,20 @@
+<!-- @dsCard group="Navigation" height=540 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EmptyState</title></head>
+<body>
+<div id="root"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(W.EmptyState, {
+      body: 'A scan shows the instruction files of this folder and their token cost here.',
+      suggestions: [
+        { kicker: 'Scan', text: 'Collect and check the instruction files', command: 'walle scan . --html' },
+        { kicker: 'Measure', text: 'Measure the real cost of past sessions', command: 'walle eve --since 2026-10-01' },
+        { kicker: 'Trim', text: 'Find skills and plugins you do not use', command: 'walle trim --plan' },
+        { kicker: 'Context', text: 'Break down the first call of a Codex session', command: 'walle context --agent codex' }
+      ],
+      note: 'walle shows a plan before it changes a file.'
+    }, h('div', { style: { display: 'flex', justifyContent: 'center' } }, h(W.Button, { variant: 'primary' }, 'Start scan'))));
+</script>
+</body></html>

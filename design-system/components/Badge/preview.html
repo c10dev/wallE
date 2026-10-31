@@ -1,0 +1,15 @@
+<!-- @dsCard group="Status" height=72 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Badge</title></head>
+<body>
+<div id="root" class="we-row"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(W.Badge, { tone: 'walle' }, 'Over by 4,210'),
+    h(W.Badge, { tone: 'eve' }, 'Measured'),
+    h(W.Badge, { tone: 'leaf' }, 'Kept'),
+    h(W.Badge, { tone: 'trim' }, 'To trim'),
+    h(W.Badge, null, 'Opus')));
+</script>
+</body></html>
