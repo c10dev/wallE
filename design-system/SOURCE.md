@@ -4,7 +4,7 @@ This folder is a copy of the walle design system.
 The design system is a claude.ai artifact of the type "Design System":
 https://claude.ai/artifact/Tup1jTqb38aTSDaysCp5ke
 
-- Copied version: `1793469947-f72a` (2026-10-31).
+- Copied version: `1793471935-786b` (2026-10-31).
 - Copied files: everything under the artifact's `project/` folder, at the same paths here.
 - Not copied: `index.html`, `SKILL.md` and `artifact-type/`. These files belong to the artifact type, not to this design system.
 - Changed: two previews hold real walle output. In `components/ContextPanel/preview.html` and

@@ -13,9 +13,9 @@
   "groups": [],
   "lastChange": {
     "by": "c10",
-    "at": "2026-10-21T06:42:08Z",
-    "via": "Claude Code",
-    "note": "ScanProgress README: follow a real scan with walle scan --progress json"
+    "at": "2026-10-31T18:38:24Z",
+    "via": "Claude Code · c10dev/wallE design-system/",
+    "note": "README: motion table, Not in sync yet section, Efficiency in the action lists"
   },
   "layout": "files",
   "libraries": [

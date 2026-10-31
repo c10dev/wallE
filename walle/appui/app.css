@@ -133,7 +133,7 @@ a { color: var(--link); }
   .app-table.is-stack tr.is-here td:first-child { box-shadow: none; padding-left: 0; }
   .app-table.is-stack tr.is-here { box-shadow: inset 3px 0 0 var(--eve); padding-left: var(--space-3); }
 }
-@media (prefers-reduced-motion: reduce) { .app-side { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .app-side, .app-side.is-open { transition: none; } }
 
 /* Efficiency: first-call composition bar and the savings list */
 .app-comp { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0; }
