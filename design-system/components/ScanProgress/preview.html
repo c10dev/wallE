@@ -1,0 +1,35 @@
+<!-- @dsCard group="Navigation" height=520 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>ScanProgress</title></head>
+<body>
+<div id="root"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  // Step times of a real scan of ~/projects on 2026-10-21 (2.12 s in all), played 3 times slower, then the done state.
+  var STEPS = [["collect", 1.01], ["stack", 0.25], ["classify", 0.26], ["pairs", 0.44], ["triage", 0.10]];
+  var FINAL = { files: 550, pairs: 453, items: 360 }, SLOW = 3;
+  function Demo() {
+    var st = React.useState({ i: 0, t: 0 }), s = st[0], set = st[1];
+    React.useEffect(function () {
+      var id = setInterval(function () {
+        set(function (o) {
+          var t = o.t + 0.1, end = 0, i = 0;
+          for (; i < STEPS.length; i++) { end += STEPS[i][1] * SLOW; if (t < end) break; }
+          if (t > end + 2.5) return { i: 0, t: 0 };
+          return { i: i, t: t };
+        });
+      }, 100);
+      return function () { clearInterval(id); };
+    }, []);
+    var counts = {};
+    if (s.i > 0) counts.files = FINAL.files;
+    if (s.i > 3) counts.pairs = FINAL.pairs;
+    if (s.i > 4) counts.items = FINAL.items;
+    var done = s.i >= STEPS.length;
+    return h(W.ScanProgress, { step: s.i, done: done, roots: ["/home/user/projects"], counts: counts,
+      elapsed: done ? 2.12 : s.t / SLOW, onCancel: function () {} },
+      h(W.Button, { variant: "primary" }, "Show results"));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body></html>

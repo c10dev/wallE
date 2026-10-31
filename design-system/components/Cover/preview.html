@@ -1,0 +1,57 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>walle</title>
+<style>
+  html, body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--fg); font-family:var(--font-sans); overflow:hidden; }
+  .cover { position:relative; height:288px; overflow:hidden; background:var(--bg); }
+  .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
+  .art svg { display:block; width:480px; height:288px; }
+  .yellow { fill:var(--walle-yellow); }
+  .orange { fill:var(--walle-orange); }
+  .shell { fill:var(--fg); }
+  .glow { fill:var(--eve-glow); }
+  .leaf { fill:var(--leaf); }
+  .cube { fill:var(--on-walle); }
+  .words { position:absolute; left:var(--space-8); bottom:var(--space-6); max-width:440px; }
+  .name { margin:0; font-family:var(--font-mono); font-size:120px; line-height:.9; font-weight:700; letter-spacing:-.02em; color:var(--fg); }
+  .tag { margin:var(--space-3) 0 0 6px; font-size:14px; line-height:20px; color:var(--muted); }
+</style>
+</head>
+<body>
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      walle-yellow 176×216 bled off the top (WALL·E's body, largest) · walle-orange 176×48 under it · fg 304×224 bled off the right (dark ink in light, EVE-white in dark) · eve-glow pill 192×48 on it (EVE's visor) · leaf 48×24 once (the seedling) — ≈39% of 960×288
+  arrangement one tall yellow slab with an orange foot, beside a wide shell slab; bottoms on one line space-6 above the edge, space-4 gutters
+  pattern     literal motif, "walle compacts what piles up": a pyramid of ten 24px cubes in on-walle stacked on the yellow slab, pitch space-8
+  scales      gutters space-4; pitch space-8; cubes radius-xs; slabs radius-lg; visor rx = half its height (radius-pill); leaf radius-sm
+-->
+<rect class="yellow" x="0" y="-16" width="176" height="216" rx="10"/>
+<rect class="orange" x="0" y="216" width="176" height="48" rx="10"/>
+<rect class="shell" x="192" y="40" width="304" height="224" rx="10"/>
+<rect class="glow" x="232" y="128" width="192" height="48" rx="24"/>
+<rect class="leaf" x="192" y="8" width="48" height="24" rx="3"/>
+<rect class="cube" x="24" y="160" width="24" height="24" rx="2"/>
+<rect class="cube" x="56" y="160" width="24" height="24" rx="2"/>
+<rect class="cube" x="88" y="160" width="24" height="24" rx="2"/>
+<rect class="cube" x="120" y="160" width="24" height="24" rx="2"/>
+<rect class="cube" x="40" y="128" width="24" height="24" rx="2"/>
+<rect class="cube" x="72" y="128" width="24" height="24" rx="2"/>
+<rect class="cube" x="104" y="128" width="24" height="24" rx="2"/>
+<rect class="cube" x="56" y="96" width="24" height="24" rx="2"/>
+<rect class="cube" x="88" y="96" width="24" height="24" rx="2"/>
+<rect class="cube" x="72" y="64" width="24" height="24" rx="2"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">walle</h1>
+<p class="tag">Collects what piles up, presses it together, keeps what stays.</p>
+</div>
+</div>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!-- @dsCard group="Results" height=640 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>JudgeAnswer</title></head>
+<body>
+<div id="root" class="we-stack" style="gap:var(--space-3)"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(W.JudgeAnswer, {
+      id: 'drift:~/.claude/skills/glossary/SKILL.md:64|~/.codex/skills/glossary/SKILL.md:64', pair: 'drift', judge: 'claude-opus-5-5',
+      refs: [
+        { file: '~/.claude/skills/glossary/SKILL.md', line: 64, text: '`GLOSSARY.md` should be totally devoid of implementation details. Do not treat `GLOSSARY.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else. When a term is resolved, update it right there and keep one line per term.' },
+        { file: '~/.codex/skills/glossary/SKILL.md', line: 64, text: '`CONTEXT.md` should be totally devoid of implementation details. Do not treat `CONTEXT.md` as a spec, a scratch pad, or a repository for implementation decisions. It is a glossary and nothing else. When a term is resolved, update it right there and keep one line per term.' }
+      ],
+      verdict: { real: true, keep: 'a', fix: 'Rename `CONTEXT.md` to `GLOSSARY.md` in the Codex copy, as in the Claude copy.', why: 'The Codex copy predates the rename; the two agents write different files.' }
+    }),
+    h(W.JudgeAnswer, {
+      type: 'cost', judge: 'claude-opus-5-5', id: 'cost:~/projects/app/CLAUDE.md:40',
+      refs: [{ file: '~/projects/app/CLAUDE.md', line: 40, text: 'Check that `npm run build` passes before a deploy.' }],
+      verdict: { real: false, keep: 'both', fix: '-', why: 'A safety check, so it stays.' }
+    }),
+    h(W.JudgeAnswer, {
+      pair: 'topic', judge: 'claude-opus-5-5', id: 'topic:~/projects/app/CLAUDE.md:7|~/projects/app/ops/CLAUDE.md:21',
+      refs: [{ file: '~/projects/app/CLAUDE.md', line: 7, text: 'A session opened in `ops/` follows the rules of that folder.' }, { file: '~/projects/app/ops/CLAUDE.md', line: 21, text: 'The root rules apply as they are.' }],
+      verdict: { real: false, keep: 'both', fix: '-', why: 'They cover sessions of different folders.' }
+    }),
+    h(W.JudgeAnswer, {
+      pair: 'protocol',
+      refs: [{ file: 'skills/report/SKILL.md', line: 8, text: '"Run" means one folder in `runs/`.' }, { file: 'README.md', line: 22, text: 'See the list of runs with `walle runs`.' }]
+    })));
+</script>
+</body></html>

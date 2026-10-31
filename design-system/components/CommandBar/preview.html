@@ -1,0 +1,22 @@
+<!-- @dsCard group="Navigation" height=340 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CommandBar</title></head>
+<body>
+<div id="root" class="we-stack"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(W.CommandBar, {
+      project: { path: '~/projects/walle', branch: 'main' },
+      device: { name: 'dev-server', status: 'online', detail: 'CPU 12%' },
+      agent: 'Claude Code 2.1.303',
+      defaultValue: 'eve --since 2026-10-01',
+      hint: 'Type the subcommand only. Commands that change files (apply, undo) show a plan first.'
+    }),
+    h(W.CommandBar, {
+      project: { path: '~/projects/vocado', branch: 'feat/ga4' },
+      device: { name: 'dev-server', status: 'busy', detail: 'scan running' },
+      agent: 'Codex', running: true, defaultValue: 'scan . --html'
+    })));
+</script>
+</body></html>

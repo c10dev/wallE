@@ -1,0 +1,28 @@
+<!-- @dsCard group="Navigation" height=500 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sidebar</title>
+<style>html, body, #root { height: 100%; } body { background: var(--surface); }</style></head>
+<body>
+<div id="root" style="height:500px"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  function Demo() {
+    var s = React.useState('measure'), active = s[0], setActive = s[1];
+    return h(W.Sidebar, {
+      activeId: active, onSelect: setActive, onAction: function () {},
+      items: [
+        { id: 'scan', group: 'Actions', title: 'Scan' },
+        { id: 'measure', group: 'Actions', title: 'Measure' },
+        { id: 'trim', group: 'Actions', title: 'Trim' },
+        { id: 'runs', group: 'Actions', title: 'Runs', meta: '24' },
+        { id: 'keep', group: 'Actions', title: 'Keep', meta: '3' },
+        { id: 'p1', group: 'Folders', title: '~/projects/walle', meta: '12.4k' },
+        { id: 'p2', group: 'Folders', title: '~/projects/vocado', meta: '31.0k' },
+        { id: 'p3', group: 'Folders', title: '~ (home)', meta: '8.1k' }
+      ],
+      footer: 'Last scan 06:02 UTC'
+    });
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body></html>

@@ -17,3 +17,6 @@ walle app loads nothing from the network. These files ship in the package.
 
 To update the design system, read the artifact files again, copy them here, remove the `@import` line, and remove
 the `usage` and `sample` notes of tokens.json again.
+
+The full design system (brand book, component guidelines, previews and types) is in `design-system/` at the
+repository root. `design-system/SOURCE.md` gives its artifact version.
