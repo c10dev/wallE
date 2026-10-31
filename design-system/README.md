@@ -83,18 +83,19 @@ The design system format has no motion tokens, so this table is the source for m
 - The result of `walle judge --import` is a vertical stack of `JudgeAnswer` cards, one card per verdict. Not-a-problem verdicts collapse to one line; Real problem and Not judged stay open.
 - `ContextPanel` shows the context status: what filled the first call (a bar and table by source) and what loaded and got used over a period (a session bar per item). Pass the output of `walle context --json` and `walle context --usage --json` as it is.
 - While `walle scan` runs, the main area shows `ScanProgress`: five steps, the counts so far, and one cube per finished step. A real scan ends in seconds (2.1 s for 550 files in `~/projects` on 2026-10-21), so there is no progress bar and no time-left estimate. `walle scan --progress json` gives the step events it follows.
+- A command that the `CommandBar` runs shows its `CommandOutput` under the `CommandBar`, until the person closes it. A scan that ends with no error shows only `ScanProgress`. A command to run in a terminal is a `Snippet`.
 - A folder with no scan shows `EmptyState` in the main area. Each suggestion card shows the command it runs in `code`.
 
 ## Components
 
-`components/bundle.js` puts `Button`, `Badge`, `JudgeAnswer`, `CommandBar`, `Sidebar`, `EmptyState`, `ContextPanel` and `ScanProgress` on `window.WallE`. The page needs React 18. Class names start with `we-`.
+`components/bundle.js` puts `Button`, `Badge`, `JudgeAnswer`, `CommandBar`, `Sidebar`, `EmptyState`, `ContextPanel`, `ScanProgress`, `Snippet` and `CommandOutput` on `window.WallE`. The page needs React 18. Class names start with `we-`.
 
 ## Not in sync yet
 
 These are the known differences between this design system and the walle app, as of 2026-10-31. Remove a line when it is fixed.
 
-- The walle app builds these parts itself (`walle/appui/app.js`). They are not components here yet: Table, Tabs, Card, stat tile, Copy button, command output panel and the first-call composition bar of the Efficiency screen.
-- The design system page gives each text style as a CSS class (`.body`, `.label`), not as a CSS variable. A CSS rule cannot use a class, so `components/bundle.css` repeats text styles by value: 30 of its 58 `font` declarations. The walle app gives each text style as `--type-<name>` and `--type-<name>-tracking`.
-- The walle app's `app.css` has 22 `font` declarations that match no text style, for example `400 12px/20px` mono (3 times). Add a text style or change the CSS rule.
+- The walle app builds these parts itself (`walle/appui/app.js`). They are not components here yet: Table, Tabs, Card, stat tile and the first-call composition bar of the Efficiency screen.
+- The design system page gives each text style as a CSS class (`.body`, `.label`), not as a CSS variable. A CSS rule cannot use a class, so `components/bundle.css` repeats text styles by value: 33 of its 64 `font` declarations. The walle app gives each text style as `--type-<name>` and `--type-<name>-tracking`.
+- The walle app's `app.css` has 20 `font` declarations that match no text style, for example `400 12px/20px` mono (3 times). Add a text style or change the CSS rule.
 - Motion values are literals in `components/bundle.css` and in the walle app's `app.css`. There are no motion variables.
 - The Efficiency, Measure, Trim, Runs and Keep screens and the narrow-screen layout (860px or less) have no layout rules here.

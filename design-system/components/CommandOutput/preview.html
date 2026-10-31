@@ -1,0 +1,22 @@
+<!-- @dsCard group="Results" height=480 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>CommandOutput</title></head>
+<body>
+<div id="root" class="we-stack" style="gap:var(--space-3);max-width:680px"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(W.CommandOutput, {
+      command: 'walle scan . --progress json', running: true, cwd: '~/projects/app', seconds: 0.8,
+      lines: ['{"event":"step","step":"collect","state":"end","t":0.61,"files":212}'], onCancel: function () {}
+    }),
+    h(W.CommandOutput, {
+      command: 'walle eve .', code: 0, cwd: '~/projects/app', seconds: 2.4, onClose: function () {},
+      lines: ['Sessions of ~/projects/app (Claude Code)', 'opus-5: first-call input 41,200 [38,900-44,100] n=12']
+    }),
+    h(W.CommandOutput, {
+      command: 'walle apply 20261031-1842-trim', refused: true, onClose: function () {},
+      error: 'The app runs read commands only in this version. Run it in a terminal.'
+    })));
+</script>
+</body></html>

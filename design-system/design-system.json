@@ -13,9 +13,9 @@
   "groups": [],
   "lastChange": {
     "by": "c10",
-    "at": "2026-10-31T18:38:24Z",
+    "at": "2026-10-31T18:48:15Z",
     "via": "Claude Code · c10dev/wallE design-system/",
-    "note": "README: motion table, Not in sync yet section, Efficiency in the action lists"
+    "note": "Add Snippet and CommandOutput, moved from the walle app"
   },
   "layout": "files",
   "libraries": [

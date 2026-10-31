@@ -1,0 +1,13 @@
+<!-- @dsCard group="Actions" height=120 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Snippet</title></head>
+<body>
+<div id="root" class="we-stack" style="gap:var(--space-3);max-width:560px"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment, null,
+    h(W.Snippet, { text: 'walle apply 20261031-1842-trim --only a3f9c1' }),
+    h('div', { style: { background: 'var(--sunk)', padding: 'var(--space-3)', borderRadius: 'var(--radius-lg)' } },
+      h(W.Snippet, { text: 'walle undo 20261031-1850-apply', face: 'surface' }))));
+</script>
+</body></html>

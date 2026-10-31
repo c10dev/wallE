@@ -387,6 +387,24 @@ class StaticTest(Served):
         for group in {*part_group.values(), "host"}:
             self.assertIn(f"chart-{group}", defined)
 
+    def test_the_vendored_design_system_matches_design_system_folder(self):
+        root = Path(appmod.__file__).resolve().parent.parent
+        vendor, ds = root / "walle" / "appui" / "vendor" / "walle-ds", root / "design-system" / "components"
+        if not ds.is_dir():
+            self.skipTest("no design-system folder (installed package)")
+        self.assertEqual((vendor / "bundle.js").read_text(), (ds / "bundle.js").read_text())
+        source_css = (ds / "bundle.css").read_text().split("\n", 1)
+        self.assertTrue(source_css[0].startswith("@import"))  # VENDOR.md: the vendored copy drops this line
+        self.assertEqual((vendor / "bundle.css").read_text(), source_css[1])
+
+    def test_the_bundle_header_names_every_export(self):
+        bundle = (Path(appmod.__file__).resolve().parent / "appui" / "vendor" / "walle-ds" / "bundle.js").read_text()
+        header = json.loads(re.match(r"/\* @ds-bundle: (\{.*\}) \*/", bundle).group(1))
+        exported = re.findall(r"(\w+): \1\b", re.search(r"window\.WallE = Object\.assign\(window\.WallE \|\| \{\}, \{(.*?)\}\);", bundle).group(1))
+        self.assertEqual([c["name"] for c in header["components"]], exported)
+        app = (Path(appmod.__file__).resolve().parent / "appui" / "app.js").read_text()
+        self.assertEqual(sorted(set(re.findall(r"\bW\.([A-Z]\w+)", app)) - set(exported)), [])
+
     def test_reduced_motion_stops_the_sidebar_in_both_states(self):
         css = (Path(appmod.__file__).resolve().parent / "appui" / "app.css").read_text()
         rule = re.search(r"@media \(prefers-reduced-motion: reduce\) \{([^}]*)\{\s*transition: none;", css).group(1)

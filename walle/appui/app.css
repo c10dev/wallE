@@ -51,9 +51,6 @@ a { color: var(--link); }
 .app-quote { margin: 0; padding-left: var(--space-3); border-left: 2px solid var(--line-strong); font: var(--type-body-sm); overflow-wrap: anywhere; white-space: pre-line;
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; }
 .app-reason { margin: 0; font: var(--type-body-sm); color: var(--muted); }
-.app-copy { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.app-copy code { flex: 1; min-width: 0; font-size: 12px; line-height: 20px; color: var(--fg); background: var(--sunk); border-radius: var(--radius-xs); padding: 2px var(--space-2); overflow-wrap: anywhere; }
-.app-item .app-copy code { background: var(--surface); }
 .app-more { align-self: flex-start; padding: 0 var(--space-1); border: 0; background: transparent; color: var(--link); font: 600 12px/20px var(--font-sans); cursor: pointer; border-radius: var(--radius-xs); }
 .app-more:hover { text-decoration: underline; }
 .app-group { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -102,13 +99,9 @@ a { color: var(--link); }
 .app-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
 .app-tile { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); min-width: 0; }
 .app-next { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); background: var(--eve-soft); min-width: 0; }
-.app-next .app-copy code { background: var(--surface); }
 .app-measured { display: flex; flex-direction: column; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--line); min-width: 0; }
 
 /* Command output */
-.app-out-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
-.app-out-head code { font: 600 13px/20px var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
-.app-pre { margin: 0; max-height: 360px; overflow: auto; padding: var(--space-3); background: var(--sunk); border-radius: var(--radius-sm); font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .app-err { color: var(--rust); }
 
 /* Empty parts inside a view */
