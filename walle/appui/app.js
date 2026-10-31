@@ -414,12 +414,18 @@
   }
 
   // The measured first call of the newest session as one bar: what fills it, largest part first.
-  var PART_COLOR = ["var(--eve)", "var(--trim)", "var(--lean)", "var(--rust)", "var(--link)", "var(--line-strong)", "var(--muted)"];
+  // A part takes the chart color of its source group, as ContextPanel groups them (design system README, ContextPanel).
+  // A source not listed here is host and other. "other" folds sources of any group, so it gets no group color.
+  var PART_GROUP = { skill_listing: "skills", skill_bodies: "skills", mcp_tools: "mcp", deferred_tools: "mcp",
+    mcp_instructions: "mcp", tool_namespaces: "mcp", plugins_apps: "mcp", instructions: "instr", agents_md: "instr", memory: "instr" };
+  function partColor(source) {
+    if (source === "residual") return "var(--sunk)";
+    if (source === "other") return "var(--line-strong)";
+    return "var(--chart-" + (PART_GROUP[source] || "host") + ")";
+  }
   function CompositionBar(p) {
-    var c = p.c, i = 0;
-    var parts = c.parts.map(function (x) {
-      return Object.assign({ color: x.source === "residual" ? "var(--sunk)" : PART_COLOR[i++ % PART_COLOR.length] }, x);
-    });
+    var c = p.c;
+    var parts = c.parts.map(function (x) { return Object.assign({ color: partColor(x.source) }, x); });
     return h("div", { className: "app-comp" },
       h("div", { className: "app-comp-bar", role: "img", "aria-label": "First call of " + num(c.total) + " tokens: " +
         parts.map(function (x) { return x.label + " " + x.share + "%"; }).join(", ") },

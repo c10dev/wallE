@@ -364,6 +364,36 @@ class StaticTest(Served):
         self.assertIn("--font-mono:", css)
         self.assertIn("--space-12: 48px;", css)
 
+    def test_tokens_css_has_the_text_styles(self):
+        css = self.get("tokens.css")[1].decode()
+        self.assertIn("--type-body: 400 15px/24px var(--font-sans);", css)
+        self.assertIn("--type-label: 700 11px/16px var(--font-mono);", css)
+        self.assertIn("--type-label-tracking: 0.12em;", css)
+        self.assertIn("--type-body-tracking: normal;", css)
+
+    def test_the_page_uses_only_tokens_that_exist(self):
+        ui = Path(appmod.__file__).resolve().parent / "appui"
+        defined = set(re.findall(r"--([a-z0-9-]+):", appmod.tokens_css()))
+        used = {(name, p.name) for p in (ui / "app.css", ui / "app.js", ui / "vendor" / "walle-ds" / "bundle.css")
+                for name in re.findall(r"var\(--([a-z0-9-]+)", p.read_text()) if not name.endswith("-")}
+        self.assertEqual(sorted(x for x in used if x[0] not in defined), [])
+        # app.js builds the chart colors as "var(--chart-" + group + ")" from the groups of the design system's ContextPanel.
+        part_group = dict(re.findall(r'(\w+): "(\w+)"', re.search(r"PART_GROUP = \{(.*?)\};", (ui / "app.js").read_text(), re.S).group(1)))
+        bundle = (ui / "vendor" / "walle-ds" / "bundle.js").read_text()
+        ctx_group = {kind: gid for gid, src in re.findall(r'\{ id: "(\w+)", name: "[^"]*", src: \[([^\]]*)\] \}', bundle)
+                     for kind in re.findall(r'"(\w+)"', src)}
+        self.assertTrue(ctx_group)
+        self.assertEqual(part_group, ctx_group)
+        for group in {*part_group.values(), "host"}:
+            self.assertIn(f"chart-{group}", defined)
+
+    def test_app_css_does_not_repeat_a_text_style_by_value(self):
+        tok = json.loads((Path(appmod.__file__).resolve().parent / "appui" / "vendor" / "walle-ds" / "tokens.json").read_text())
+        css = (Path(appmod.__file__).resolve().parent / "appui" / "app.css").read_text()
+        literal = [f"font: {s['fontWeight']} {s['fontSize']}/{s['lineHeight']} var(--font-{s.get('family', g['family'])})"
+                   for g in tok["type"]["groups"] for s in g["styles"]]
+        self.assertEqual([x for x in literal if x in css], [])
+
     def test_only_listed_files_are_served(self):
         for rest in ("../app.py", "vendor/../app.py", "fonts/../cli.py", "fonts/OFL.txt", "vendor/", "appui/index.html",
                      "api/nothing"):
