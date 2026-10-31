@@ -184,7 +184,8 @@ def child_argv(out: Path, args: list[str]) -> list[str]:
 # ---------------------------------------------------------------------- page parts
 def tokens_css() -> str:
     """CSS custom properties from the design system's tokens.json: light on :root, dark under
-    prefers-color-scheme and under [data-theme=dark]. Then the IBM Plex @font-face rules."""
+    prefers-color-scheme and under [data-theme=dark]. Text styles become --type-<name> and
+    --type-<name>-tracking. Then the IBM Plex @font-face rules."""
     tok = json.loads((UI / "vendor" / "walle-ds" / "tokens.json").read_text(encoding="utf-8"))
     light, dark = ["color-scheme: light;"], ["color-scheme: dark;"]
     for c in tok["color"]["tokens"]:
@@ -197,6 +198,12 @@ def tokens_css() -> str:
             dark.append(f"--{c['name']}: {v['dark']};")
     for name, value in tok["type"]["families"].items():
         light.append(f"--font-{name}: {value};")
+    # One `font` shorthand and one letter-spacing per text style: `font: var(--type-body)`.
+    for group in tok["type"]["groups"]:
+        for s in group["styles"]:
+            family = s.get("family", group["family"])
+            light.append(f"--type-{s['name']}: {s['fontWeight']} {s['fontSize']}/{s['lineHeight']} var(--font-{family});")
+            light.append(f"--type-{s['name']}-tracking: {s.get('letterSpacing', 'normal')};")
     for group in ("spacing", "radius"):
         for x in tok[group]["tokens"]:
             light.append(f"--{x['name']}: {x['value']};")
