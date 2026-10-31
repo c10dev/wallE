@@ -1,0 +1,17 @@
+<!-- @dsCard group="Results" height=340 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Table</title></head>
+<body>
+<div id="root" class="we-stack"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(W.Table, { caption: 'Runs, newest first', markedLabel: 'run of this folder',
+      columns: [{ key: 'id', label: 'Run', stackLabel: false }, { key: 'kind', label: 'Kind' }, { key: 'when', label: 'When', type: 'time' },
+        { key: 'n', label: 'Rules', type: 'num' }],
+      rows: [
+        { key: 'a', marked: true, cells: { id: h('code', null, '20261031-1842'), kind: 'trim', when: '2026-10-31 18:42', n: '148' } },
+        { key: 'b', cells: { id: h('code', null, '20261031-1801'), kind: 'scan', when: '2026-10-31 18:01', n: '151' } },
+        { key: 'c', cells: { id: h('code', null, '20261030-0915'), kind: 'measure', when: '2026-10-30 09:15', n: '-' } }] }));
+</script>
+</body></html>

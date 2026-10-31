@@ -1,0 +1,18 @@
+<!-- @dsCard group="Navigation" height=120 -->
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tabs</title></head>
+<body>
+<div id="root" class="we-stack"></div>
+<script>
+  var W = window.WallE, h = React.createElement;
+  function Demo() {
+    var s = React.useState('all'), v = s[0], set = s[1];
+    return h(React.Fragment, null,
+      h(W.Tabs, { label: 'Rows to show', panelId: 'rows', value: v, onChange: set,
+        items: [{ id: 'all', label: 'All rows', count: 12 }, { id: 'here', label: 'This folder', count: 4 }] }),
+      h('p', { id: 'rows', role: 'tabpanel', 'aria-labelledby': 'rows-' + v, style: { margin: 0, font: '400 13px/20px var(--font-sans)' } },
+        v === 'all' ? '12 rows of the plan.' : '4 rows name this folder.'));
+  }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body></html>

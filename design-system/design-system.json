@@ -13,9 +13,9 @@
   "groups": [],
   "lastChange": {
     "by": "c10",
-    "at": "2026-10-31T18:48:15Z",
+    "at": "2026-10-31T19:02:32Z",
     "via": "Claude Code · c10dev/wallE design-system/",
-    "note": "Add Snippet and CommandOutput, moved from the walle app"
+    "note": "Add Card, StatTile, StatGrid, Tabs and Table, moved from the walle app"
   },
   "layout": "files",
   "libraries": [

@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"WallE","components":[{"name":"Button"},{"name":"Badge"},{"name":"JudgeAnswer"},{"name":"CommandBar"},{"name":"Sidebar"},{"name":"EmptyState"},{"name":"ContextPanel"},{"name":"ScanProgress"},{"name":"Snippet"},{"name":"CommandOutput"}]} */
+/* @ds-bundle: {"format":4,"namespace":"WallE","components":[{"name":"Button"},{"name":"Badge"},{"name":"JudgeAnswer"},{"name":"CommandBar"},{"name":"Sidebar"},{"name":"EmptyState"},{"name":"ContextPanel"},{"name":"ScanProgress"},{"name":"Snippet"},{"name":"CommandOutput"},{"name":"Card"},{"name":"StatTile"},{"name":"StatGrid"},{"name":"Tabs"},{"name":"Table"}]} */
 (function () {
   var React = window.React, h = React.createElement;
   function cx() { return Array.prototype.filter.call(arguments, Boolean).join(" "); }
@@ -424,5 +424,76 @@
       text ? h("pre", { className: "we-out-text", tabIndex: 0, "aria-label": "Output of " + p.command }, text) : null);
   }
 
-  window.WallE = Object.assign(window.WallE || {}, { Button: Button, Badge: Badge, JudgeAnswer: JudgeAnswer, CommandBar: CommandBar, Sidebar: Sidebar, EmptyState: EmptyState, ContextPanel: ContextPanel, ScanProgress: ScanProgress, Snippet: Snippet, CommandOutput: CommandOutput });
+  function rest(p, omit) {
+    var o = {};
+    for (var k in p) if (omit.indexOf(k) < 0) o[k] = p[k];
+    return o;
+  }
+
+  function Card(p) {
+    var o = rest(p, ["as", "className", "children"]);
+    o.className = cx("we-card", p.className);
+    return h(p.as || "div", o, p.children);
+  }
+
+  function StatTile(p) {
+    return h("div", { className: cx("we-stat", p.className) },
+      h("span", { className: "we-stat-k" }, p.label),
+      h("div", { className: "we-stat-v" }, p.badge || null, h("span", { className: "we-stat-n" }, p.value), p.tag || null),
+      p.note ? h("p", { className: "we-stat-note" }, p.note) : null);
+  }
+
+  function StatGrid(p) {
+    return h("div", { className: cx("we-stats", p.className), role: p.label ? "group" : undefined, "aria-label": p.label }, p.children);
+  }
+
+  // Tabs with one tab stop: Left, Right, Home and End move the selection and the focus.
+  function Tabs(p) {
+    var auto = React.useId(), items = p.items || [], refs = React.useRef({});
+    var base = p.panelId || "we-tabs" + auto.replace(/[^A-Za-z0-9_-]/g, "");
+    function pick(i) {
+      var it = items[(i + items.length) % items.length];
+      if (!it) return;
+      p.onChange && p.onChange(it.id);
+      var el = refs.current[it.id];
+      if (el) el.focus();
+    }
+    function key(e, i) {
+      var to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: items.length - 1 }[e.key];
+      if (to === undefined) return;
+      e.preventDefault();
+      pick(to);
+    }
+    return h("div", { className: cx("we-tabs", p.className), role: "tablist", "aria-label": p.label },
+      items.map(function (it, i) {
+        var on = it.id === p.value;
+        return h("button", {
+          key: it.id, type: "button", role: "tab", id: base + "-" + it.id, "aria-selected": on ? "true" : "false",
+          "aria-controls": p.panelId, tabIndex: on ? 0 : -1, className: cx("we-tab", on && "is-on"),
+          ref: function (el) { refs.current[it.id] = el; },
+          onClick: function () { p.onChange && p.onChange(it.id); }, onKeyDown: function (e) { key(e, i); }
+        }, it.label, it.count != null ? h("span", { className: "we-tab-n" }, it.count) : null);
+      }));
+  }
+
+  // A data table. On a narrow screen (860px or less) each row becomes a block, and each cell shows its column label.
+  // A marked row also says so in hidden text, for a screen reader.
+  function Table(p) {
+    var cols = p.columns || [], markedLabel = p.markedLabel || "marked";
+    var colClass = function (c) { return c.type === "num" ? "is-num" : c.type === "time" ? "is-time" : null; };
+    return h("div", { className: cx("we-table-wrap", p.className) },
+      h("table", { className: cx("we-table", p.stack !== false && "is-stack") },
+        p.caption ? h("caption", { className: "we-sr" }, p.caption) : null,
+        h("thead", null, h("tr", null, cols.map(function (c) { return h("th", { key: c.key, scope: "col", className: colClass(c) }, c.label); }))),
+        h("tbody", null, (p.rows || []).map(function (r) {
+          return h("tr", { key: r.key, className: r.marked ? "is-marked" : null },
+            cols.map(function (c, i) {
+              var v = r.cells[c.key], bare = c.stackLabel === false || (r.unlabeled || []).indexOf(c.key) >= 0;
+              return h("td", { key: c.key, className: colClass(c), "data-l": bare ? undefined : c.label },
+                v == null ? "" : v, i === 0 && r.marked ? h("span", { className: "we-sr" }, " (" + markedLabel + ")") : null);
+            }));
+        }))));
+  }
+
+  window.WallE = Object.assign(window.WallE || {}, { Button: Button, Badge: Badge, JudgeAnswer: JudgeAnswer, CommandBar: CommandBar, Sidebar: Sidebar, EmptyState: EmptyState, ContextPanel: ContextPanel, ScanProgress: ScanProgress, Snippet: Snippet, CommandOutput: CommandOutput, Card: Card, StatTile: StatTile, StatGrid: StatGrid, Tabs: Tabs, Table: Table });
 })();

@@ -88,14 +88,14 @@ The design system format has no motion tokens, so this table is the source for m
 
 ## Components
 
-`components/bundle.js` puts `Button`, `Badge`, `JudgeAnswer`, `CommandBar`, `Sidebar`, `EmptyState`, `ContextPanel`, `ScanProgress`, `Snippet` and `CommandOutput` on `window.WallE`. The page needs React 18. Class names start with `we-`.
+`components/bundle.js` puts `Button`, `Badge`, `JudgeAnswer`, `CommandBar`, `Sidebar`, `EmptyState`, `ContextPanel`, `ScanProgress`, `Snippet`, `CommandOutput`, `Card`, `StatTile`, `StatGrid`, `Tabs` and `Table` on `window.WallE`. The page needs React 18. Class names start with `we-`.
 
 ## Not in sync yet
 
 These are the known differences between this design system and the walle app, as of 2026-10-31. Remove a line when it is fixed.
 
-- The walle app builds these parts itself (`walle/appui/app.js`). They are not components here yet: Table, Tabs, Card, stat tile and the first-call composition bar of the Efficiency screen.
-- The design system page gives each text style as a CSS class (`.body`, `.label`), not as a CSS variable. A CSS rule cannot use a class, so `components/bundle.css` repeats text styles by value: 33 of its 64 `font` declarations. The walle app gives each text style as `--type-<name>` and `--type-<name>-tracking`.
-- The walle app's `app.css` has 20 `font` declarations that match no text style, for example `400 12px/20px` mono (3 times). Add a text style or change the CSS rule.
+- The walle app builds this part itself (`walle/appui/app.js`). It is not a component here yet: the first-call composition bar of the Efficiency screen.
+- The design system page gives each text style as a CSS class (`.body`, `.label`), not as a CSS variable. A CSS rule cannot use a class, so `components/bundle.css` repeats text styles by value: 37 of its 73 `font` declarations. The walle app gives each text style as `--type-<name>` and `--type-<name>-tracking`.
+- The walle app's `app.css` has 16 `font` declarations that match no text style, for example `400 12px/20px` mono (2 times). Add a text style or change the CSS rule.
 - Motion values are literals in `components/bundle.css` and in the walle app's `app.css`. There are no motion variables.
 - The Efficiency, Measure, Trim, Runs and Keep screens and the narrow-screen layout (860px or less) have no layout rules here.

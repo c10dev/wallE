@@ -7,7 +7,7 @@ walle app loads nothing from the network. These files ship in the package.
 | `vendor/react.production.min.js` | npm `react@18.3.1`, `umd/react.production.min.js` (tarball shasum 49ab892009c53933625bd16b2533fc754cab2891) | none |
 | `vendor/react-dom.production.min.js` | npm `react-dom@18.3.1`, `umd/react-dom.production.min.js` (tarball shasum c2265d79511b57d479b3dd3fdfa51536494c5cb4) | none |
 | `vendor/REACT-LICENSE` | the MIT license of `react` and `react-dom` 18.3.1 (the two files are the same) | none |
-| `vendor/walle-ds/bundle.js` | walle design system artifact (https://claude.ai/artifact/Tup1jTqb38aTSDaysCp5ke), version `1793472507-06e6`, `project/components/bundle.js` | none |
+| `vendor/walle-ds/bundle.js` | walle design system artifact (https://claude.ai/artifact/Tup1jTqb38aTSDaysCp5ke), version `1793473359-1d45`, `project/components/bundle.js` | none |
 | `vendor/walle-ds/bundle.css` | the same artifact version, `project/components/bundle.css` | line 1 removed: an `@import` of Google Fonts |
 | `vendor/walle-ds/tokens.json` | the same artifact version, `project/tokens.json` | the `usage` and `sample` notes removed: the server reads names and values only |
 

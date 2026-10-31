@@ -28,8 +28,21 @@ export declare function ContextPanel(props: ContextPanelProps): React.ReactEleme
 export type ScanStep = 'collect' | 'stack' | 'classify' | 'pairs' | 'triage';
 export interface ScanProgressProps { step?: ScanStep | number; done?: boolean; roots?: string[]; counts?: { files?: number; pairs?: number; items?: number }; elapsed?: number; onCancel?: () => void; children?: React.ReactNode }
 export declare function ScanProgress(props: ScanProgressProps): React.ReactElement;
-declare global { interface Window { WallE: { Button: typeof Button; Badge: typeof Badge; JudgeAnswer: typeof JudgeAnswer; CommandBar: typeof CommandBar; Sidebar: typeof Sidebar; EmptyState: typeof EmptyState; ContextPanel: typeof ContextPanel; ScanProgress: typeof ScanProgress; Snippet: typeof Snippet; CommandOutput: typeof CommandOutput } } }
+declare global { interface Window { WallE: { Button: typeof Button; Badge: typeof Badge; JudgeAnswer: typeof JudgeAnswer; CommandBar: typeof CommandBar; Sidebar: typeof Sidebar; EmptyState: typeof EmptyState; ContextPanel: typeof ContextPanel; ScanProgress: typeof ScanProgress; Snippet: typeof Snippet; CommandOutput: typeof CommandOutput; Card: typeof Card; StatTile: typeof StatTile; StatGrid: typeof StatGrid; Tabs: typeof Tabs; Table: typeof Table } } }
 export interface SnippetProps { text: string; face?: 'sunk' | 'surface'; className?: string }
 export declare function Snippet(props: SnippetProps): React.ReactElement;
 export interface CommandOutputProps { command: string; running?: boolean; refused?: boolean; cancelled?: boolean; code?: number | null; cwd?: string; seconds?: number | null; error?: string; lines?: string[]; className?: string; onCancel?: () => void; onClose?: () => void }
 export declare function CommandOutput(props: CommandOutputProps): React.ReactElement;
+export interface CardProps extends React.HTMLAttributes<HTMLElement> { as?: 'div' | 'section' | 'article'; children?: React.ReactNode }
+export declare function Card(props: CardProps): React.ReactElement;
+export interface StatTileProps { label: string; value: React.ReactNode; badge?: React.ReactNode; tag?: React.ReactNode; note?: React.ReactNode; className?: string }
+export declare function StatTile(props: StatTileProps): React.ReactElement;
+export interface StatGridProps { label?: string; className?: string; children?: React.ReactNode }
+export declare function StatGrid(props: StatGridProps): React.ReactElement;
+export interface TabItem { id: string; label: string; count?: React.ReactNode }
+export interface TabsProps { items: TabItem[]; value: string; onChange?: (id: string) => void; label: string; panelId?: string; className?: string }
+export declare function Tabs(props: TabsProps): React.ReactElement;
+export interface TableColumn { key: string; label: string; type?: 'text' | 'num' | 'time'; stackLabel?: boolean }
+export interface TableRow { key: string; cells: Record<string, React.ReactNode>; marked?: boolean; unlabeled?: string[] }
+export interface TableProps { columns: TableColumn[]; rows: TableRow[]; caption?: string; markedLabel?: string; stack?: boolean; className?: string }
+export declare function Table(props: TableProps): React.ReactElement;
