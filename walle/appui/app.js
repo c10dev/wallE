@@ -119,7 +119,7 @@
 
   function Stack(p) {
     var s = p.stack;
-    return h("div", { className: "app-card" },
+    return h(W.Card, null,
       h("div", { className: "app-verdict" },
         h(W.Badge, { tone: VERDICT_TONE[s.verdict] || "neutral" }, s.verdict_text),
         h("span", { className: "app-big" }, s.tokens_text),
@@ -178,30 +178,27 @@
 
   function MeasureTable(p) {
     var m = p.m, metrics = m.metrics;
-    var head = h("tr", null, h("th", null, "Model"), m.split ? h("th", null, "Window") : null, h("th", { className: "app-num" }, "n"),
-      metrics.map(function (k) { return h("th", { key: k, className: "app-num" }, METRIC[k] || k); }));
-    var body = [];
+    var columns = [{ key: "model", label: "Model" }].concat(m.split ? [{ key: "side", label: "Window" }] : [], [{ key: "n", label: "n", type: "num" }],
+      metrics.map(function (k) { return { key: k, label: METRIC[k] || k, type: "num" }; }));
+    var rows = [];
     m.rows.forEach(function (r) {
-      m.sides.forEach(function (s, i) {
-        var side = r.sides[s] || { cells: {} };
-        body.push(h("tr", { key: r.family + s },
-          h("td", { "data-l": "Model" }, h("code", null, r.family)),
-          m.split ? h("td", { "data-l": "Window" }, SIDE[s] || s) : null,
-          h("td", { className: "app-num", "data-l": "n" }, num(side.sessions)),
-          metrics.map(function (k) { return h("td", { key: k, className: "app-num", "data-l": METRIC[k] || k }, cellText(side.cells[k])); })));
+      m.sides.forEach(function (s) {
+        var side = r.sides[s] || { cells: {} }, cells = { model: h("code", null, r.family), side: SIDE[s] || s, n: num(side.sessions) };
+        metrics.forEach(function (k) { cells[k] = cellText(side.cells[k]); });
+        rows.push({ key: r.family + s, cells: cells });
       });
       if (m.split) {
-        body.push(h("tr", { key: r.family + "change" },
-          h("td", { "data-l": "Model" }, h("code", null, r.family)), h("td", null, h("strong", null, "Change")), h("td", null, ""),
-          metrics.map(function (k) {
-            var c = r.change[k];
-            return h("td", { key: k, className: "app-num", "data-l": METRIC[k] || k },
-              c ? h(W.Badge, { tone: CHANGE_TONE[c.state] || "neutral" }, c.text) : "-");
-          })));
+        var change = { model: h("code", null, r.family), side: h("strong", null, "Change"), n: "" };
+        metrics.forEach(function (k) {
+          var c = r.change[k];
+          change[k] = c ? h(W.Badge, { tone: CHANGE_TONE[c.state] || "neutral" }, c.text) : "-";
+        });
+        rows.push({ key: r.family + "change", cells: change, unlabeled: ["side"] });
       }
     });
-    return h("div", { className: "app-tablewrap" }, h("table", { className: "app-table is-stack" }, h("thead", null, head), h("tbody", null, body)));
+    return h(W.Table, { caption: "Sessions by model family", columns: columns, rows: rows });
   }
+
 
   function measureLead(m) {
     var r = m.rows[0];
@@ -301,15 +298,12 @@
         (per.sessions ? " · " + num(per.sessions) + " sessions, " + String(per.first || "").slice(0, 10) + " ~ " + String(per.last || "").slice(0, 10) : "") +
         " · sorted by tokens loaded and not used, rows already set last"),
       h("div", { className: "app-row" },
-        h("div", { className: "app-tabs", role: "tablist" },
-          [["all", "All rows", t.rows.length], ["here", "This folder", here.length]].map(function (x) {
-            return h("button", { key: x[0], type: "button", role: "tab", "aria-selected": filter === x[0] ? "true" : "false",
-              className: cx("app-tab", filter === x[0] && "is-on"), onClick: function () { setFilter(x[0]); setLimit(15); } },
-              x[1], h("span", { className: "app-tab-n" }, x[2]));
-          })),
+        h(W.Tabs, { label: "Rows to show", panelId: "trim-rows", value: filter, onChange: function (id) { setFilter(id); setLimit(15); },
+          items: [{ id: "all", label: "All rows", count: t.rows.length }, { id: "here", label: "This folder", count: here.length }] }),
         h(W.Button, { className: "app-row-end", onClick: function () { p.onRun("walle trim --plan"); }, disabled: p.running }, "Make a new plan")),
-      rows.length ? h("ol", { className: "app-trim" }, rows.slice(0, limit).map(function (r) { return h(TrimRow, { key: r.id, row: r }); }))
-        : h("p", { className: "app-p app-muted" }, "No row of this plan names this folder."),
+      h("div", { id: "trim-rows", role: "tabpanel", "aria-labelledby": "trim-rows-" + filter },
+        rows.length ? h("ol", { className: "app-trim" }, rows.slice(0, limit).map(function (r) { return h(TrimRow, { key: r.id, row: r }); }))
+          : h("p", { className: "app-p app-muted" }, "No row of this plan names this folder.")),
       h(More, { total: rows.length, shown: limit, onClick: function () { setLimit(limit + 30); } }),
       t.notes.length ? h("p", { className: "app-src" }, t.notes.join(" ")) : null);
   }
@@ -319,13 +313,6 @@
   var PAIR_TONE = { gone: "leaf", still_loaded: "walle", "new": "walle", not_loaded: "neutral" };
 
   function usdText(x) { return x && x.usd != null ? "$" + Number(x.usd).toFixed(4) : null; }
-
-  function Tile(p) {
-    return h("div", { className: "app-tile" },
-      h("span", { className: "app-agent" }, p.k),
-      h("div", { className: "app-verdict" }, p.badge || null, h("span", { className: "app-big" }, p.value), p.tag || null),
-      p.sub ? h("p", { className: "app-src" }, p.sub) : null);
-  }
 
   function NextStep(p) {
     var n = p.next;
@@ -341,27 +328,27 @@
   function EffTiles(p) {
     var e = p.e, s = e.stack, f = e.first_call, t = e.trim, ss = e.session;
     var tiles = [];
-    tiles.push(s ? h(Tile, { key: "s", k: "Instruction files", badge: h(W.Badge, { tone: VERDICT_TONE[s.verdict] || "neutral" }, s.verdict_text),
-      value: s.tokens_text, sub: "est. tokens before the first prompt · budget " + num(s.budget) + " · " + plural(s.start_here_n, "Start here item") })
-      : h(Tile, { key: "s", k: "Instruction files", value: "-", sub: "No scan of this folder yet." }));
-    tiles.push(f && f.first_call ? h(Tile, { key: "f", k: "First call", value: num(f.first_call.median),
+    tiles.push(s ? h(W.StatTile, { key: "s", label: "Instruction files", badge: h(W.Badge, { tone: VERDICT_TONE[s.verdict] || "neutral" }, s.verdict_text),
+      value: s.tokens_text, note: "est. tokens before the first prompt · budget " + num(s.budget) + " · " + plural(s.start_here_n, "Start here item") })
+      : h(W.StatTile, { key: "s", label: "Instruction files", value: "-", note: "No scan of this folder yet." }));
+    tiles.push(f && f.first_call ? h(W.StatTile, { key: "f", label: "First call", value: num(f.first_call.median),
       tag: f.change ? h(W.Badge, { tone: CHANGE_TONE[f.change.state] || "neutral" }, f.change.state === "too_few" ? "too few" : f.change.text) : null,
-      sub: "tokens, median [" + num(f.first_call.p25) + "-" + num(f.first_call.p75) + "] of " + plural(f.sessions, "session") + " · " + f.family +
+      note: "tokens, median [" + num(f.first_call.p25) + "-" + num(f.first_call.p75) + "] of " + plural(f.sessions, "session") + " · " + f.family +
         (f.side === "after" && f.around ? " · since " + f.around : "") })
-      : h(Tile, { key: "f", k: "First call", value: "-", sub: "No measure run of this folder yet." }));
+      : h(W.StatTile, { key: "f", label: "First call", value: "-", note: "No measure run of this folder yet." }));
     var billed = f && f.billed && f.billed.median != null ? f.billed : null;
-    tiles.push(billed ? h(Tile, { key: "b", k: "Billed first call", value: num(billed.median),
-      sub: "input-equivalent tokens, median, cache reads and writes weighted by price" +
+    tiles.push(billed ? h(W.StatTile, { key: "b", label: "Billed first call", value: num(billed.median),
+      note: "input-equivalent tokens, median, cache reads and writes weighted by price" +
         (f.usd ? " · " + usdText(f.usd) + " at " + f.usd.model + " list prices of " + f.usd.prices_as_of : "") })
-      : ss && ss.billed ? h(Tile, { key: "b", k: "Billed first call", value: num(ss.billed.input_equiv),
-        sub: "input-equivalent tokens of the newest session" + (ss.here ? "" : " in " + ss.cwd + ", not this folder") +
+      : ss && ss.billed ? h(W.StatTile, { key: "b", label: "Billed first call", value: num(ss.billed.input_equiv),
+        note: "input-equivalent tokens of the newest session" + (ss.here ? "" : " in " + ss.cwd + ", not this folder") +
           (usdText(ss.billed) ? " · " + usdText(ss.billed) + " at " + ss.billed.priced_as + " list prices of " + ss.billed.prices_as_of : "") })
-      : h(Tile, { key: "b", k: "Billed first call", value: "-", sub: "No billed count yet: walle eve measures it for Claude Code sessions." }));
-    tiles.push(t ? h(Tile, { key: "t", k: "Trim", value: t.saving_text,
-      sub: "est. tokens over " + plural(t.sessions || 0, "session") + " in rows not yet set · " + num(t.to_apply) + " walle can apply, " +
+      : h(W.StatTile, { key: "b", label: "Billed first call", value: "-", note: "No billed count yet: walle eve measures it for Claude Code sessions." }));
+    tiles.push(t ? h(W.StatTile, { key: "t", label: "Trim", value: t.saving_text,
+      note: "est. tokens over " + plural(t.sessions || 0, "session") + " in rows not yet set · " + num(t.to_apply) + " walle can apply, " +
         num(t.manual) + " manual, " + num(t.patch) + " patches, " + num(t.already + t.applied_since) + " already set" })
-      : h(Tile, { key: "t", k: "Trim", value: "-", sub: "No trim plan yet." }));
-    return h("div", { className: "app-tiles" }, tiles);
+      : h(W.StatTile, { key: "t", label: "Trim", value: "-", note: "No trim plan yet." }));
+    return h(W.StatGrid, { label: "Key figures" }, tiles);
   }
 
   function AppliedCard(p) {
@@ -538,16 +525,15 @@
       h("h1", { className: "app-title" }, "Runs"),
       h("p", { className: "app-lead" }, rows.length ? plural(rows.length, "run") + ", " + num(here) + " of " + p.data.display + ". Newest first." : "No runs yet."),
       h("p", { className: "app-src" }, "From ", h("code", null, p.out + "/index.jsonl"), ". A marked row is a run of this folder."),
-      rows.length ? h("div", { className: "app-tablewrap" }, h("table", { className: "app-table is-stack" },
-        h("thead", null, h("tr", null, h("th", null, "Run"), h("th", null, "Kind"), h("th", null, "When"), h("th", null, "Label"), h("th", null, "What"))),
-        h("tbody", null, rows.slice(0, limit).map(function (r) {
-          return h("tr", { key: r.id, className: r.here ? "is-here" : null },
-            h("td", null, h("code", null, r.id)),
-            h("td", { "data-l": "Kind" }, h("span", { className: "app-kind" }, r.kind)),
-            h("td", { className: "app-when", "data-l": "When" }, r.generated),
-            h("td", { "data-l": "Label" }, r.label || h("span", { className: "app-muted" }, "-")),
-            h("td", null, r.what, r.roots.length ? h("div", { className: "app-src" }, r.roots.join(", ")) : null));
-        })))) : null,
+      rows.length ? h(W.Table, { caption: "Runs, newest first", markedLabel: "run of this folder",
+        columns: [{ key: "id", label: "Run", stackLabel: false }, { key: "kind", label: "Kind" }, { key: "when", label: "When", type: "time" },
+          { key: "label", label: "Label" }, { key: "what", label: "What", stackLabel: false }],
+        rows: rows.slice(0, limit).map(function (r) {
+          return { key: r.id, marked: r.here, cells: {
+            id: h("code", null, r.id), kind: h("span", { className: "app-kind" }, r.kind), when: r.generated,
+            label: r.label || h("span", { className: "app-muted" }, "-"),
+            what: h(React.Fragment, null, r.what, r.roots.length ? h("div", { className: "app-src" }, r.roots.join(", ")) : null) } };
+        }) }) : null,
       h(More, { total: rows.length, shown: limit, onClick: function () { setLimit(limit + 60); } }));
   }
 
