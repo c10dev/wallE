@@ -28,4 +28,8 @@ export declare function ContextPanel(props: ContextPanelProps): React.ReactEleme
 export type ScanStep = 'collect' | 'stack' | 'classify' | 'pairs' | 'triage';
 export interface ScanProgressProps { step?: ScanStep | number; done?: boolean; roots?: string[]; counts?: { files?: number; pairs?: number; items?: number }; elapsed?: number; onCancel?: () => void; children?: React.ReactNode }
 export declare function ScanProgress(props: ScanProgressProps): React.ReactElement;
-declare global { interface Window { WallE: { Button: typeof Button; Badge: typeof Badge; JudgeAnswer: typeof JudgeAnswer; CommandBar: typeof CommandBar; Sidebar: typeof Sidebar; EmptyState: typeof EmptyState; ContextPanel: typeof ContextPanel; ScanProgress: typeof ScanProgress } } }
+declare global { interface Window { WallE: { Button: typeof Button; Badge: typeof Badge; JudgeAnswer: typeof JudgeAnswer; CommandBar: typeof CommandBar; Sidebar: typeof Sidebar; EmptyState: typeof EmptyState; ContextPanel: typeof ContextPanel; ScanProgress: typeof ScanProgress; Snippet: typeof Snippet; CommandOutput: typeof CommandOutput } } }
+export interface SnippetProps { text: string; face?: 'sunk' | 'surface'; className?: string }
+export declare function Snippet(props: SnippetProps): React.ReactElement;
+export interface CommandOutputProps { command: string; running?: boolean; refused?: boolean; cancelled?: boolean; code?: number | null; cwd?: string; seconds?: number | null; error?: string; lines?: string[]; className?: string; onCancel?: () => void; onClose?: () => void }
+export declare function CommandOutput(props: CommandOutputProps): React.ReactElement;

@@ -1,4 +1,4 @@
-/* @ds-bundle: {"format":4,"namespace":"WallE","components":[{"name":"Button"},{"name":"Badge"},{"name":"JudgeAnswer"},{"name":"CommandBar"},{"name":"Sidebar"},{"name":"EmptyState"},{"name":"ContextPanel"},{"name":"ScanProgress"}]} */
+/* @ds-bundle: {"format":4,"namespace":"WallE","components":[{"name":"Button"},{"name":"Badge"},{"name":"JudgeAnswer"},{"name":"CommandBar"},{"name":"Sidebar"},{"name":"EmptyState"},{"name":"ContextPanel"},{"name":"ScanProgress"},{"name":"Snippet"},{"name":"CommandOutput"}]} */
 (function () {
   var React = window.React, h = React.createElement;
   function cx() { return Array.prototype.filter.call(arguments, Boolean).join(" "); }
@@ -360,5 +360,69 @@
         done && p.children ? p.children : null));
   }
 
-  window.WallE = Object.assign(window.WallE || {}, { Button: Button, Badge: Badge, JudgeAnswer: JudgeAnswer, CommandBar: CommandBar, Sidebar: Sidebar, EmptyState: EmptyState, ContextPanel: ContextPanel, ScanProgress: ScanProgress });
+  // Copy to the clipboard in a secure context. Else select the text, so the person can copy it with the keyboard.
+  // The message clears first and comes back a moment later, so a screen reader hears each press.
+  function useCopy(ref, text) {
+    var ms = React.useState(""), msg = ms[0], setMsg = ms[1], timers = React.useRef([]), live = React.useRef(true);
+    React.useEffect(function () {
+      live.current = true;
+      return function () { live.current = false; timers.current.forEach(clearTimeout); };
+    }, []);
+    function show(m, ms) {
+      if (!live.current) return;
+      timers.current.forEach(clearTimeout);
+      setMsg("");
+      timers.current = [setTimeout(function () { setMsg(m); }, 50), setTimeout(function () { setMsg(""); }, 50 + ms)];
+    }
+    function select() {
+      if (!live.current || !ref.current) return;
+      var r = document.createRange(); r.selectNodeContents(ref.current);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      show("Selected", 4000);
+    }
+    function copy() {
+      if (!(navigator.clipboard && window.isSecureContext)) return select();
+      navigator.clipboard.writeText(text).then(function () { show("Copied", 1500); }, select);
+    }
+    return [msg, copy];
+  }
+
+  function Snippet(p) {
+    var ref = React.useRef(null), c = useCopy(ref, p.text), msg = c[0];
+    return h("div", { className: cx("we-snippet", p.face === "surface" && "is-face-surface", p.className) },
+      h("code", { ref: ref, className: "we-snippet-text" }, p.text),
+      h(Button, { variant: "ghost", className: "we-btn-sm", onClick: c[1], "aria-label": "Copy " + p.text }, msg || "Copy"),
+      h("span", { className: "we-sr", role: "status" }, msg === "Selected" ? "Selected. Copy it with the keyboard." : msg));
+  }
+
+  function outState(p) {
+    if (p.refused) return ["walle", "Refused"];
+    if (p.running) return ["eve", "Running"];
+    if (p.code === 0) return ["leaf", "Exit 0"];
+    if (p.code != null) return ["walle", "Exit " + p.code];
+    return ["walle", p.cancelled ? "Cancelled" : "Error"];
+  }
+
+  function CommandOutput(p) {
+    var st = outState(p), text = (p.lines || []).join("\n");
+    // One live region, filled after mount: a panel that shows first with its final state is still announced.
+    var said = st[1] + (p.error ? ": " + p.error : "");
+    var ns = React.useState(""), news = ns[0], setNews = ns[1];
+    React.useEffect(function () { setNews(said); }, [said]);
+    var action = p.running ? (p.onCancel ? h(Button, { variant: "ghost", className: "we-btn-sm we-out-end", onClick: p.onCancel }, "Cancel") : null)
+      : (p.onClose ? h(Button, { variant: "ghost", className: "we-btn-sm we-out-end", onClick: p.onClose }, "Close") : null);
+    return h("section", { className: cx("we-out", p.className), "aria-label": "Command output" },
+      h("span", { className: "we-sr", role: "status" }, news),
+      h("div", { className: "we-out-head" },
+        h("span", { className: "we-out-k" }, "Output"),
+        h("code", { className: "we-out-cmd" }, p.command),
+        h(Badge, { tone: st[0] }, st[1]),
+        action),
+      !p.refused && p.cwd ? h("p", { className: "we-out-where" },
+        "In " + p.cwd + (p.seconds != null ? " · " + Number(p.seconds).toFixed(1) + " s" : "")) : null,
+      p.error ? h("p", { className: "we-out-err" }, p.error) : null,
+      text ? h("pre", { className: "we-out-text", tabIndex: 0, "aria-label": "Output of " + p.command }, text) : null);
+  }
+
+  window.WallE = Object.assign(window.WallE || {}, { Button: Button, Badge: Badge, JudgeAnswer: JudgeAnswer, CommandBar: CommandBar, Sidebar: Sidebar, EmptyState: EmptyState, ContextPanel: ContextPanel, ScanProgress: ScanProgress, Snippet: Snippet, CommandOutput: CommandOutput });
 })();

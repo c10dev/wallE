@@ -196,3 +196,17 @@ body { margin: 0; font-family: var(--font-sans); background: var(--surface); col
 .we-scan-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); width: 100%; min-height: 36px; }
 .we-scan-time { font: 400 12px/16px var(--font-sans); font-variant-numeric: tabular-nums; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .we-cube.is-now, .we-scan-steps .is-now .we-scan-dot { animation: none; } }
+
+.we-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.we-snippet { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.we-snippet-text { flex: 1; min-width: 0; font: 400 12px/20px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--fg); background: var(--sunk); border-radius: var(--radius-xs); padding: 2px var(--space-2); overflow-wrap: anywhere; }
+.we-snippet.is-face-surface .we-snippet-text { background: var(--surface); }
+.we-out { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.we-out-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.we-out-k { font: 700 11px/16px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+.we-out-cmd { font: 600 13px/20px var(--font-mono); overflow-wrap: anywhere; min-width: 0; }
+.we-out-end { margin-left: auto; }
+.we-out-where { margin: 0; font: 400 12px/16px var(--font-sans); color: var(--muted); overflow-wrap: anywhere; }
+.we-out-err { margin: 0; font: 400 13px/20px var(--font-sans); color: var(--rust); }
+.we-out-text { margin: 0; max-height: 360px; overflow: auto; padding: var(--space-3); background: var(--sunk); border-radius: var(--radius-sm); font: 400 12px/18px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.we-out-text:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

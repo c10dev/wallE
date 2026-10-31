@@ -78,22 +78,6 @@
   }
 
   // ------------------------------------------------------------------ small parts
-  function Copy(p) {
-    var st = useState(""), msg = st[0], setMsg = st[1], ref = useRef(null);
-    function copy() {
-      var done = function () { setMsg("Copied"); setTimeout(function () { setMsg(""); }, 1500); };
-      var select = function () {
-        var r = document.createRange(); r.selectNodeContents(ref.current);
-        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r); setMsg("Selected");
-      };
-      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(p.text).then(done, select);
-      else select();
-    }
-    return h("div", { className: "app-copy" },
-      h("code", { ref: ref }, p.text),
-      h(W.Button, { variant: "ghost", className: "we-btn-sm", onClick: copy, "aria-label": "Copy " + p.text }, msg || "Copy"));
-  }
-
   function More(p) {
     if (p.total <= p.shown) return null;
     return h("button", { type: "button", className: "app-more", onClick: p.onClick }, "Show " + num(p.total - p.shown) + " more");
@@ -119,7 +103,7 @@
         h("span", { className: "app-src" }, it.certainty_text + " · " + it.rule + (it.tokens_est ? " · " + kTokens(it.tokens_est) + " est. tokens" : ""))),
       it.text ? h("p", { className: "app-quote", title: it.text }, it.text) : null,
       it.reason ? h("p", { className: "app-reason" }, it.reason) : null,
-      h(Copy, { text: it.command }));
+      h(W.Snippet, { text: it.command, face: "surface" }));
   }
 
   function Group(p) {
@@ -287,7 +271,7 @@
         v.fix && v.fix !== "-" ? [h("span", { key: "k", className: "app-fix-k" }, "fix"), h("span", { key: "f" }, v.fix)] : null,
         v.why ? h("span", { className: "app-muted" }, v.why) : null) : null,
       r.risk ? h("p", { className: "app-src" }, "Risk " + (r.risk.level || "-") + ": " + (r.risk.why || "")) : null,
-      r.command ? h(Copy, { text: r.command }) : null,
+      r.command ? h(W.Snippet, { text: r.command }) : null,
       h("details", { className: "app-details" },
         h("summary", null, "Where, undo and check"),
         h("dl", null,
@@ -350,7 +334,7 @@
       n.run ? h("div", { className: "app-row" },
         h("code", { className: "app-src" }, n.command),
         h(W.Button, { variant: "primary", onClick: function () { p.onRun(n.command); }, disabled: p.running }, "Run"))
-        : h(React.Fragment, null, h(Copy, { text: n.command }),
+        : h(React.Fragment, null, h(W.Snippet, { text: n.command, face: "surface" }),
           h("p", { className: "app-src" }, "This command changes a settings file: run it in a terminal. walle keeps a backup, and walle undo puts it back.")));
   }
 
@@ -391,7 +375,7 @@
       h("ul", { className: "app-status" }, a.rows.map(function (r) {
         return h("li", { key: r.id }, h("code", null, r.id), " " + (r.title || r.what || "-"));
       })),
-      a.undo_command ? h(Copy, { text: a.undo_command }) : null,
+      a.undo_command ? h(W.Snippet, { text: a.undo_command }) : null,
       a.undo_status === "lost" ? h("p", { className: "app-src" }, "walle undo put the files back, then another program rewrote one. Check the file before you apply again.") : null,
       m ? h("div", { className: "app-measured" },
         h("p", { className: "app-src" }, "Measured by walle context --compare run ", h("code", null, m.id), " · " + m.generated +
@@ -464,7 +448,7 @@
         r.connector ? h(W.Badge, { tone: "neutral" }, desktop ? "Desktop sessions" : "Terminal, IDE, SDK") : null,
         h(W.Badge, { tone: a[1] }, r.who)),
       h("div", { className: "app-src" }, "est. tokens per session that loads it · " + plural(r.sessions, "session") + " loaded it and did not use it" + monthText(r)),
-      r.applies === "walle" && r.command ? h(Copy, { text: r.command }) : null,
+      r.applies === "walle" && r.command ? h(W.Snippet, { text: r.command }) : null,
       desktop ? h("div", { className: "app-row" },
         r.url ? h("a", { className: "app-more", href: r.url, target: "_blank", rel: "noopener noreferrer" }, "Open claude.ai connectors") : null,
         h("span", { className: "app-src" }, "Disconnecting takes it out of claude.ai on the web and phone too; no setting reaches desktop sessions.")) : null,
@@ -583,23 +567,6 @@
   }
 
   // ------------------------------------------------------------------ command output
-  function Output(p) {
-    var r = p.run;
-    var badge = r.refused ? h(W.Badge, { tone: "walle" }, "Refused") : r.running ? h(W.Badge, { tone: "eve" }, "Running")
-      : r.code === 0 ? h(W.Badge, { tone: "leaf" }, "Exit 0") : r.code != null ? h(W.Badge, { tone: "walle" }, "Exit " + r.code)
-      : h(W.Badge, { tone: "walle" }, r.cancelled ? "Cancelled" : "Error");
-    var text = r.lines.join("\n");
-    return h("section", { className: "app-card", "aria-live": "polite", "aria-label": "Command output" },
-      h("div", { className: "app-out-head" },
-        h("span", { className: "app-agent" }, "Output"), h("code", null, r.command), badge,
-        r.running ? h(W.Button, { variant: "ghost", className: "we-btn-sm app-row-end", onClick: p.onCancel }, "Cancel")
-          : h(W.Button, { variant: "ghost", className: "we-btn-sm app-row-end", onClick: p.onClose }, "Close")),
-      r.refused ? h("p", { className: "app-p app-err" }, r.error) : null,
-      !r.refused && r.cwd ? h("p", { className: "app-src" }, "In " + r.cwd + (r.seconds != null ? " · " + r.seconds.toFixed(1) + " s" : "")) : null,
-      !r.refused && r.error ? h("p", { className: "app-p app-err" }, r.error) : null,
-      text ? h("pre", { className: "app-pre" }, text) : null);
-  }
-
   // ------------------------------------------------------------------ app
   function App() {
     var hash = readHash();
@@ -742,7 +709,7 @@
                 h("code", null, "judge --dry-run"), "). apply, undo and keep stay in the terminal."),
               onRun: function (cmd) { start(cmd); }
             })),
-          showOutput ? h(Output, { run: run, onCancel: cancel, onClose: function () { setRun(Object.assign({}, run, { closed: true })); } }) : null,
+          showOutput ? h(W.CommandOutput, Object.assign({}, run, { onCancel: cancel, onClose: function () { setRun(Object.assign({}, run, { closed: true })); } })) : null,
           body)));
   }
 
