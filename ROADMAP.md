@@ -155,14 +155,20 @@ The corrected numbers reach CI and pull requests. walle itself still sends nothi
 
 In this order:
 
-- Stale references and MOVE patches: flag paths and commands in instruction files that no longer exist. Write a patch that moves a MOVE section to `.claude/rules/<name>.md` with `paths:`. No model call.
 - `walle ablate`, for rule blocks only: CLAUDE.md, `@import` files, MEMORY.md and `.claude/rules` blocks. Plugins and skills already have `claude plugin eval`.
   It runs the same prompt with and without one block at a fixed effort, then compares steps and pass/fail. This is the before/after check the vendor guides recommend.
+  It goes first because it is the fast check after a change. One run gives a result; `walle eve --around` waits for 10 sessions after the change.
   The first version exports a block as a `claude plugin eval` plugin or a Promptfoo config; a walle runner is the fallback. Runs stay in `~/.walle` with `--no-publish`, and their sessions carry the 0.5.0 mark.
   It waits for two decisions by the maintainer: the default model and the first repository to measure. It goes into the next minor release after both.
+- Stale references and MOVE patches: flag paths and commands in instruction files that no longer exist. Write a patch that moves a MOVE section to `.claude/rules/<name>.md` with `paths:`. No model call.
 - Codex rows in the trim plan (plugin and skill switches in `~/.codex/config.toml`), after a test that they act. They show tokens only: Codex is not priced.
 - The `name-only` skill state. It widens what `walle apply` may set, so it needs a decision first.
 - Conflict candidates without a shared key term, Korean verbs with a one-syllable stem, and negation in more languages. False-positive tests come first, because `.claude/rules` (0.4.0) adds pairs.
+- Reference stacks: `walle scan` shows the stack of a folder next to the stacks of a few public repositories of a similar size.
+  The package holds only numbers for each reference: tokens, rule count and items per cause. It holds no text from those files.
+  Each reference names its repository, its commit and its estimator. walle does not show a reference that a different estimator counted.
+- A fix form for cause 3: next to a vague-quality candidate, the report gives the form of a concrete rule, one symptom and one fix (`make it clean` -> `a function over 40 lines: split it`). The judge rubric asks for the same form.
+  First, a false-positive test: a quality document that names concrete patterns gives no cause-3 candidate.
 - In `walle app`: trend charts from `eve.json` (after 0.7.0) and click-through from a finding to the line. Local only.
 - Retries per Claude Code version, if 0.7.0 ships without them.
 - A walle mod panel (opt-in), in place of an MCP server.
@@ -192,9 +198,12 @@ Each of these breaks "walle sends nothing", the read-only promise, or the direct
 - Done: CI runs the unit tests on Python 3.11 and 3.13 for every push to main and every pull request (`.github/workflows/test.yml`).
 - Done: format checks on every session fixture (`tests/test_formats.py`). A new Claude Code or Codex version gets an anonymized fixture; a record kind no fixture had before, or a parser that finds no system prompt or zero tokens, fails the test.
 - 0.3.0 adds a release workflow (PyPI on `v*` tags) and a test that the version strings match.
+- walle passes its own check. A test keeps the descriptions of the `walle` skill and the `eve` subagent under a cap, because every session with the plugin loads them.
 
 ## Adoption
 
 - One-line install: pipx (PyPI `walle-cli`) and the plugin marketplace in 0.3.0; the Action in 0.8.0.
 - A public "instruction stack" badge from `walle check` (0.8.0): the verdict word and `~tokens/budget`.
+- README.md and README.ko.md start with one measured result: an image of the Efficiency page before and after a real apply, and one number from `walle context --compare`.
+  The number names its folder, its model family and n. Post it first in Korean developer channels, where README.ko.md fits.
 - Telemetry stays off. Reports stay on the user's machine. walle sends nothing; judging happens in the user's own agent.
